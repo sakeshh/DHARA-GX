@@ -18,18 +18,28 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
     _ = assessment
     dialect = (dialect or "tsql").lower()
     plan_id = str(plan.get("plan_id") or "unknown")
+    business_rules: Dict[str, Any] = plan.get("business_rules") or {}
+    excluded_columns: List[str] = business_rules.get("exclude_columns") or []
+
     lines: List[str] = [
         f"-- ETL SQL — Agent Dhara — plan_id={plan_id}",
         f"-- dialect={dialect} — review before executing against production.",
         "",
     ]
 
-    notes_raw = (plan.get("business_rules") or {}).get("notes") or ""
+    notes_raw = business_rules.get("notes") or ""
     notes = "\n".join(
         line for line in str(notes_raw).strip().splitlines() if line.strip()
     )
     if notes:
         lines.extend(["-- Business notes:", "-- " + notes.replace("\n", "\n-- "), ""])
+
+    # Emit excluded columns as an audit block so the user knows what was skipped
+    if excluded_columns:
+        lines.append(f"-- Excluded columns (business rule — no transforms generated for these):")
+        for col in excluded_columns:
+            lines.append(f"--   [{col}]")
+        lines.append("")
 
     manual = plan.get("manual_review") or []
     if manual:
@@ -64,6 +74,10 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                         f";WITH d AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY 1 ORDER BY (SELECT NULL)) AS rn FROM {tbl})"
                     )
                     lines.append(f"DELETE FROM d WHERE rn > 1;")
+                continue
+            # Skip if this column was excluded by business rules
+            if col in excluded_columns:
+                lines.append(f"-- [EXCLUDED] {tbl}.[{col}] — skipped by exclude_columns business rule")
                 continue
             c = _brk(str(col))
             if action == "trim":
