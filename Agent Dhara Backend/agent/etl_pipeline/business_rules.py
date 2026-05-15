@@ -46,8 +46,10 @@ def normalize_business_rules(raw: Any) -> Dict[str, Any]:
     if not isinstance(vv, dict):
         vv = {}
 
-    notes = raw.get("notes") or raw.get("business_notes") or ""
-    notes = str(notes).strip() if notes else ""
+    notes_raw = raw.get("notes") or raw.get("business_notes") or ""
+    notes = "\n".join(
+        line for line in str(notes_raw).strip().splitlines() if line.strip()
+    ) if notes_raw else ""
 
     return {
         "never_drop_rows": _bool(raw.get("never_drop_rows") or raw.get("neverDropRows"), False),

@@ -166,8 +166,9 @@ def build_etl_plan(
     global_steps: List[Dict[str, Any]] = []
 
     for key, st in step_map.items():
-        ds_name, _, _ = key
-        if ds_name in ("_global", "", None):
+        ds_name = key[0]
+        # Route to global if sentinel or empty string
+        if not ds_name or ds_name == "_global":
             global_steps.append(
                 {
                     "order": st["priority"],
@@ -185,7 +186,7 @@ def build_etl_plan(
         for i, st in enumerate(steps, start=1):
             st["order"] = i
 
-    global_steps.sort(key=lambda x: x["order"])
+    global_steps.sort(key=lambda x: x.get("order") or 0)
     for i, st in enumerate(global_steps, start=1):
         st["order"] = i
 
