@@ -19,16 +19,21 @@ def validate_python_source(source: str) -> Tuple[bool, List[str]]:
 
     # Disallow obvious risky constructs in generated ETL v1
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import) or isinstance(node, ast.ImportFrom):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
             for n in getattr(node, "names", []) or []:
                 mod = getattr(n, "name", "") or ""
                 low = mod.lower()
                 if low in ("os", "subprocess", "socket", "shutil") or low.startswith("ctypes"):
                     errors.append(f"disallowed import pattern: {mod}")
         if isinstance(node, ast.Call):
+            # Disallow os.system / subprocess.run / popen style calls
             if isinstance(node.func, ast.Attribute):
                 if node.func.attr in ("system", "popen", "run"):
-                    errors.append("disallowed call")
+                    errors.append(f"disallowed call: .{node.func.attr}")
+            # Disallow bare eval / exec calls
+            if isinstance(node.func, ast.Name):
+                if node.func.id in ("eval", "exec"):
+                    errors.append(f"disallowed call: {node.func.id}")
     if errors:
         return False, errors
     return True, []

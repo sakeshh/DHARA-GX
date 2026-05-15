@@ -23,22 +23,47 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
         f"-- dialect={dialect} — review before executing against production.",
         "",
     ]
-    notes = (plan.get("business_rules") or {}).get("notes") or ""
-    if notes:
-        lines.extend(["-- Business notes:", "-- " + str(notes).replace("\n", "\n-- "), ""])
 
-    for ds_name, block in (plan.get("datasets") or {}).items():
+    notes_raw = (plan.get("business_rules") or {}).get("notes") or ""
+    notes = "\n".join(
+        line for line in str(notes_raw).strip().splitlines() if line.strip()
+    )
+    if notes:
+        lines.extend(["-- Business notes:", "-- " + notes.replace("\n", "\n-- "), ""])
+
+    manual = plan.get("manual_review") or []
+    if manual:
+        lines.append(f"-- ⚠ {len(manual)} item(s) flagged for manual review before production run.")
+        for item in manual:
+            ds = item.get("dataset") or "?"
+            col = item.get("column") or "?"
+            msg = (item.get("message") or "")[:200]
+            lines.append(f"--   [{ds}] {col}: {msg}")
+        lines.append("")
+
+    ds_plan = plan.get("datasets") or {}
+    if not ds_plan:
+        lines.append("-- No datasets found in plan.")
+
+    for ds_name, block in ds_plan.items():
         tbl = _brk(ds_name)
         lines.append(f"-- === dataset: {ds_name} ===")
-        for st in sorted(block.get("steps") or [], key=lambda x: int(x.get("order") or 0)):
+        steps = sorted(block.get("steps") or [], key=lambda x: int(x.get("order") or 0))
+        if not steps:
+            lines.append(f"-- No auto-fixable steps for {ds_name}.")
+        for st in steps:
             col = st.get("column")
             action = str(st.get("action") or "")
+            note = st.get("note")
+            if note:
+                lines.append(f"-- Note: {note}")
             if not col:
                 if action == "deduplicate":
                     lines.append(f"-- Deduplicate {tbl} (example: use ROW_NUMBER in CTE; verify keys first)")
                     lines.append(
-                        f"-- ;WITH d AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY 1 ORDER BY (SELECT NULL)) AS rn FROM {tbl}) DELETE FROM d WHERE rn > 1"
+                        f";WITH d AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY 1 ORDER BY (SELECT NULL)) AS rn FROM {tbl})"
                     )
+                    lines.append(f"DELETE FROM d WHERE rn > 1;")
                 continue
             c = _brk(str(col))
             if action == "trim":
@@ -56,7 +81,7 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 if dialect == "tsql":
                     lines.append(f"UPDATE {tbl} SET {c} = TRY_CONVERT(date, {c}, 120) WHERE {c} IS NOT NULL;")
                 else:
-                    lines.append(f"-- Parse dates for {c}")
+                    lines.append(f"-- Parse dates for {c} (adjust to your engine's date parse function)")
             elif action == "sanitize_email":
                 lines.append(f"UPDATE {tbl} SET {c} = LOWER(LTRIM(RTRIM(CAST({c} AS NVARCHAR(MAX))))) WHERE {c} IS NOT NULL;")
                 lines.append(
@@ -70,6 +95,10 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                     f"UPDATE {tbl} SET {c} = REPLACE(REPLACE(REPLACE(REPLACE(CAST({c} AS NVARCHAR(200)), N'-', N''), N' ', N''), N'(', N''), N')', N'') "
                     f"WHERE {c} IS NOT NULL;"
                 )
+            elif action == "lowercase":
+                lines.append(f"UPDATE {tbl} SET {c} = LOWER(CAST({c} AS NVARCHAR(MAX))) WHERE {c} IS NOT NULL;")
+            elif action == "uppercase":
+                lines.append(f"UPDATE {tbl} SET {c} = UPPER(CAST({c} AS NVARCHAR(MAX))) WHERE {c} IS NOT NULL;")
             elif action == "deduplicate":
                 lines.append(f"-- Deduplicate {tbl} on {c} — add business key to PARTITION BY")
             else:

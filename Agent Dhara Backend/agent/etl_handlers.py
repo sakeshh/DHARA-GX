@@ -109,7 +109,7 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
     ctx = _ctx(sess)
-    assess = _get_assessment(sess, None)
+    assess = _get_assessment(sess, None) or {}
     flow = ctx.get("etl_flow") or {}
     plan = flow.get("approved_plan")
     if not isinstance(plan, dict) or not plan.get("datasets"):
@@ -121,8 +121,14 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
     os.makedirs(out_dir, exist_ok=True)
     pid = _safe_segment(str(plan.get("plan_id") or "plan"))
 
+    ok: bool = False
+    errs: list = []
+    code: str = ""
+    ext: str = "python"
+    fname: str = f"etl_{pid}.py"
+
     if eng == "python":
-        code = generate_python_etl(plan, assess or {})
+        code = generate_python_etl(plan, assess)
         ok, errs = validate_python_source(code)
         fname = f"etl_{pid}.py"
         ext = "python"
@@ -135,14 +141,14 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
             dialect = "ansi"
         elif eng == "tsql":
             dialect = "tsql"
-        code = generate_sql_etl(plan, assess or {}, dialect=dialect)
+        code = generate_sql_etl(plan, assess, dialect=dialect)
         ok, errs = validate_sql_basic(code)
         fname = f"etl_{pid}.sql"
         ext = "sql"
     elif eng in ("spark", "pyspark"):
         from agent.etl_pipeline.pyspark_codegen import generate_pyspark_etl
 
-        code = generate_pyspark_etl(plan, assess or {})
+        code = generate_pyspark_etl(plan, assess)
         ok, errs = validate_python_source(code)
         fname = f"etl_{pid}_spark.py"
         ext = "pyspark"
@@ -150,7 +156,7 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
         from agent.etl_pipeline.adf_codegen import generate_adf_mapping_flow
         from agent.etl_pipeline.validate_adf import validate_adf_json
 
-        obj = generate_adf_mapping_flow(plan, assess or {})
+        obj = generate_adf_mapping_flow(plan, assess)
         code = json.dumps(obj, indent=2)
         ok, errs = validate_adf_json(obj)
         fname = f"etl_{pid}.adf.json"
@@ -168,7 +174,7 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
     flow["code"] = code
     flow["target_engine"] = eng
     flow["validation_ok"] = ok
-    flow["validation_errors"] = errs
+    flow["validation_errors"] = errs if errs else []
     flow["artifact_rel_path"] = rel
     save_session(sess)
 
@@ -179,6 +185,6 @@ def etl_generate_code(session_id: str, engine: str = "python", sql_dialect: str 
         "format": ext,
         "code": code,
         "validation_ok": ok,
-        "validation_errors": errs,
+        "validation_errors": errs if errs else [],
         "artifact_rel_path": rel,
     }
