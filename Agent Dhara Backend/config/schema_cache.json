@@ -1,0 +1,9 @@
+{
+    "dbo.Orders_Raw": {
+        "OrderID": "int64",
+        "CustomerID": "int64",
+        "OrderDate": "str",
+        "OrderAmount": "str",
+        "OrderStatus": "str"
+    }
+}
