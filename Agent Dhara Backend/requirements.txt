@@ -49,9 +49,6 @@ ydata-profiling>=4.0.0
 # Docs: https://github.com/fbdesignpro/sweetviz
 sweetviz>=2.3.0
 
-# Great Expectations — data quality validation
-great_expectations>=0.17.0
-
 # ─────────────────────────────────────────────────────────────────────────
 
 # Optional: Azure SQL via pythonnet (install pythonnet + .NET SDK separately on your OS)
