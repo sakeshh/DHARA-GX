@@ -9,9 +9,8 @@ import pythonnet
 
 # Force .NET Framework runtime if possible (fixes ModuleNotFoundError: No module named 'System.Data')
 try:
-    if not pythonnet.get_runtime():
-        rt = clr_loader.get_netfx()
-        pythonnet.set_runtime(rt)
+    rt = clr_loader.get_netfx()
+    pythonnet.set_runtime(rt)
 except Exception:
     pass
 

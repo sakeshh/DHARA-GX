@@ -49,8 +49,19 @@ ydata-profiling>=4.0.0
 # Docs: https://github.com/fbdesignpro/sweetviz
 sweetviz>=2.3.0
 
-# Great Expectations — data quality validation
-great_expectations>=0.17.0
+# Great Expectations — data quality validation (removed as per plan)
+
+# Phone number validation (Google's libphonenumber — gold standard)
+phonenumbers>=8.13.0
+
+# Near-duplicate detection via token-level fuzzy matching
+rapidfuzz>=3.0.0
+
+# Multi-format date parsing (already in stdlib-ish, but explicit)
+python-dateutil>=2.8.2
+
+# Machine learning for multivariate outlier detection (Isolation Forest)
+scikit-learn>=1.0.0
 
 # ─────────────────────────────────────────────────────────────────────────
 

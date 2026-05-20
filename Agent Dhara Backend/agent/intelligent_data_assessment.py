@@ -123,6 +123,11 @@ def _strip(x: Any) -> Any:
     return x.strip() if isinstance(x, str) else x
 
 
+def _is_text_dtype(dtype) -> bool:
+    ds = str(dtype).lower()
+    return "object" in ds or "string" in ds or "str" in ds or "category" in ds
+
+
 def scalar_type_distribution(series: pd.Series, max_sample: int = 2000) -> Dict[str, Any]:
     """
     Summarize Python scalar types present in a column.
@@ -171,23 +176,172 @@ def scalar_type_distribution(series: pd.Series, max_sample: int = 2000) -> Dict[
     return {"counts": counts, "pct": pct, "sample_size": int(total)}
 
 
-def detect_semantic_type(values: pd.Series) -> str:
+def detect_semantic_type(values: pd.Series, col_name: str = "") -> str:
     """
-    Lightweight semantic type detector using a small sample.
-    Returns: "date" | "email" | "numeric_id" | "free_text" | "categorical" | "unknown"
+    Detect semantic type from values + column name.
+    Returns one of:
+    date | email | uuid | url | ip_address | boolean_like |
+    numeric_id | phone | free_text | categorical | unknown
     """
-    sample = values.dropna().astype(str).head(100)
+    col_lower = col_name.lower() if col_name else ""
+    # Column-name hint (fastest — no value scan needed)
+    if any(hint in col_lower for hint in _PHONE_NAME_HINTS):
+        return "phone"
+
+    sample = values.dropna().astype(str).head(200) # Increased from 100 to 200
     if sample.empty:
         return "unknown"
-    if sample.str.match(r"^\d{4}-\d{2}-\d{2}$").any():
-        return "date"
-    if sample.str.contains("@").any():
+
+    total = len(sample)
+
+    # UUID — check before numeric_id (UUIDs contain digits)
+    if (sample.str.match(_UUID_RE).sum() / total) >= 0.7:
+        return "uuid"
+
+    # IP address
+    if (sample.str.match(_IP4_RE).sum() / total) >= 0.6:
+        return "ip_address"
+
+    # URL
+    if (sample.str.match(_URL_RE).sum() / total) >= 0.5:
+        return "url"
+
+    # Email
+    if sample.str.contains("@", na=False).sum() / total >= 0.5:
         return "email"
-    if sample.str.fullmatch(r"\d+").all():
+
+    # Boolean-like
+    if (sample.str.strip().str.lower().isin(_BOOL_VALS).sum() / total) >= 0.8:
+        return "boolean_like"
+
+    # Date (ISO-8601 first, then broader)
+    if sample.str.match(r'^\d{4}-\d{2}-\d{2}').sum() / total >= 0.5:
+        return "date"
+
+    # Broader date detection using dateutil
+    try:
+        from dateutil import parser as du_parser
+        parsed_ok = 0
+        is_date_hint = any(h in col_lower for h in ["date", "time", "dt", "created", "updated", "at"])
+        for v in sample.head(30):
+            # If it's a simple numeric value, don't parse as date unless column name hints date or len is 8 (YYYYMMDD)
+            val_strip = v.strip()
+            if val_strip.replace(".", "", 1).isdigit():
+                val_clean = val_strip.split(".")[0]
+                if not (is_date_hint or len(val_clean) == 8):
+                    continue
+            try:
+                du_parser.parse(v, fuzzy=False)
+                parsed_ok += 1
+            except Exception:
+                pass
+        if parsed_ok / min(30, total) >= 0.7:
+            return "date"
+    except ImportError:
+        pass
+
+    # Numeric ID
+    if sample.str.fullmatch(r'\d+').sum() / total >= 0.9:
         return "numeric_id"
-    if sample.str.len().mean() > 50:
+
+    # Free text vs categorical: use mean length
+    mean_len = sample.str.len().mean()
+    if mean_len > 50:
         return "free_text"
+
     return "categorical"
+
+
+def _validate_phone_phonenumbers(val: str, default_region: str = "IN") -> bool:
+    """
+    Validate phone using Google's libphonenumber.
+    Falls back to regex if library not available.
+    default_region: ISO 3166-1 alpha-2 (e.g. "IN", "US", "GB").
+    Used when number has no + prefix.
+    """
+    try:
+        import phonenumbers
+        # Try parsing with + prefix (international) first
+        try:
+            pn = phonenumbers.parse(val, None)
+        except Exception:
+            # Try with default region fallback
+            try:
+                pn = phonenumbers.parse(val, default_region)
+            except Exception:
+                return False
+        return phonenumbers.is_valid_number(pn)
+    except ImportError:
+        # Graceful fallback to existing regex
+        return bool(PHONE_RE.match(val))
+
+
+def _detect_phone_formats(series: pd.Series) -> Dict[str, int]:
+    """
+    Categorize phone values into format buckets.
+    Returns counts per format type.
+    """
+    try:
+        import phonenumbers
+        buckets = {"e164": 0, "national": 0, "invalid": 0, "empty": 0}
+        for val in series.dropna().astype(str).head(500):
+            v = val.strip()
+            if not v:
+                buckets["empty"] += 1
+                continue
+            try:
+                pn = phonenumbers.parse(v, "IN")
+                fmt = phonenumbers.format_number(pn, phonenumbers.PhoneNumberFormat.E164)
+                if v == fmt:
+                    buckets["e164"] += 1
+                else:
+                    buckets["national"] += 1
+            except Exception:
+                buckets["invalid"] += 1
+        return buckets
+    except ImportError:
+        return {}
+
+
+def _detect_date_formats(series: pd.Series) -> Dict[str, Any]:
+    """
+    Analyzes date patterns using regex-based buckets to flag inconsistencies.
+    """
+    formats = {
+        "YYYY-MM-DD": r"^\d{4}-\d{2}-\d{2}$",
+        "MM/DD/YYYY": r"^\d{1,2}/\d{1,2}/\d{4}$",
+        "DD-MM-YYYY": r"^\d{2}-\d{2}-\d{4}$",
+        "YYYY/MM/DD": r"^\d{4}/\d{2}/\d{2}$",
+        "other/timestamp": r".+"
+    }
+    counts = {k: 0 for k in formats}
+    unparsed_cnt = 0
+    total_non_null = 0
+    
+    # We run dateutil parser to confirm it is actually parseable as date
+    from dateutil import parser as du_parser
+    for val in series.dropna().astype(str).head(1000):
+        v = val.strip()
+        if not v: continue
+        total_non_null += 1
+        try:
+            du_parser.parse(v, fuzzy=False)
+            matched = False
+            for fmt_name, regex in formats.items():
+                if fmt_name != "other/timestamp" and re.match(regex, v):
+                    counts[fmt_name] += 1
+                    matched = True
+                    break
+            if not matched:
+                counts["other/timestamp"] += 1
+        except Exception:
+            unparsed_cnt += 1
+            
+    return {
+        "counts": counts,
+        "unparsed_count": unparsed_cnt,
+        "total_non_null": total_non_null
+    }
 
 
 def _dtype_inference_for_object(series: pd.Series) -> Optional[str]:
@@ -301,11 +455,11 @@ def profile_dataframe(df: pd.DataFrame, job_id: Optional[str] = None) -> Dict[st
     def profile_col(col: str) -> Tuple[str, Dict[str, Any]]:
         s = df[col]
         dtype_str = str(s.dtype)
-        semantic = detect_semantic_type(s)
-        hint = _dtype_inference_for_object(s) if dtype_str == "object" else None
+        semantic = detect_semantic_type(s, col)
+        hint = _dtype_inference_for_object(s) if _is_text_dtype(dtype_str) else None
         if semantic == "numeric_id" and hint == "datetime_like":
             hint = "numeric_like"
-        type_dist = scalar_type_distribution(s) if dtype_str == "object" else None
+        type_dist = scalar_type_distribution(s) if _is_text_dtype(dtype_str) else None
 
         col_profile = {
             "dtype": dtype_str,
@@ -657,7 +811,7 @@ def _classify_cardinality(m1: int, m2: int) -> Tuple[str, str]:
         return ("one_to_many", f"Table A has at most one row per key; table B has up to {m2} rows per key (1:N from A to B).")
     if m2 <= 1 < m1:
         return ("many_to_one", f"Table B has at most one row per key; table A has up to {m1} rows per key (N:1 from A to B).")
-    return ("many_to_many", f"Keys repeat on both sides (up to {m1} vs {m2} rows per key) — M:N or bridge-style.")
+    return ("many_to_many", f"Keys repeat on both sides (up to {m1} vs {m2} rows per key) - M:N or bridge-style.")
 
 
 MAX_REL_ROW_INDEXES = 200
@@ -812,12 +966,12 @@ def analyze_cross_dataset_relationships(
                         "datasets": [n1, n2],
                         "columns": [c1, c2],
                         "message": (
-                            f"{n1}.{c1} ↔ {n2}.{c2}: keys repeat on both sides "
+                            f"{n1}.{c1} <-> {n2}.{c2}: keys repeat on both sides "
                             f"(max {m1} rows per key in {n1}, max {m2} in {n2})."
                         ),
                         "recommendation": (
-                            "If you expected a parent–child (1:N) model, deduplicate keys on the 'one' side "
-                            "or fix source extraction. If M:N is correct (e.g. orders–products), model it with "
+                            "If you expected a parent-child (1:N) model, deduplicate keys on the 'one' side "
+                            "or fix source extraction. If M:N is correct (e.g. orders-products), model it with "
                             "a junction table and FK constraints."
                         ),
                     })
@@ -996,7 +1150,7 @@ def build_executive_summary_items(
 ) -> List[Dict[str, Any]]:
     """
     Business-first summary: rank the most impactful signals into a small list.
-    Uses a lightweight scoring model (severity × datasets affected).
+    Uses a lightweight scoring model (severity * datasets affected).
     """
     thresholds = thresholds or {}
     cfg = thresholds.get("executive_summary") or {}
@@ -1050,10 +1204,61 @@ def build_executive_summary_items(
 
 PLACEHOLDERS = {
     "", " ", "-", "--", "---", "n/a", "na", "none", "null", "nil",
-    "unknown", "not available", "missing"
+    "unknown", "not available", "missing", "undefined", "not applicable",
+    "tbd", "tba", "n.a.", "n.a", "#n/a", "#null!", "#value!", "#ref!",
+    "#div/0!", "error", "nan", "inf", "-inf", "0000-00-00", "1900-01-01",
+    "9999-12-31", "00", "000", "0000", "?", "??", "???", "!",
+    "temp", "test", "dummy", "placeholder", "na.", "na,", "not set",
+    "unknown unknown", "n.d.", "nd", "not known",
 }
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 PHONE_RE = re.compile(r"^[+()\-\.\s0-9]{7,}$")
+URL_RE = re.compile(
+    r"^(https?://|ftp://|www\.)[^\s/$.?#][^\s]*$",
+    re.IGNORECASE,
+)
+INVALID_URL_RE = re.compile(
+    r"^(https?://|ftp://|www\.).*",
+    re.IGNORECASE,
+)
+HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]*>|</[a-zA-Z]+>")
+UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$")
+LEADING_ZERO_RE = re.compile(r"^0[0-9]+$")
+MULTI_SPACE_RE = re.compile(r"  +")  # two or more consecutive spaces
+
+_UUID_RE = re.compile(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+_URL_RE = re.compile(r'^https?://', re.IGNORECASE)
+_IP4_RE = re.compile(r'^\d{1,3}(?:\.\d{1,3}){3}$')
+_IP6_RE = re.compile(r'^[0-9a-fA-F:]{7,39}$')
+_BOOL_VALS = frozenset({"true","false","yes","no","y","n","1","0","t","f","on","off"})
+_PHONE_NAME_HINTS = frozenset({
+    "phone","mobile","contact","tel","cell","fax",
+    "whatsapp","landline","ph_no","phno","phone_no",
+    "telephone","phn","mob","cellphone","handphone"
+})
+SENTINEL_NUMBERS = {
+    -999, -9999, -99999, -999999, -9999999,
+    999, 9999, 99999, 999999, 9999999,
+    -1, -99, -100, -1000,
+    0.0, -0.0,
+    1111, 1234, 12345, 123456, 1234567,
+    9876, 98765, 9876543,
+    11111, 22222, 33333, 44444, 55555, 66666, 77777, 88888,
+}
+BOOL_VARIANTS: Dict[str, set] = {
+    "true_false": {"true", "false"},
+    "yes_no": {"yes", "no"},
+    "y_n": {"y", "n"},
+    "1_0": {"1", "0"},
+    "on_off": {"on", "off"},
+    "active_inactive": {"active", "inactive"},
+    "enabled_disabled": {"enabled", "disabled"},
+}
 
 _DEFAULT_REC = (
     "Review with domain owners; document the expected rule; add validation at ingest or in the warehouse."
@@ -1103,6 +1308,35 @@ DQ_ISSUE_RECOMMENDATIONS: Dict[str, str] = {
     "custom_range": "Clip to bounds or reject; align with business limits.",
     "custom_regex": "Fix format at source or apply regex replace in staging.",
     "custom_not_null": "Backfill from upstream or drop incomplete rows per policy.",
+    # --- NEW CHECKS ---
+    "invalid_url": "Validate URL format at entry; normalize with urllib.parse; reject structurally invalid URLs.",
+    "html_tags_in_text": "Strip HTML/XML tags with BeautifulSoup or regex before storing in a plain-text column.",
+    "punctuation_only_value": "Replace symbol-only strings with NULL; investigate upstream export bugs.",
+    "sentinel_numeric_value": "Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source.",
+    "boolean_inconsistency": "Standardize to a single boolean representation (True/False or 1/0) across the pipeline.",
+    "internal_whitespace": "Collapse consecutive spaces with REGEXP_REPLACE or str.strip in ETL.",
+    "non_ascii_characters": "Normalize to UTF-8; strip or transliterate unexpected non-ASCII if column is meant to be ASCII.",
+    "invalid_uuid": "Enforce UUID v4 format at source; regenerate malformed UUIDs.",
+    "leading_zeros_on_numeric_id": "Store leading-zero IDs as VARCHAR/TEXT to prevent data loss on integer cast.",
+    "numeric_outliers_zscore": "Investigate extreme z-score outliers (>4 std devs); likely data entry errors, test records, or fraud signals.",
+    "round_number_anomaly": "Suspiciously round numbers may indicate estimates or placeholders; validate exact source values.",
+    "date_clumping_jan1": "Dates clustering on Jan 1 often indicate default/dummy dates; replace with actual dates or NULL.",
+    "date_clumping_month_end": "Dates clustering on month-end may indicate estimated or rolled-up dates; verify with source.",
+    "all_caps_values": "Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.",
+    "string_length_outlier": "Strings significantly longer than the column average may contain concatenated data or free-text errors.",
+    "numeric_precision_anomaly": "Mixing integers with high-precision floats suggests inconsistent data capture; standardize precision.",
+    "impossible_date": "Dates like 2000-02-30 or 2001-13-01 are structurally invalid; fix upstream date parsing.",
+    "weekend_date_anomaly": "Business transactions on weekends may be legitimate or may indicate date errors; verify with domain.",
+    "duplicate_insensitive_values": "Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization.",
+    "low_variance_numeric": "Near-constant numeric column may indicate fill/default behavior rather than real data.",
+    "high_null_ratio_in_key_column": "Key or ID columns with high null rates cannot reliably join; backfill or reject at ingest.",
+    "mixed_date_formats": "Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors.",
+    "implausible_age": "Age values outside the range 0-150 are likely data entry errors; validate at source.",
+    "implausible_percentage": "Percentage values outside 0-100 are structurally invalid; add range constraint at ingest.",
+    "timezone_inconsistency": "Datetime values mixing timezone-aware and timezone-naive records cause comparison errors.",
+    "string_with_only_digits_in_text_column": "Text columns containing only digits may indicate a schema mismatch or misrouted data.",
+    "repeated_token_in_string": "Values with repeated words/tokens (e.g. 'test test') often indicate data entry errors.",
+    "near_duplicate_rows": "Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge.",
 }
 
 
@@ -1123,8 +1357,14 @@ FIXABILITY_BY_ISSUE_TYPE: Dict[str, str] = {
     "integer_stored_as_float": "FIXABLE",
     "control_characters_in_text": "FIXABLE",
     "nested_structure": "FIXABLE",
+    "internal_whitespace": "FIXABLE",
+    "non_ascii_characters": "FIXABLE",
+    "html_tags_in_text": "FIXABLE",
+    "boolean_inconsistency": "FIXABLE",
+    "all_caps_values": "FIXABLE",
+    "duplicate_insensitive_values": "FIXABLE",
+    "id_type_drift_across_datasets": "FIXABLE",
     # complex / requires domain decision
-    # invalid emails can't be deterministically corrected (only quarantine/drop)
     "invalid_email": "NOT_FIXABLE",
     "invalid_phone": "COMPLEX",
     "mixed_phone_formats": "COMPLEX",
@@ -1133,16 +1373,37 @@ FIXABILITY_BY_ISSUE_TYPE: Dict[str, str] = {
     "negative_values": "COMPLEX",
     "out_of_range": "COMPLEX",
     "numeric_outliers_iqr": "COMPLEX",
+    "numeric_outliers_zscore": "COMPLEX",
     "dominant_value_skew": "COMPLEX",
     "name_format_inconsistency": "COMPLEX",
     "systematic_placeholder": "COMPLEX",
+    "sentinel_numeric_value": "COMPLEX",
+    "punctuation_only_value": "COMPLEX",
+    "round_number_anomaly": "COMPLEX",
+    "date_clumping_jan1": "COMPLEX",
+    "date_clumping_month_end": "COMPLEX",
+    "invalid_url": "COMPLEX",
+    "leading_zeros_on_numeric_id": "COMPLEX",
+    "string_length_outlier": "COMPLEX",
+    "numeric_precision_anomaly": "COMPLEX",
+    "impossible_date": "COMPLEX",
+    "weekend_date_anomaly": "COMPLEX",
+    "mixed_date_formats": "COMPLEX",
+    "implausible_age": "COMPLEX",
+    "implausible_percentage": "COMPLEX",
+    "string_with_only_digits_in_text_column": "COMPLEX",
+    "repeated_token_in_string": "COMPLEX",
+    "near_duplicate_rows": "COMPLEX",
+    "low_variance_numeric": "COMPLEX",
+    "timezone_inconsistency": "COMPLEX",
     # cannot be auto-repaired without authoritative source
     "duplicate_primary_key": "NOT_FIXABLE",
     "duplicate_rows": "COMPLEX",
-    # orphan keys generally require upstream reference data; cannot be deterministically "fixed" in-place
     "orphan_foreign_key_rows": "NOT_FIXABLE",
     "orphan_foreign_key": "NOT_FIXABLE",
-    "id_type_drift_across_datasets": "FIXABLE",
+    "invalid_uuid": "NOT_FIXABLE",
+    "impossible_date": "NOT_FIXABLE",
+    "high_null_ratio_in_key_column": "NOT_FIXABLE",
     "duplicate_representation_candidate": "COMPLEX",
 }
 
@@ -1236,7 +1497,7 @@ def analyze_column(
 
     # mixed scalar types (common in JSON IDs: alternating "0", 1, "2"...)
     try:
-        if str(s.dtype) == "object" and n > 0:
+        if _is_text_dtype(s.dtype) and n > 0:
             td = scalar_type_distribution(s)
             pct = (td.get("pct") or {})
             has_str = float(pct.get("str", 0.0)) >= 0.05
@@ -1246,7 +1507,7 @@ def analyze_column(
                 issues.append(dq_issue(
                     sev_str,
                     "mixed_scalar_types",
-                    f"Mixed scalar types (str≈{round(100*pct.get('str',0.0),1)}%, num≈{round(100*(pct.get('int',0.0)+pct.get('float',0.0)),1)}%)",
+                    f"Mixed scalar types (str~{round(100*pct.get('str',0.0),1)}%, num~{round(100*(pct.get('int',0.0)+pct.get('float',0.0)),1)}%)",
                     column=col,
                     sample=[td.get("counts", {})],
                 ))
@@ -1265,65 +1526,70 @@ def analyze_column(
                                    column=col, count=bad_cnt, rows=rows, sample=list(s[bad_email_mask].head(5))))
 
     # phone
-    if is_phone_col:
+    if semantic == "phone": # Now triggers on name OR detected type
+        # 1. Validity check using phonenumbers
         bad_phone_mask = s_stripped.astype(object).map(
-            lambda v: isinstance(v, str) and not PHONE_RE.match(v)
+            lambda v: isinstance(v, str) and not _validate_phone_phonenumbers(v)
         ) & (~null_like_mask)
         bad_cnt = int(bad_phone_mask.sum())
         if bad_cnt > 0:
             rows = s.index[bad_phone_mask].tolist()
-            issues.append(dq_issue("medium", "invalid_phone", f"{bad_cnt} invalid phone(s)",
-                                   column=col, count=bad_cnt, rows=rows, sample=list(s[bad_phone_mask].head(5))))
+            issues.append(dq_issue("medium", "invalid_phone",
+                                   f"{bad_cnt} invalid phone number(s) (failed libphonenumber validation)",
+                                   column=col, count=bad_cnt, rows=rows,
+                                   sample=list(s[bad_phone_mask].head(5))))
 
-        # Mixed phone formats (e.g., "+91-..." vs digits-only); exclude junk/short from this
-        # to avoid double-counting with invalid_phone.
-        try:
-            def _digits(v: Any) -> str:
-                return re.sub(r"\D+", "", v) if isinstance(v, str) else ""
-
-            non_null = s_stripped[~null_like_mask]
-            e164ish = non_null.astype(object).map(lambda v: isinstance(v, str) and v.strip().startswith("+") and 10 <= len(_digits(v)) <= 15)
-            digits_only = non_null.astype(object).map(lambda v: isinstance(v, str) and v.strip().isdigit() and 10 <= len(v.strip()) <= 15)
-            short_or_junk = non_null.astype(object).map(lambda v: isinstance(v, str) and 0 < len(_digits(v)) < 10)
-            buckets = {
-                "e164ish": int(e164ish.sum()),
-                "digits_only_valid_len": int(digits_only.sum()),
-                "short_or_junk": int(short_or_junk.sum()),
-            }
-            nonzero_valid = [k for k in ("e164ish", "digits_only_valid_len") if buckets.get(k, 0) > 0]
-            if len(nonzero_valid) >= 2:
-                samples = []
-                for k in nonzero_valid:
-                    mask = {"e164ish": e164ish, "digits_only_valid_len": digits_only, "short_or_junk": short_or_junk}[k]
-                    samples.append({k: list(non_null[mask].head(3))})
-                issues.append(dq_issue(
-                    "medium",
-                    "mixed_phone_formats",
-                    f"Multiple phone formats detected among valid-length values: {', '.join([f'{k}={buckets[k]}' for k in nonzero_valid])}. Junk/short={buckets.get('short_or_junk',0)}.",
-                    column=col,
-                    count=sum(buckets[k] for k in nonzero_valid),
-                    sample=samples,
-                ))
-        except Exception:
-            pass
+        # 2. Mixed format detection
+        fmt_buckets = _detect_phone_formats(s[~null_like_mask])
+        nonzero_fmts = {k: v for k, v in fmt_buckets.items() if v > 0 and k not in ("empty", "invalid")}
+        if len(nonzero_fmts) >= 2:
+            issues.append(dq_issue("medium", "mixed_phone_formats",
+                                   f"Multiple phone formats: {nonzero_fmts}. Standardize to E.164 in ETL.",
+                                   column=col, count=sum(nonzero_fmts.values()),
+                                   sample=[nonzero_fmts]))
 
     # date
     if semantic == "date":
-        parsed = pd.to_datetime(s_stripped, errors="coerce")
-        bad_mask = parsed.isna() & (~null_like_mask)
-        bad_cnt = int(bad_mask.sum())
+        # 1. Broad parse via dateutil
+        res = _detect_date_formats(s_stripped)
+        bad_cnt = res["unparsed_count"]
+        
+        # Locate row indexes of unparsed dates
+        from dateutil import parser as du_parser
+        bad_rows = []
+        for idx, v in s_stripped.items():
+            if null_like_mask.loc[idx]:
+                continue
+            if pd.isna(v) or not isinstance(v, str) or not v.strip():
+                continue
+            try:
+                du_parser.parse(v.strip(), fuzzy=False)
+            except Exception:
+                bad_rows.append(idx)
+                
         if bad_cnt > 0:
-            rows = s.index[bad_mask].tolist()
             sev_str = "medium" if bad_cnt / max(n, 1) <= invalid_date_pct_high else "high"
-            issues.append(dq_issue(sev_str, "invalid_date_format", f"{bad_cnt} bad date(s)",
-                                   column=col, count=bad_cnt, rows=rows, sample=list(s[bad_mask].head(5))))
+            issues.append(dq_issue(sev_str, "invalid_date_format",
+                                   f"{bad_cnt} bad date(s) (failed dateutil parsing)",
+                                   column=col, count=bad_cnt, rows=bad_rows[:50],
+                                   sample=list(s.loc[bad_rows[:5]])))
 
-    # numeric-like validations
-    if (not is_phone_col) and ((semantic in ("numeric_id",)) or (str(s.dtype) != "object") or (
-        (str(s.dtype) == "object") and (
+        # 2. Date format inconsistency
+        counts = res["counts"]
+        nonzero_fmts = {k: v for k, v in counts.items() if v > 0 and k != "other/timestamp"}
+        if len(nonzero_fmts) >= 2:
+            issues.append(dq_issue("medium", "date_format_inconsistency",
+                                   f"Mixed date formats in same column: {nonzero_fmts}. Standardize to ISO-8601.",
+                                   column=col, count=sum(nonzero_fmts.values()),
+                                   sample=[nonzero_fmts]))
+
+    if (not is_phone_col) and (semantic not in ("date", "email")) and (
+        (semantic in ("numeric_id",)) or
+        (not _is_text_dtype(s.dtype)) or
+        (_is_text_dtype(s.dtype) and (
             (1.0 - pd.to_numeric(s_stripped, errors="coerce").isna().mean()) > 0.2
-        )
-    )):
+        ))
+    ):
         num = pd.to_numeric(s_stripped, errors="coerce")
         invalid_mask = num.isna() & (~null_like_mask)
         invalid_cnt = int(invalid_mask.sum())
@@ -1431,7 +1697,296 @@ def analyze_column(
                                f"{struct_cnt} nested list/dict values", column=col,
                                count=struct_cnt, rows=rows, sample=list(s[struct_mask].head(5))))
 
+    # ----------------------------------------------------------------
+    # STRING-SPECIFIC EXTENDED CHECKS
+    # ----------------------------------------------------------------
+    str_mask = s.astype(object).map(lambda v: isinstance(v, str))
+    str_series = s[str_mask].astype(str)
+    stripped_str = str_series.str.strip()
+    non_empty_str = stripped_str[stripped_str != ""]
+
+    # Empty string values (distinct from null)
+    try:
+        empty_str_mask = str_series.str.strip() == ""
+        esc = int(empty_str_mask.sum())
+        if esc > 0:
+            rows = empty_str_mask[empty_str_mask].index.tolist()
+            issues.append(dq_issue("low", "empty_string_values",
+                                   f"{esc} empty string value(s) (use NULL instead)",
+                                   column=col, count=esc, rows=rows))
+    except Exception:
+        pass
+
+    # Internal (multi) whitespace
+    try:
+        if len(non_empty_str) > 0:
+            mws_mask = non_empty_str.str.contains(r"  +", regex=True, na=False)
+            mws_cnt = int(mws_mask.sum())
+            if mws_cnt > 0:
+                rows = non_empty_str.index[mws_mask].tolist()
+                issues.append(dq_issue("low", "internal_whitespace",
+                                       f"{mws_cnt} value(s) with multiple consecutive spaces",
+                                       column=col, count=mws_cnt, rows=rows,
+                                       sample=list(non_empty_str[mws_mask].head(5))))
+    except Exception:
+        pass
+
+    # Non-ASCII characters (only flag if column name suggests ASCII content)
+    try:
+        col_lower = str(col).lower()
+        ascii_hinted = any(k in col_lower for k in (
+            "name", "code", "id", "status", "type", "category", "label", "tag", "flag", "key"
+        ))
+        if ascii_hinted and len(non_empty_str) > 0:
+            non_ascii_mask = non_empty_str.str.contains(r"[^\x00-\x7F]", regex=True, na=False)
+            na_cnt = int(non_ascii_mask.sum())
+            if na_cnt > 0:
+                rows = non_empty_str.index[non_ascii_mask].tolist()
+                issues.append(dq_issue("low", "non_ascii_characters",
+                                       f"{na_cnt} value(s) containing non-ASCII characters",
+                                       column=col, count=na_cnt, rows=rows,
+                                       sample=list(non_empty_str[non_ascii_mask].head(5))))
+    except Exception:
+        pass
+
+    # HTML / XML tags in text
+    try:
+        if len(non_empty_str) > 0:
+            html_mask = non_empty_str.str.contains(r"<[a-zA-Z][^>]*>|</[a-zA-Z]+>", regex=True, na=False)
+            html_cnt = int(html_mask.sum())
+            if html_cnt > 0:
+                rows = non_empty_str.index[html_mask].tolist()
+                issues.append(dq_issue("medium", "html_tags_in_text",
+                                       f"{html_cnt} value(s) containing HTML/XML tags",
+                                       column=col, count=html_cnt, rows=rows,
+                                       sample=list(non_empty_str[html_mask].head(5))))
+    except Exception:
+        pass
+
+    # Punctuation-only strings
+    try:
+        if len(non_empty_str) > 0:
+            punc_mask = non_empty_str.str.match(r"^[\W_]+$", na=False)
+            punc_cnt = int(punc_mask.sum())
+            if punc_cnt > 0:
+                rows = non_empty_str.index[punc_mask].tolist()
+                issues.append(dq_issue("low", "punctuation_only_value",
+                                       f"{punc_cnt} value(s) consisting only of punctuation/symbols",
+                                       column=col, count=punc_cnt, rows=rows,
+                                       sample=list(non_empty_str[punc_mask].head(5))))
+    except Exception:
+        pass
+
+    # URL column: invalid URL format
+    try:
+        col_lower = str(col).lower()
+        is_url_col = any(k in col_lower for k in ("url", "link", "href", "uri", "website", "webpage"))
+        if is_url_col and len(non_empty_str) > 0:
+            url_like = non_empty_str.str.contains(r"^(https?://|ftp://|www\.)", regex=True, na=False)
+            url_valid = non_empty_str.str.match(
+                r"^(https?://|ftp://|www\.)[^\s/$.?#][^\s]*$", na=False
+            )
+            bad_url_mask = url_like & ~url_valid
+            bad_cnt = int(bad_url_mask.sum())
+            if bad_cnt > 0:
+                rows = non_empty_str.index[bad_url_mask].tolist()
+                issues.append(dq_issue("medium", "invalid_url",
+                                       f"{bad_cnt} structurally invalid URL(s)",
+                                       column=col, count=bad_cnt, rows=rows,
+                                       sample=list(non_empty_str[bad_url_mask].head(5))))
+    except Exception:
+        pass
+
+    # UUID column: invalid UUID format
+    try:
+        col_lower = str(col).lower()
+        is_uuid_col = any(k in col_lower for k in ("uuid", "guid", "uid"))
+        if is_uuid_col and len(non_empty_str) > 0:
+            uuid_valid = non_empty_str.str.match(
+                r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                na=False,
+            )
+            invalid_uuid_cnt = int((~uuid_valid).sum())
+            if invalid_uuid_cnt > 0:
+                rows = non_empty_str.index[~uuid_valid].tolist()
+                issues.append(dq_issue("high", "invalid_uuid",
+                                       f"{invalid_uuid_cnt} value(s) do not match UUID format",
+                                       column=col, count=invalid_uuid_cnt, rows=rows,
+                                       sample=list(non_empty_str[~uuid_valid].head(5))))
+    except Exception:
+        pass
+
+    # Leading zeros on numeric-ID-like columns
+    try:
+        col_lower = str(col).lower()
+        if "id" in col_lower and len(non_empty_str) > 0:
+            lz_mask = non_empty_str.str.match(r"^0[0-9]+$", na=False)
+            lz_cnt = int(lz_mask.sum())
+            if lz_cnt > 0:
+                rows = non_empty_str.index[lz_mask].tolist()
+                issues.append(dq_issue("medium", "leading_zeros_on_numeric_id",
+                                       f"{lz_cnt} ID value(s) with leading zeros (risk of data loss on int cast)",
+                                       column=col, count=lz_cnt, rows=rows,
+                                       sample=list(non_empty_str[lz_mask].head(5))))
+    except Exception:
+        pass
+
+    # Boolean inconsistency: column mixes multiple boolean-like vocabularies
+    try:
+        if len(non_empty_str) > 0 and safe_nunique(s) <= 10:
+            vals_lower = set(non_empty_str.str.strip().str.lower().dropna().unique())
+            matched_groups = [
+                name for name, vocab in BOOL_VARIANTS.items()
+                if len(vals_lower & vocab) >= 2 or (len(vals_lower & vocab) >= 1 and len(vals_lower) > len(vocab))
+            ]
+            if len(matched_groups) >= 2:
+                issues.append(dq_issue(
+                    "medium", "boolean_inconsistency",
+                    f"Column mixes multiple boolean vocabularies: {matched_groups} (values: {sorted(list(vals_lower))[:10]})",
+                    column=col, count=len(non_empty_str),
+                    sample=sorted(list(vals_lower))[:10],
+                ))
+    except Exception:
+        pass
+
+    # All-caps values mixed with non-caps (inconsistent casing in categorical)
+    try:
+        col_lower_name = str(col).lower()
+        is_text_like = any(k in col_lower_name for k in ("name", "title", "label", "desc", "comment", "remark", "status", "type"))
+        if is_text_like and len(non_empty_str) > 5:
+            all_caps = non_empty_str.str.isupper()
+            all_caps_cnt = int(all_caps.sum())
+            not_all_caps_cnt = int((~all_caps).sum())
+            if all_caps_cnt > 0 and not_all_caps_cnt > 0 and all_caps_cnt < len(non_empty_str) * 0.9:
+                issues.append(dq_issue(
+                    "low", "all_caps_values",
+                    f"{all_caps_cnt} ALL-CAPS value(s) mixed with {not_all_caps_cnt} mixed/lower-case",
+                    column=col, count=all_caps_cnt,
+                    rows=non_empty_str.index[all_caps].tolist()[:50],
+                    sample=list(non_empty_str[all_caps].head(5)),
+                ))
+    except Exception:
+        pass
+
+    # String-only-digits in a text column (possible schema mismatch)
+    try:
+        col_lower_name = str(col).lower()
+        is_text_col = any(k in col_lower_name for k in ("name", "desc", "comment", "note", "title", "remark", "address", "city"))
+        if is_text_col and len(non_empty_str) > 0:
+            digits_only_mask = non_empty_str.str.match(r"^\d+$", na=False)
+            d_cnt = int(digits_only_mask.sum())
+            if d_cnt > 0 and d_cnt / max(len(non_empty_str), 1) > 0.05:
+                rows = non_empty_str.index[digits_only_mask].tolist()
+                issues.append(dq_issue("low", "string_with_only_digits_in_text_column",
+                                       f"{d_cnt} value(s) in text column contain only digits",
+                                       column=col, count=d_cnt, rows=rows,
+                                       sample=list(non_empty_str[digits_only_mask].head(5))))
+    except Exception:
+        pass
+
+    # Repeated tokens in string values (e.g. "test test", "abc abc")
+    try:
+        if len(non_empty_str) > 0:
+            def _has_repeated_token(v: str) -> bool:
+                parts = v.strip().split()
+                return len(parts) >= 2 and len(set(p.lower() for p in parts)) < len(parts) * 0.6
+            rpt_mask = non_empty_str.map(_has_repeated_token)
+            rpt_cnt = int(rpt_mask.sum())
+            if rpt_cnt > 0 and rpt_cnt / max(len(non_empty_str), 1) > 0.03:
+                rows = non_empty_str.index[rpt_mask].tolist()
+                issues.append(dq_issue("low", "repeated_token_in_string",
+                                       f"{rpt_cnt} value(s) with repeated word tokens (possible data entry error)",
+                                       column=col, count=rpt_cnt, rows=rows,
+                                       sample=list(non_empty_str[rpt_mask].head(5))))
+    except Exception:
+        pass
+
+    # High null ratio in key/ID columns
+    try:
+        col_lower_name = str(col).lower()
+        is_key_col = any(k in col_lower_name for k in ("_id", "id", "key", "code", "ref", "pk"))
+        null_ratio = float(s.isna().mean())
+        if is_key_col and null_ratio > 0.05:
+            issues.append(dq_issue(
+                "high" if null_ratio > 0.20 else "medium",
+                "high_null_ratio_in_key_column",
+                f"Key/ID column has {round(null_ratio*100, 1)}% null values (unreliable for joins)",
+                column=col, count=int(s.isna().sum()),
+                rows=s.index[s.isna()].tolist()[:50],
+            ))
+    except Exception:
+        pass
+
+    # Implausible age values
+    try:
+        col_lower_name = str(col).lower()
+        if "age" in col_lower_name:
+            num_age = pd.to_numeric(s_stripped, errors="coerce")
+            age_bad = num_age.notna() & ((num_age < 0) | (num_age > 150))
+            age_cnt = int(age_bad.sum())
+            if age_cnt > 0:
+                rows = s.index[age_bad].tolist()
+                issues.append(dq_issue("high", "implausible_age",
+                                       f"{age_cnt} age value(s) outside range 0-150",
+                                       column=col, count=age_cnt, rows=rows,
+                                       sample=list(s[age_bad].head(5))))
+    except Exception:
+        pass
+
+    # Implausible percentage values
+    try:
+        col_lower_name = str(col).lower()
+        if any(k in col_lower_name for k in ("percent", "pct", "rate", "ratio", "share")):
+            num_pct = pd.to_numeric(s_stripped, errors="coerce")
+            pct_bad = num_pct.notna() & ((num_pct < 0) | (num_pct > 100))
+            pct_cnt = int(pct_bad.sum())
+            if pct_cnt > 0:
+                rows = s.index[pct_bad].tolist()
+                issues.append(dq_issue("medium", "implausible_percentage",
+                                       f"{pct_cnt} value(s) outside expected 0-100% range",
+                                       column=col, count=pct_cnt, rows=rows,
+                                       sample=list(s[pct_bad].head(5))))
+    except Exception:
+        pass
+
+    # Sentinel numeric values (-999, 9999999, etc.)
+    try:
+        if (not _is_text_dtype(s.dtype)) or (semantic in ("numeric_id",)):
+            num_chk = pd.to_numeric(s_stripped, errors="coerce").dropna()
+            if len(num_chk) > 0:
+                sentinel_mask = num_chk.apply(lambda v: float(v) in SENTINEL_NUMBERS)
+                sent_cnt = int(sentinel_mask.sum())
+                if sent_cnt > 0 and sent_cnt / max(len(num_chk), 1) > 0.01:
+                    rows = num_chk.index[sentinel_mask].tolist()
+                    issues.append(dq_issue("medium", "sentinel_numeric_value",
+                                           f"{sent_cnt} sentinel/magic number(s) detected (e.g. -999, 9999999)",
+                                           column=col, count=sent_cnt, rows=rows,
+                                           sample=list(num_chk[sentinel_mask].head(5))))
+    except Exception:
+        pass
+
+    # Mixed date formats (e.g. YYYY-MM-DD mixed with DD/MM/YYYY)
+    try:
+        if semantic == "date" and len(non_empty_str) >= 10:
+            fmt_iso = non_empty_str.str.match(r"^\d{4}-\d{2}-\d{2}", na=False)
+            fmt_us = non_empty_str.str.match(r"^\d{1,2}/\d{1,2}/\d{2,4}", na=False)
+            fmt_eu = non_empty_str.str.match(r"^\d{1,2}\.\d{1,2}\.\d{2,4}", na=False)
+            active_fmts = [(c, v) for c, v in [("ISO(YYYY-MM-DD)", int(fmt_iso.sum())),
+                                                ("US(MM/DD/YYYY)", int(fmt_us.sum())),
+                                                ("EU(DD.MM.YYYY)", int(fmt_eu.sum()))]
+                           if v > 0]
+            if len(active_fmts) >= 2:
+                detail = ", ".join(f"{n}={c}" for n, c in active_fmts)
+                issues.append(dq_issue("medium", "mixed_date_formats",
+                                       f"Multiple date formats detected: {detail}",
+                                       column=col, count=sum(c for _, c in active_fmts),
+                                       sample=[n for n, _ in active_fmts]))
+    except Exception:
+        pass
+
     return issues
+
+
 
 
 # Known start/end column pairs for cross-column date logic (lowercase keys).
@@ -1445,6 +2000,11 @@ _DATE_RANGE_PAIRS = (
     ("effective_from", "effective_to"),
     ("period_start", "period_end"),
     ("open_date", "close_date"),
+    ("order_date", "ship_date"),
+    ("order_date", "delivery_date"),
+    ("ship_date", "delivery_date"),
+    ("created_at", "updated_at"),
+    ("birth_date", "death_date"),
 )
 
 
@@ -1509,8 +2069,12 @@ def run_extended_dq_checks(
         if col not in df.columns:
             return []
         s = df[col]
+        col_lower = str(col).lower()
         meta = cols_meta.get(col, {})
-        semantic = (meta.get("semantic_type") or "unknown").lower()
+        semantic = detect_semantic_type(df[col], col_name=col)
+        meta_semantic = (meta.get("semantic_type") or "unknown").lower()
+        if semantic == "unknown":
+            semantic = meta_semantic
         null_pct = float(meta.get("null_percentage") or 0)
         uq = int(meta.get("unique_count") or 0)
         non_null = int(s.notna().sum())
@@ -1572,7 +2136,7 @@ def run_extended_dq_checks(
         # User wants full report, no sampling here unless requested via max_rows
         s_eff = s
         
-        s_str = s_eff.astype(str).str.strip() if str(s_eff.dtype) == "object" else s_eff
+        s_str = s_eff.astype(str).str.strip() if _is_text_dtype(s_eff.dtype) else s_eff
         num = pd.to_numeric(s_str, errors="coerce")
         parse_ok = int(num.notna().sum())
         if parse_ok >= max(10, int(0.85 * non_null)):
@@ -1588,7 +2152,7 @@ def run_extended_dq_checks(
                 if oc > 0 and (oc / max(n, 1)) >= outlier_frac:
                     col_issues.append(dq_issue(
                         "medium", "numeric_outliers_iqr",
-                        f"{oc} row(s) outside 1.5×IQR [{lo:.6g}, {hi:.6g}]",
+                        f"{oc} row(s) outside 1.5*IQR [{lo:.6g}, {hi:.6g}]",
                         column=col, count=oc,
                         rows=df.index[out_mask].tolist()[:50],
                         sample=list(num[out_mask].head(5)),
@@ -1599,7 +2163,7 @@ def run_extended_dq_checks(
                     if abs(sk) >= skew_th:
                         col_issues.append(dq_issue(
                             "low", "skewed_distribution",
-                            f"Skewness ≈ {round(sk, 2)} (heavy tail on one side)",
+                            f"Skewness ~ {round(sk, 2)} (heavy tail on one side)",
                             column=col,
                         ))
                 except Exception:
@@ -1616,7 +2180,7 @@ def run_extended_dq_checks(
         # Dates: future / ancient / span
         parsed = pd.to_datetime(s_str, errors="coerce")
         date_ok = int(parsed.notna().sum())
-        if semantic == "date" or date_ok >= max(5, int(0.45 * non_null)):
+        if (semantic == "date" or "datetime" in str(s.dtype).lower() or (any(h in col_lower for h in ["date", "time", "dt", "created", "updated"]) and "id" not in col_lower)) and date_ok >= max(5, int(0.45 * non_null)):
             valid = parsed.dropna()
             if len(valid) > 0:
                 now = pd.Timestamp.now(tz=None).normalize()
@@ -1640,7 +2204,7 @@ def run_extended_dq_checks(
                         rows=df.index[ancient].tolist()[:30],
                     ))
         # String-specific checks: length, casing, control chars
-        if str(s.dtype) == "object" or semantic in ("email", "free_text", "categorical"):
+        if _is_text_dtype(s.dtype) or semantic in ("email", "free_text", "categorical"):
             try:
                 sub = s.dropna()
                 if len(sub) > max_heavy:
@@ -1651,7 +2215,7 @@ def run_extended_dq_checks(
                 if lens.max() >= extreme_len:
                     col_issues.append(dq_issue(
                         "medium", "extremely_long_strings",
-                        f"Max length {int(lens.max())} chars (≥{extreme_len})",
+                        f"Max length {int(lens.max())} chars (>={extreme_len})",
                         column=col,
                     ))
                 
@@ -1683,6 +2247,29 @@ def run_extended_dq_checks(
                     ))
             except Exception:
                 pass
+        # UUID uniqueness check
+        if semantic == "uuid":
+            dup_uuids = df[col].dropna()[df[col].dropna().duplicated()]
+            if len(dup_uuids) > 0:
+                col_issues.append(dq_issue("high", "duplicate_uuid",
+                    f"{len(dup_uuids)} duplicate UUID(s) - UUIDs must be globally unique",
+                    column=col, count=len(dup_uuids),
+                    rows=df.index[df[col].duplicated(keep=False) & df[col].notna()].tolist()[:50],
+                    sample=list(dup_uuids.head(5))))
+
+        # Boolean-like: detect ambiguous mixed representation (True/1/yes all present)
+        if semantic == "boolean_like":
+            vals = df[col].dropna().astype(str).str.strip().str.lower().value_counts()
+            bool_groups = {
+                "true_variants": [v for v in vals.index if v in {"true","yes","y","1","t"}],
+                "false_variants": [v for v in vals.index if v in {"false","no","n","0","f"}]
+            }
+            total_variants = len(bool_groups["true_variants"]) + len(bool_groups["false_variants"])
+            if total_variants >= 3: # e.g. True, 1, yes all present
+                col_issues.append(dq_issue("medium", "ambiguous_boolean",
+                    f"Multiple representations of boolean: {dict(vals.head(6).to_dict())}",
+                    column=col, count=int(non_null),
+                    sample=list(vals.index[:6])))
 
         return col_issues
 
@@ -1696,20 +2283,365 @@ def run_extended_dq_checks(
     cmap = {str(c).lower(): c for c in df.columns}
     for a, b in _DATE_RANGE_PAIRS:
         ca, cb = cmap.get(a), cmap.get(b)
-        if not ca or not cb: continue
-        d1 = pd.to_datetime(df[ca], errors="coerce")
-        d2 = pd.to_datetime(df[cb], errors="coerce")
+        if not ca or not cb:
+            continue
+        # Robust date parsing via dateutil.parser instead of strict pandas to_datetime
+        from dateutil import parser as du_parser
+        
+        def _robust_date_parse(val: Any):
+            if pd.isna(val) or not isinstance(val, str) or not val.strip():
+                return None
+            try:
+                return du_parser.parse(val.strip(), fuzzy=False)
+            except Exception:
+                return None
+
+        # Parse columns element-wise
+        d1 = df[ca].map(_robust_date_parse)
+        d2 = df[cb].map(_robust_date_parse)
+        
         bad = d2.notna() & d1.notna() & (d2 < d1)
         bc = int(bad.sum())
         if bc > 0:
-            issues.append(dq_issue(
-                "high", "date_range_violation",
-                f"{bc} row(s): {cb!r} before {ca!r}",
-                count=bc, rows=df.index[bad].tolist()[:50],
-                sample=[f"{d1[i]} → {d2[i]}" for i in list(df.index[bad])[:5]],
-            ))
+            issues.append(dq_issue("high", "date_range_violation",
+                                   f"{bc} row(s): {cb!r} is before {ca!r} (detected via robust dateutil parser)",
+                                   count=bc, rows=df.index[bad].tolist()[:50],
+                                   sample=df.loc[bad, [ca, cb]].head(5).to_dict(orient="records")))
+
+    # ----------------------------------------------------------------
+    # DATASET-LEVEL EXTENDED CHECKS
+    # ----------------------------------------------------------------
+
+    for col in df.columns:
+        try:
+            s = df[col]
+            non_null = int(s.notna().sum())
+            if non_null < 10:
+                continue
+            s_str = s.astype(str).str.strip() if _is_text_dtype(s.dtype) else s
+            num = pd.to_numeric(s_str, errors="coerce")
+            parse_ok = int(num.notna().sum())
+            meta = cols_meta.get(col, {})
+            semantic = (meta.get("semantic_type") or "unknown").lower()
+
+            # Z-Score outliers (> 4 std deviations)
+            if parse_ok >= max(10, int(0.85 * non_null)):
+                v = num.dropna()
+                if len(v) >= 10:
+                    try:
+                        mean_v = float(v.mean())
+                        std_v = float(v.std())
+                        if std_v > 0:
+                            z_scores = (v - mean_v) / std_v
+                            z_out_mask = num.notna() & ((num - mean_v).abs() / std_v > 4.0)
+                            zoc = int(z_out_mask.sum())
+                            if zoc > 0 and (zoc / max(n, 1)) >= outlier_frac:
+                                issues.append(dq_issue(
+                                    "medium", "numeric_outliers_zscore",
+                                    f"{zoc} row(s) with |z-score| > 4 (extreme statistical outliers)",
+                                    column=col, count=zoc,
+                                    rows=df.index[z_out_mask].tolist()[:50],
+                                    sample=list(num[z_out_mask].head(5)),
+                                ))
+                    except Exception:
+                        pass
+
+            # Round number anomaly: >30% of values are multiples of 1000 (or 100 for smaller values)
+            if parse_ok >= max(10, int(0.85 * non_null)):
+                v = num.dropna()
+                if len(v) >= 20:
+                    try:
+                        max_abs = float(v.abs().max())
+                        divisor = 1000.0 if max_abs >= 10000 else 100.0 if max_abs >= 1000 else 10.0
+                        round_mask = (v % divisor == 0) & (v != 0)
+                        round_pct = float(round_mask.mean())
+                        if round_pct > 0.50:
+                            issues.append(dq_issue(
+                                "low", "round_number_anomaly",
+                                f"{round(round_pct*100, 1)}% of values are multiples of {int(divisor)} - may indicate estimates",
+                                column=col, count=int(round_mask.sum()),
+                                sample=list(v[round_mask].head(5)),
+                            ))
+                    except Exception:
+                        pass
+
+            # Low-variance numeric: coefficient of variation < 1%
+            if parse_ok >= max(10, int(0.85 * non_null)):
+                v = num.dropna()
+                if len(v) >= 10:
+                    try:
+                        mean_v = float(v.mean())
+                        std_v = float(v.std())
+                        if mean_v != 0 and std_v / abs(mean_v) < 0.01:
+                            issues.append(dq_issue(
+                                "low", "low_variance_numeric",
+                                f"Very low coefficient of variation ({round(100*std_v/abs(mean_v), 3)}%) - near-constant column",
+                                column=col,
+                            ))
+                    except Exception:
+                        pass
+
+            # Numeric precision anomaly: mix of integers and high-precision floats
+            if parse_ok >= max(10, int(0.85 * non_null)) and str(s.dtype).startswith("float"):
+                v = num.dropna()
+                if len(v) >= 10:
+                    try:
+                        is_int_like = np.isclose(v.to_numpy(), np.round(v.to_numpy()), rtol=0, atol=1e-9)
+                        int_like_pct = float(is_int_like.mean())
+                        if 0.1 < int_like_pct < 0.9:
+                            issues.append(dq_issue(
+                                "low", "numeric_precision_anomaly",
+                                f"{round(int_like_pct*100, 1)}% of float values are whole numbers - mixed precision data",
+                                column=col, count=int(is_int_like.sum()),
+                            ))
+                    except Exception:
+                        pass
+
+            # Date: Jan-1 clumping
+            parsed_dates = pd.to_datetime(s_str, errors="coerce")
+            date_ok_cnt = int(parsed_dates.notna().sum())
+            if (semantic == "date" or "datetime" in str(s.dtype).lower()) and date_ok_cnt >= max(5, int(0.45 * non_null)):
+                valid_dates = parsed_dates.dropna()
+                try:
+                    jan1_mask = parsed_dates.notna() & (parsed_dates.dt.month == 1) & (parsed_dates.dt.day == 1)
+                    jan1_cnt = int(jan1_mask.sum())
+                    jan1_pct = jan1_cnt / max(date_ok_cnt, 1)
+                    if jan1_pct > 0.20 and jan1_cnt > 3:
+                        issues.append(dq_issue(
+                            "medium", "date_clumping_jan1",
+                            f"{jan1_cnt} date(s) ({round(jan1_pct*100, 1)}%) fall on Jan 1 - possible default/dummy date",
+                            column=col, count=jan1_cnt,
+                            rows=df.index[jan1_mask].tolist()[:50],
+                            sample=[v.isoformat() if hasattr(v, "isoformat") else v
+                                    for v in parsed_dates[jan1_mask].head(3).tolist()],
+                        ))
+                except Exception:
+                    pass
+
+                # Month-end date clumping
+                try:
+                    import calendar
+                    month_end_mask = parsed_dates.notna() & parsed_dates.apply(
+                        lambda d: d is not pd.NaT and d.day == calendar.monthrange(d.year, d.month)[1]
+                        if pd.notna(d) else False
+                    )
+                    me_cnt = int(month_end_mask.sum())
+                    me_pct = me_cnt / max(date_ok_cnt, 1)
+                    if me_pct > 0.30 and me_cnt > 5:
+                        issues.append(dq_issue(
+                            "low", "date_clumping_month_end",
+                            f"{me_cnt} date(s) ({round(me_pct*100, 1)}%) fall on month-end - possible rolled-up dates",
+                            column=col, count=me_cnt,
+                            rows=df.index[month_end_mask].tolist()[:50],
+                        ))
+                except Exception:
+                    pass
+
+                # Weekend date anomaly (for business-context columns)
+                try:
+                    col_lower_name = str(col).lower()
+                    is_biz_col = any(k in col_lower_name for k in (
+                        "order", "invoice", "transaction", "payment", "shipment", "delivery", "process"
+                    ))
+                    if is_biz_col:
+                        weekend_mask = parsed_dates.notna() & (parsed_dates.dt.dayofweek >= 5)
+                        wkd_cnt = int(weekend_mask.sum())
+                        wkd_pct = wkd_cnt / max(date_ok_cnt, 1)
+                        if wkd_pct > 0.20 and wkd_cnt > 5:
+                            issues.append(dq_issue(
+                                "low", "weekend_date_anomaly",
+                                f"{wkd_cnt} date(s) ({round(wkd_pct*100, 1)}%) fall on weekend for a business-context column",
+                                column=col, count=wkd_cnt,
+                                rows=df.index[weekend_mask].tolist()[:50],
+                            ))
+                except Exception:
+                    pass
+
+            # String length outliers (> mean + 4*std for string columns)
+            if _is_text_dtype(s.dtype) or semantic in ("email", "free_text", "categorical"):
+                try:
+                    sub = s.dropna().astype(str)
+                    if len(sub) >= 10:
+                        lens = sub.str.len()
+                        mean_l = float(lens.mean())
+                        std_l = float(lens.std())
+                        if std_l > 0:
+                            long_mask = lens > mean_l + 4 * std_l
+                            long_cnt = int(long_mask.sum())
+                            if long_cnt > 0 and (long_cnt / max(n, 1)) >= 0.005:
+                                orig_idx = sub.index[long_mask]
+                                issues.append(dq_issue(
+                                    "low", "string_length_outlier",
+                                    f"{long_cnt} value(s) significantly longer than average "
+                                    f"(mean={round(mean_l, 0)}, threshold>{round(mean_l+4*std_l, 0)} chars)",
+                                    column=col, count=long_cnt,
+                                    rows=orig_idx.tolist()[:50],
+                                    sample=list(sub.loc[orig_idx].head(3)),
+                                ))
+                except Exception:
+                    pass
+
+            # Duplicate-insensitive values: values differing only by case/whitespace
+            if _is_text_dtype(s.dtype) and non_null >= 5:
+                try:
+                    uq = int(meta.get("unique_count") or 0)
+                    if 1 < uq <= max(500, int(0.8 * non_null)):
+                        normalized = s.dropna().astype(str).str.strip().str.lower()
+                        norm_uq = int(normalized.nunique())
+                        raw_uq = int(s.dropna().astype(str).nunique())
+                        if norm_uq < raw_uq:
+                            diff = raw_uq - norm_uq
+                            issues.append(dq_issue(
+                                "medium", "duplicate_insensitive_values",
+                                f"{diff} value group(s) differ only by case/whitespace "
+                                f"({raw_uq} raw -> {norm_uq} after normalization)",
+                                column=col, count=diff,
+                            ))
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------
+    # 5. Near-Duplicate Row Detection using rapidfuzz
+    # ------------------------------------------------------------
+    nd_cfg = (thresholds or {}).get("near_duplicate") or {}
+    if nd_cfg.get("enabled", True):
+        from rapidfuzz import fuzz
+        
+        # We construct a string representation for each row (excluding ID/Timestamp cols to be smart)
+        text_cols = [c for c in df.columns if _is_text_dtype(df[c].dtype) and not c.lower().endswith("id")]
+        if len(text_cols) >= 2:
+            max_rows = int(nd_cfg.get("max_rows", 50000))
+            sub_df = df[text_cols].dropna(how="all")
+            if len(sub_df) > max_rows:
+                sub_df = sub_df.sample(max_rows, random_state=42)
+                
+            row_strings = sub_df.apply(lambda row: " | ".join(str(val) for val in row), axis=1).tolist()
+            row_indices = sub_df.index.tolist()
+            
+            threshold = float(nd_cfg.get("threshold", 0.92)) * 100
+            near_dups = []
+            
+            # Limit scan to prevent CPU lockup
+            scan_limit = min(len(row_strings), 1500)
+            for i in range(scan_limit):
+                for j in range(i + 1, scan_limit):
+                    ratio = fuzz.token_sort_ratio(row_strings[i], row_strings[j])
+                    if ratio >= threshold:
+                        near_dups.append((row_indices[i], row_indices[j], ratio / 100.0))
+                        
+            if len(near_dups) > 0:
+                issues.append(dq_issue("medium", "near_duplicate_rows",
+                                       f"Found {len(near_dups)} pair(s) of near-duplicate rows with string similarity >= {threshold/100:.2f}",
+                                       count=len(near_dups),
+                                       sample=[{"row_index_a": int(a), "row_index_b": int(b), "similarity": float(s)}
+                                               for a, b, s in near_dups[:10]]))
+
+    # ------------------------------------------------------------
+    # 6. Multivariate Outlier Detection using IsolationForest
+    # ------------------------------------------------------------
+    num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and not c.lower().endswith("id")]
+    if len(num_cols) >= 2 and len(df) >= 10:
+        outlier_cfg = (thresholds or {}).get("multivariate_outliers") or {}
+        if outlier_cfg.get("enabled", True):
+            clean_df = df[num_cols].dropna()
+            if len(clean_df) >= 10:
+                try:
+                    from sklearn.ensemble import IsolationForest
+                    contamination = float(outlier_cfg.get("contamination", 0.02))
+                    
+                    model = IsolationForest(contamination=contamination, random_state=42)
+                    preds = model.fit_predict(clean_df)
+                    
+                    outlier_mask = preds == -1
+                    outliers = clean_df[outlier_mask]
+                    
+                    if len(outliers) > 0:
+                        issues.append(dq_issue("medium", "multivariate_outliers",
+                                               f"Detected {len(outliers)} multivariate outlier(s) using IsolationForest (contamination={contamination})",
+                                               count=len(outliers),
+                                               rows=outliers.index.tolist()[:50],
+                                               sample=outliers.head(5).to_dict(orient="records")))
+                except Exception:
+                    pass
+
+    # ------------------------------------------------------------
+    # 7. Intra-Dataset Self-Referencing FK Check
+    # ------------------------------------------------------------
+    id_cols = [c for c in df.columns if c.lower().endswith("id")]
+    if len(id_cols) >= 2:
+        for col_pk in id_cols:
+            if df[col_pk].dropna().is_unique and df[col_pk].notna().any():
+                for col_fk in id_cols:
+                    if col_fk == col_pk:
+                        continue
+                    fk_vals = df[col_fk].dropna()
+                    if len(fk_vals) > 0:
+                        pk_vals = set(df[col_pk].dropna())
+                        orphans = [v for v in fk_vals if v not in pk_vals]
+                        if len(orphans) > 0:
+                            issues.append(dq_issue("high", "intra_dataset_orphan_fk",
+                                                   f"{len(orphans)} self-referencing orphan value(s) in '{col_fk}' (referring to '{col_pk}')",
+                                                   column=col_fk, count=len(orphans),
+                                                   rows=df.index[df[col_fk].isin(orphans)].tolist()[:50],
+                                                   sample=list(set(orphans))[:5]))
+
+    # ------------------------------------------------------------
+    # 11. Functional Dependency Validation
+    # ------------------------------------------------------------
+    _DEFAULT_FUNCTIONAL_DEPENDENCIES = [
+        {"determinant": "zip", "dependent": "city"},
+        {"determinant": "zip", "dependent": "state"},
+        {"determinant": "postal_code", "dependent": "city"},
+        {"determinant": "postal_code", "dependent": "state"},
+        {"determinant": "country_code", "dependent": "country"},
+        {"determinant": "store_id", "dependent": "store_name"},
+        {"determinant": "product_id", "dependent": "product_name"},
+        {"determinant": "customer_id", "dependent": "customer_name"},
+    ]
+    fd_cfg = (thresholds or {}).get("functional_dependencies")
+    if not fd_cfg:
+        fd_cfg = _DEFAULT_FUNCTIONAL_DEPENDENCIES
+    if isinstance(fd_cfg, list):
+        for rule in fd_cfg:
+            det = str(rule.get("determinant", "")).lower().strip()
+            dep = str(rule.get("dependent", "")).lower().strip()
+            if not det or not dep:
+                continue
+                
+            cmap = {str(c).lower().strip(): c for c in df.columns}
+            det_col = cmap.get(det)
+            dep_col = cmap.get(dep)
+            
+            if det_col and dep_col:
+                if len(df) >= 10:
+                    clean = df[[det_col, dep_col]].dropna()
+                    if len(clean) >= 10:
+                        gp = clean.groupby(det_col)[dep_col].nunique()
+                        violations = gp[gp > 1]
+                        if len(violations) > 0:
+                            violation_keys = list(violations.index)
+                            sample_violations = []
+                            for vk in violation_keys[:5]:
+                                distinct_deps = list(clean[clean[det_col] == vk][dep_col].unique())
+                                sample_violations.append({
+                                    "determinant_value": vk,
+                                    "distinct_dependent_values": distinct_deps
+                                })
+                            v_mask = df[det_col].isin(violation_keys)
+                            violating_rows = df.index[v_mask].tolist()
+                            
+                            issues.append(dq_issue("high", "functional_dependency_violation",
+                                                   f"Functional dependency violation: '{det_col}' -> '{dep_col}'. "
+                                                   f"Found {len(violations)} value(s) of '{det_col}' mapping to multiple distinct values of '{dep_col}'.",
+                                                   column=det_col, count=len(violations),
+                                                   rows=violating_rows[:50], sample=sample_violations))
 
     return issues
+
+
 
 
 
@@ -1943,6 +2875,19 @@ def analyze_dataset_quality(
                                count=dup_rows, rows=rows))
 
     # Parallelized column-level DQ checks
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        col_futures = [
+            executor.submit(
+                analyze_column,
+                df[col],
+                col,
+                profile.get("columns", {}).get(col, {}).get("semantic_type", "unknown"),
+                thresholds
+            )
+            for col in df.columns
+        ]
+        for future in concurrent.futures.as_completed(col_futures):
+            issues.extend(future.result())
 
     issues.extend(run_extended_dq_checks(df, profile, thresholds))
 
@@ -2098,7 +3043,8 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
 
     global_issues = {
         "orphan_foreign_keys": [],
-        "cross_dataset_inconsistencies": []
+        "cross_dataset_inconsistencies": [],
+        "schema_drift": []
     }
 
     names = list(datasets.keys())
@@ -2110,6 +3056,8 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
 
             common = set(map(str.lower, df1.columns)) & set(map(str.lower, df2.columns))
             for col in common:
+                if not col.endswith("id"):
+                    continue
                 c1 = next(x for x in df1.columns if x.lower() == col)
                 c2 = next(x for x in df2.columns if x.lower() == col)
 
@@ -2177,6 +3125,57 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
         global_issues["cross_dataset_inconsistencies"] = deduped
     except Exception:
         pass
+
+    # ------------------------------------------------------------
+    # 8. Schema Drift Detection Across Runs
+    # ------------------------------------------------------------
+    import os
+    import json
+    
+    schema_cache_file = os.path.join("config", "schema_cache.json")
+    # Build current schema representation
+    current_schema = {}
+    for name, df in datasets.items():
+        current_schema[name] = {
+            col: str(df[col].dtype) for col in df.columns
+        }
+        
+    prev_schema = {}
+    if os.path.exists(schema_cache_file):
+        try:
+            with open(schema_cache_file, "r", encoding="utf-8") as f:
+                prev_schema = json.load(f)
+        except Exception:
+            pass
+            
+    # Save current schema for next runs
+    try:
+        os.makedirs(os.path.dirname(schema_cache_file), exist_ok=True)
+        with open(schema_cache_file, "w", encoding="utf-8") as f:
+            json.dump(current_schema, f, indent=4)
+    except Exception:
+        pass
+        
+    # Compare current schema with previous schema
+    if prev_schema:
+        for ds_name, curr_cols in current_schema.items():
+            if ds_name in prev_schema:
+                prev_cols = prev_schema[ds_name]
+                added = [c for c in curr_cols if c not in prev_cols]
+                removed = [c for c in prev_cols if c not in curr_cols]
+                type_changed = []
+                for c in curr_cols:
+                    if c in prev_cols and curr_cols[c] != prev_cols[c]:
+                        type_changed.append({"column": c, "from": prev_cols[c], "to": curr_cols[c]})
+                        
+                if added or removed or type_changed:
+                    global_issues["schema_drift"].append({
+                        "dataset": ds_name,
+                        "added_columns": added,
+                        "removed_columns": removed,
+                        "type_changes": type_changed,
+                        "message": f"Schema drift detected on '{ds_name}'. Added: {added}, Removed: {removed}, Type changes: {type_changed}"
+                    })
 
     return global_issues
 
@@ -2393,23 +3392,41 @@ def load_and_profile(
     global_issues["relationship_warnings"] = rel_bundle["relationship_warnings"]
     global_issues["cross_dataset_consistency"] = analyze_cross_dataset_consistency(datasets, metadata, thresholds)
 
+    is_sampled = (max_rows is not None)
     for ds_name, block in per_dataset_dq.items():
+        ds_sampled = is_sampled or (metadata.get(ds_name, {}).get("row_count", 0) > HEAVY_OPERATION_THRESHOLD)
         for iss in block.get("issues", []):
             iss.setdefault("dataset", ds_name)
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+            if ds_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
 
     # Enrich global/cross-dataset issues
     try:
         for iss in (global_issues.get("relationship_row_issues") or []):
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
         for iss in (global_issues.get("relationship_warnings") or []):
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
         for iss in (global_issues.get("cross_dataset_consistency") or []):
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
         for iss in (global_issues.get("cross_dataset_inconsistencies") or []):
             # these use issue_type, not type
             if isinstance(iss, dict) and iss.get("issue_type") and not iss.get("fixability"):

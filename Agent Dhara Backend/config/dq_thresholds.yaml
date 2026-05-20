@@ -106,6 +106,25 @@ dq_score:
 
 # Cross-column conditional business rules (after standard DQ checks). Default: none enabled.
 conditional_rules: []
+
+# Functional dependency rules
+functional_dependencies: []
+
+# Near duplicate detection configuration
+near_duplicate:
+  enabled: true
+  threshold: 0.92
+  max_rows: 50000
+
+# Multivariate outlier detection configuration
+multivariate_outliers:
+  enabled: true
+  contamination: 0.02
+
+# Date validation ordering and ambiguity configuration
+date_checks:
+  check_ordering: true
+  flag_ambiguous_format: true
 #
 # conditional_rules:
 #   - type: conditional_not_null
