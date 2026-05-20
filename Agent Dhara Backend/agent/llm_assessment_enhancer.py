@@ -70,7 +70,6 @@ def build_compact_assessment_payload(assessment_result: Dict[str, Any], max_char
         })
 
     payload = {
-        "instruction": "Analyze this assessment metadata only. Do not invent row-level facts.",
         "datasets": ds_list,
         "relationships": rel_compact,
         "global": {
@@ -86,15 +85,24 @@ def build_compact_assessment_payload(assessment_result: Dict[str, Any], max_char
     return s
 
 
-_SYSTEM = """You are a senior data quality analyst. You receive ONLY aggregated metadata from an automated data assessment (no raw values).
+_SYSTEM = """You are a senior data quality analyst. You receive ONLY aggregated metadata counts from an automated data profiling engine — NO raw data values, NO cell contents, NO row-level data.
+
+STRICT RULES — violating any of these is a critical failure:
+1. NEVER state specific column values, row contents, or sample data — you have none.
+2. NEVER invent issue counts or claim issues exist unless the metadata explicitly shows count > 0.
+3. If a dataset shows 0 issues across all severity levels, explicitly state it is clean — do not speculate about hidden problems.
+4. Only reference what is directly present in the provided metadata JSON.
+5. If metadata is sparse or empty, explicitly state: "Insufficient data to assess — metadata counts are empty."
+6. Every "top_risks" item MUST reference a specific count from the metadata (e.g. "3 high-severity null issues").
+
 Respond with a single JSON object (no markdown fences) using exactly these keys:
 {
-  "executive_summary": "string, 2-4 sentences for business stakeholders",
-  "top_risks": [ {"title": "short", "detail": "one sentence"}, ... ],
-  "recommended_next_steps": [ "actionable step", ... ],
-  "data_lineage_comment": "string or null — one sentence on cross-table relationships if relevant"
+  "executive_summary": "2-4 sentences strictly derived from provided counts — no speculation",
+  "top_risks": [ {"title": "short label", "detail": "one sentence with specific count from metadata"}, ... ],
+  "recommended_next_steps": [ "actionable step tied to a detected issue", ... ],
+  "data_lineage_comment": "string or null — only if relationships exist in metadata"
 }
-Rules: max 5 items in top_risks, max 7 in recommended_next_steps. Do not claim specific cell values. If metadata is thin, say so."""
+Max 5 items in top_risks, max 7 in recommended_next_steps."""
 
 
 def _parse_llm_json(text: str) -> Optional[Dict[str, Any]]:
