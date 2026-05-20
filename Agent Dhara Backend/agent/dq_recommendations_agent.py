@@ -51,6 +51,11 @@ JSON schema:
 }
 """.strip()
 
+# FIX: Raised from 900 to 4000 to avoid JSON truncation when many issues are present.
+# At 900 tokens, the LLM response was frequently cut mid-object, causing json.loads()
+# to throw and silently fall back to rule-based recommendations every time.
+_LLM_MAX_TOKENS = 4000
+
 
 def _fallback(dq: Dict[str, Any]) -> DQRecommendations:
     # Minimal safe fallback: promote existing per-issue recommendation fields if present.
@@ -117,7 +122,7 @@ class DQRecommendationsAgent:
                     model=cfg.model,
                     messages=[{"role": "system", "content": _SYSTEM}, {"role": "user", "content": prompt}],
                     temperature=0.2,
-                    max_tokens=900,
+                    max_tokens=_LLM_MAX_TOKENS,
                 )
             else:
                 from openai import OpenAI  # type: ignore
@@ -127,7 +132,7 @@ class DQRecommendationsAgent:
                     model=cfg.model,
                     messages=[{"role": "system", "content": _SYSTEM}, {"role": "user", "content": prompt}],
                     temperature=0.2,
-                    max_tokens=900,
+                    max_tokens=_LLM_MAX_TOKENS,
                 )
             raw = (resp.choices[0].message.content or "").strip()
             obj = json.loads(raw)
@@ -149,4 +154,3 @@ class DQRecommendationsAgent:
 
 def dq_recommendations_to_dict(r: DQRecommendations) -> Dict[str, Any]:
     return {"recommendations": r.recommendations, "summary": r.summary}
-
