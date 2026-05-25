@@ -408,6 +408,8 @@ def build_etl_plan(
 
     sug_pkg = suggest_transformations(assessment)
     suggestions: List[Dict[str, Any]] = list(sug_pkg.get("suggested_transformations") or [])
+    if source_context and "suggestions" in source_context:
+        suggestions.extend(source_context["suggestions"])
 
     manual_review: List[Dict[str, Any]] = []
     blocked: List[Dict[str, Any]] = []
@@ -646,4 +648,15 @@ def build_etl_plan(
         "source_context": source_context or {},
         "relationships": rel_plan,
     }
+
+    if rules.get("auto_resolve_pending") and plan.get("manual_review"):
+        from agent.etl_pipeline.manual_review_promote import apply_manual_resolutions
+        resolutions = []
+        for m in plan["manual_review"]:
+            resolutions.append({
+                "item_id": m.get("id"),
+                "resolution_id": m.get("default_resolution")
+            })
+        plan, _ = apply_manual_resolutions(plan, resolutions, business_rules=rules)
+
     return plan

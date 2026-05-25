@@ -95,6 +95,50 @@ class TestManualReviewPromote(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(any("manual review" in e.lower() for e in errs))
 
+    def test_new_active_catalog_options(self) -> None:
+        # Verify resolutions are found in catalog
+        for issue in ["all_caps_values", "duplicate_insensitive_values", "numeric_outliers_zscore", 
+                      "string_length_outlier", "date_format_inconsistency", "mixed_date_formats", "at_least_one"]:
+            opts = get_resolution_options(issue)
+            self.assertGreaterEqual(len(opts), 1)
+            self.assertTrue(any(o.get("recommended") for o in opts), f"No recommended option for {issue}")
+
+    def test_promote_at_least_one(self) -> None:
+        plan = {
+            "plan_id": "test_at_least_one",
+            "datasets": {"dbo.students_raw": {"steps": []}},
+            "manual_review": [
+                enrich_manual_review_item(
+                    {
+                        "dataset": "dbo.students_raw",
+                        "column": "email,phone",
+                        "issue_type": "at_least_one",
+                        "message": "At least one must be non-null",
+                    }
+                )
+            ],
+            "business_rules": {},
+        }
+        item_id = plan["manual_review"][0]["id"]
+        updated, errs = apply_manual_resolutions(
+            plan,
+            [{"item_id": item_id, "resolution_id": "quarantine_all_null"}],
+        )
+        self.assertEqual(errs, [])
+        steps = updated["datasets"]["dbo.students_raw"]["steps"]
+        self.assertTrue(any(s.get("action") == "at_least_one" for s in steps))
+
+        # Test python codegen
+        code_py = generate_python_etl(updated, {"datasets": {"dbo.students_raw": {"columns": {"email": {}, "phone": {}}}}})
+        self.assertIn("isna().all(axis=1)", code_py)
+        self.assertIn("Quarantining", code_py)
+
+        # Test T-SQL codegen
+        from agent.etl_pipeline.sql_codegen import generate_sql_etl
+        code_sql = generate_sql_etl(updated, {"datasets": {"dbo.students_raw": {"columns": {"email": {}, "phone": {}}}}})
+        self.assertIn("Quarantine rows where all of email,phone are NULL", code_sql)
+        self.assertIn("r.[email] IS NULL AND r.[phone] IS NULL", code_sql)
+
 
 if __name__ == "__main__":
     unittest.main()

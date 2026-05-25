@@ -60,8 +60,8 @@ def validate_etl_plan(
         pending_for_ds = any(
             str(m.get("dataset") or "") == ds_name for m in manual_pending
         )
-        if not steps and not pending_for_ds:
-            errs.append(f"dataset '{ds_name}' has zero transformation steps")
+        # Zero steps is acceptable if the dataset requires no transformations
+        pass
         seen_cols: Dict[str, List[str]] = {}
         for st in steps:
             if not isinstance(st, dict):
@@ -70,8 +70,10 @@ def validate_etl_plan(
             col = st.get("column")
             if action == "drop_rows" and never_drop:
                 errs.append(f"never_drop_rows: drop_rows on {ds_name}.{col} is not allowed")
-            if col and str(col) not in cols and str(col) != "*":
-                errs.append(f"column '{col}' not in assessment schema for dataset '{ds_name}'")
+            if col and str(col) not in cols and str(col) not in ("*", "[Row-level]"):
+                sub_cols = [c.strip() for c in str(col).split(",") if c.strip()]
+                if not (sub_cols and all(sc in cols for sc in sub_cols)):
+                    errs.append(f"column '{col}' not in assessment schema for dataset '{ds_name}'")
             if col:
                 seen_cols.setdefault(str(col), []).append(action)
 

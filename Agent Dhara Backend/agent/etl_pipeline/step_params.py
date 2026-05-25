@@ -87,9 +87,21 @@ def build_step_params(
     elif act in ("lowercase", "uppercase"):
         params["case_mode"] = act.replace("case", "")
 
-    elif act == "validate_referential_integrity_or_stage":
-        params["enforcement_mode"] = "flag"
-        params["execution_mode"] = "new_table"
+    elif act == "zero_to_null":
+        import yaml
+        import os
+        backend_dir = r"c:\Users\ssakesh\Downloads\DHARA-GX\Agent Dhara Backend"
+        sentinels = [0, -999, 999999, 9999999]
+        try:
+            with open(os.path.join(backend_dir, "config", "dq_thresholds.yaml"), "r") as f:
+                cfg = yaml.safe_load(f) or {}
+            sentinels = cfg.get("sentinels", sentinels)
+        except Exception:
+            pass
+        
+        # Merge sentinels with typical punctuation values
+        params["replace_values"] = list(set([str(s) for s in sentinels] + ["0", "###", "nan", "null"]))
+        params["execution_mode"] = "in_place"
 
     return params
 

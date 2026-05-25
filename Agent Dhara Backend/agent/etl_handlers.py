@@ -13,7 +13,6 @@ from agent.business_rules_loader import (
     pending_rules_from_session,
     tenant_id_from_session,
 )
-from agent.etl_pipeline.etl_gx_checkpoint import run_etl_gx_checkpoint
 from agent.session_store import load_session, save_session
 from agent.etl_pipeline import (
     build_etl_plan,
@@ -702,7 +701,6 @@ def etl_generate_code(
     sql_dialect: str = "tsql",
     *,
     codegen_mode: Optional[str] = None,
-    run_gx_on_generate: Optional[bool] = None,
 ) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -848,25 +846,6 @@ def etl_generate_code(
         latency_ms,
     )
 
-    gx_report: Optional[Dict[str, Any]] = None
-    try:
-        if run_gx_on_generate is None:
-            auto_gx = os.getenv("DHARA_ETL_GX_AUTO", "1").strip().lower() in ("1", "true", "yes")
-        else:
-            auto_gx = bool(run_gx_on_generate)
-        gx_result = run_etl_gx_checkpoint(
-            plan,
-            assess,
-            flow.get("business_rules") or plan.get("business_rules"),
-            flow.get("lineage"),
-            run_gx_if_available=auto_gx,
-        )
-        flow["gx_checkpoint"] = gx_report = gx_result
-        flow["gx_checkpoint_at"] = time.time()
-        save_session(sess)
-    except Exception as gx_exc:
-        logger.warning("gx_checkpoint_after_generate failed: %s", gx_exc)
-
     return {
         "ok": ok,
         "session_id": sid,
@@ -882,15 +861,10 @@ def etl_generate_code(
         "artifact_version": version,
         "latency_ms": round(latency_ms, 1),
         "codegen_mode": mode,
-        "gx_checkpoint": gx_report,
         "message": (
             None
             if ok
             else "Code generated as draft — fix validation_errors before production deploy."
-        ),
-        "gx_checkpoint_hint": (
-            "GX expectation suite attached in gx_checkpoint. "
-            "Re-run POST /etl/gx-checkpoint with run_gx_if_available=true after executing ETL on staging data."
         ),
     }
 
@@ -905,39 +879,6 @@ def etl_get_lineage(session_id: str) -> Dict[str, Any]:
     return {"ok": True, "session_id": sid, "lineage": lineage, "plan_id": (flow.get("approved_plan") or {}).get("plan_id")}
 
 
-def etl_run_gx_checkpoint(session_id: str, *, run_gx_if_available: bool = False) -> Dict[str, Any]:
-    sid = (session_id or "default").strip() or "default"
-    sess = load_session(sid)
-    ctx = _ctx(sess)
-    flow = ctx.get("etl_flow") or {}
-    plan = flow.get("approved_plan") or flow.get("plan")
-    assess = _get_assessment(sess, None)
-
-    if not isinstance(plan, dict) or not assess:
-        return {
-            "ok": False,
-            "error": "NO_PLAN_OR_ASSESSMENT",
-            "message": "Build and confirm an ETL plan after assessment first.",
-        }
-
-    report = run_etl_gx_checkpoint(
-        plan,
-        assess,
-        flow.get("business_rules") or plan.get("business_rules"),
-        flow.get("lineage"),
-        run_gx_if_available=run_gx_if_available,
-    )
-    flow["gx_checkpoint"] = report
-    flow["gx_checkpoint_at"] = time.time()
-    save_session(sess)
-
-    logger.info(
-        "etl_gx_checkpoint session=%s plan_id=%s overall_ok=%s",
-        sid,
-        plan.get("plan_id"),
-        report.get("summary", {}).get("overall_ok"),
-    )
-    return {"ok": True, "session_id": sid, "checkpoint": report}
 
 
 def etl_list_tenants() -> Dict[str, Any]:

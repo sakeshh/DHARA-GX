@@ -21,6 +21,16 @@ from typing import Any, Dict, List, Optional
 
 clr.AddReference("System.Data")
 
+# Force .NET SecurityProtocol to support modern TLS versions (TLS 1.1/1.2/1.3)
+# Azure SQL blocks legacy TLS 1.0/SSL3 which older .NET runtimes default to.
+try:
+    clr.AddReference("System.Net")
+    from System.Net import ServicePointManager
+    # 768 = Tls11, 3072 = Tls12, 12288 = Tls13
+    ServicePointManager.SecurityProtocol |= 768 | 3072 | 12288
+except Exception:
+    pass
+
 SQLCLIENT_PROVIDER = None
 
 
@@ -80,7 +90,7 @@ class AzureSQLPythonNetConnector:
             parts.append(f"Password={password};")
         parts.extend([
             "Encrypt=True;",
-            "TrustServerCertificate=False;",
+            "TrustServerCertificate=True;",
             "MultipleActiveResultSets=False;",
             "Connection Timeout=30;",
         ])

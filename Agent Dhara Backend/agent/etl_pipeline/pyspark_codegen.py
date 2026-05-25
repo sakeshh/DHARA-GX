@@ -88,7 +88,7 @@ def _emit_outliers_spark(action: str, col: str, df: str, params: Dict[str, Any])
 def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[str, Any]] = None) -> List[str]:
     params = step_params(step_meta)
     act = (action or "").lower()
-    if not col:
+    if not col or str(col).lower() in ("row-level", "[row-level]"):
         if act == "deduplicate":
             return [f"{df} = {df}.dropDuplicates()"]
         return []

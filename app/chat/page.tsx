@@ -44,9 +44,9 @@ export default function ChatPage() {
         gxEnabled ? 'bg-[#002B45]/90 text-white shadow-[inset_0_0_100px_rgba(0,112,173,0.2)]' : 'bg-white/60 text-zinc-900'
       }`}>
         <div className="fixed right-8 top-2 z-50 flex items-center gap-3">
-          {/* GX Status Pill */}
+          {/* Theme/Dark Mode Status Pill */}
           <div className="flex items-center gap-2 rounded-full bg-white/40 p-1 px-3 shadow-sm backdrop-blur-xl transition-all hover:bg-white/60">
-            <span className={`text-[10px] font-black tracking-tight ${gxEnabled ? 'text-[#0070AD]' : 'text-zinc-500'}`}>GX</span>
+            <span className={`text-[10px] font-black tracking-tight ${gxEnabled ? 'text-[#0070AD]' : 'text-zinc-500'}`}>DARK MODE</span>
             <button
               type="button"
               onClick={toggleGx}

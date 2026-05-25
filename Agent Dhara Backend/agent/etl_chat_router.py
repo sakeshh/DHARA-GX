@@ -168,19 +168,11 @@ def chat_generate_etl_code(
     engine_used = result.get("engine", engine)
     preview = (result.get("code") or "")[:800]
     more = "..." if len(result.get("code") or "") > 800 else ""
-    gx = result.get("gx_checkpoint") or {}
-    gx_sum = (gx.get("summary") or {}) if isinstance(gx, dict) else {}
-
     lines = [
         f"✅ **ETL code generated** ({engine_used.upper()}, via {generated_by})\n",
         f"```{engine_used}\n{preview}{more}\n```\n",
         f"Download: `GET /etl/download?session_id={session_id}` or **Pipeline UI → Download**.",
     ]
-    if gx_sum:
-        lines.append(
-            f"\n📋 **GX checkpoint:** {gx_sum.get('passed', 0)} passed, "
-            f"{gx_sum.get('failed', 0)} failed expectations (metadata suite)."
-        )
     return "\n".join(lines)
 
 
@@ -303,5 +295,51 @@ def _format_plan_summary(plan: Dict[str, Any]) -> str:
         lines.append(f"\n⚠️ **{len(manual)} manual review item(s)**")
     if blocked:
         lines.append(f"\n❌ **{len(blocked)} blocked** — resolve before confirming")
+
+    return "\n".join(lines)
+
+
+def chat_discover_semantic_rules(session_id: str, discovered_rules: Dict[str, Any]) -> str:
+    """
+    Format discovered rules into a user-friendly markdown report.
+    """
+    lines = ["## 🔍 Discovered Semantic Rules\n"]
+
+    req_cols = discovered_rules.get("required_columns") or []
+    if req_cols:
+        lines.append("**Required Columns:**")
+        lines.append(", ".join(f"`{c}`" for c in req_cols))
+        lines.append("")
+
+    nn_cols = discovered_rules.get("non_nullable") or []
+    if nn_cols:
+        lines.append("**Non-Nullable Columns:**")
+        lines.append(", ".join(f"`{c}`" for c in nn_cols))
+        lines.append("")
+
+    vv = discovered_rules.get("valid_values") or {}
+    if vv:
+        lines.append("**Lookup Category Lists (valid_values):**")
+        for col, vals in vv.items():
+            lines.append(f"- `{col}`: {', '.join(f'`{v}`' for v in vals)}")
+        lines.append("")
+
+    assertions = discovered_rules.get("custom_assertions") or []
+    if assertions:
+        lines.append("**Cross-Column / Custom Assertions:**")
+        for idx, entry in enumerate(assertions, 1):
+            ast = entry.get("assertion")
+            sev = entry.get("severity") or "medium"
+            msg = entry.get("message") or "Custom rule violation"
+            lines.append(f"{idx}. `{ast}` (severity: `{sev}`)")
+            if msg:
+                lines.append(f"   _Message:_ {msg}")
+        lines.append("")
+
+    if not (req_cols or nn_cols or vv or assertions):
+        lines.append("No semantic rules could be auto-discovered for the selected dataset(s).")
+        lines.append("")
+
+    lines.append("💡 **Quick Tip:** Say **'build ETL plan'** to apply these rules to your data pipeline.")
 
     return "\n".join(lines)

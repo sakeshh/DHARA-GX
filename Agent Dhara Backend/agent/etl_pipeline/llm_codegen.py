@@ -97,11 +97,29 @@ PYTHON REQUIREMENTS:
 
 T-SQL REQUIREMENTS:
 - Header comment block with plan_id.
-- One section per dataset (comment headers).
+- Raw -> Staging -> Transform -> Clean Architecture: Raw tables are completely immutable. Never write updates/modifications/deletions directly on raw tables. Create the target clean table (e.g., `dbo.Orders_Clean` for `dbo.Orders_Raw`) if it does not exist with standard audit columns: `etl_created_at DATETIME DEFAULT GETDATE()`, `etl_updated_at DATETIME DEFAULT GETDATE()`, and `etl_batch_id INT`. 
+  Inside each table-cleaning stored procedure, initialize a temporary staging table (e.g. `#Orders_Staging`) by doing `SELECT * INTO #Orders_Staging FROM dbo.Orders_Clean WHERE 1=0;`. Copy the raw data (utilizing candidate key CTE deduplication and watermarking filters) into the staging table (populating `@run_id` to `etl_batch_id`). Execute all transformations, updates, and validations directly on the staging table `#Orders_Staging`. Finally, truncate/delete records in the target clean table `dbo.Orders_Clean` and insert the fully transformed records from the staging table into `dbo.Orders_Clean`.
+- Modular Stored Procedures: Wrap all cleaning steps for each table into dedicated stored procedures named `dbo.etl_clean_<table_base_name>`.
+- Master Orchestration: Generate a master coordinator procedure named `dbo.etl_main` that calls all the individual table cleaning stored procedures.
+- Execution Logging & Log ID Bugfix: Output DDL to create a logging table named `dbo.etl_log` with columns `id INT IDENTITY(1,1) PRIMARY KEY`, `process_name VARCHAR(100) NOT NULL`, `start_time DATETIME NOT NULL`, `end_time DATETIME NULL`, `status VARCHAR(20) NOT NULL`, `error_message VARCHAR(MAX) NULL`. 
+  Inside each stored procedure's TRY block, you MUST first run the `INSERT INTO dbo.etl_log (process_name, start_time, status) VALUES ('...', GETDATE(), 'RUNNING');` statement. IMMEDIATELY AFTER this insert, define and set the batch run ID: `DECLARE @run_id INT = SCOPE_IDENTITY();`. NEVER declare `@run_id = SCOPE_IDENTITY();` before any insert statement has occurred in the procedure, as this returns NULL and breaks audit batch tracking. Wrap the block in a transaction. Commit on success and rollback on failure.
+- Incremental Loading, Watermarking & Watermark Storage: Stored procedures and the main procedure must accept parameters `@load_type VARCHAR(20) = 'FULL'` and `@last_run DATETIME = NULL`. Generate DDL for `dbo.etl_watermark (process_name VARCHAR(100) PRIMARY KEY, last_run_time DATETIME NOT NULL)`. 
+  If `@load_type = 'INCREMENTAL'` and `@last_run IS NULL`, retrieve it using `SELECT @last_run = last_run_time FROM dbo.etl_watermark WHERE process_name = '...';`. Ensure this `@last_run` filter is fully applied to the copy queries (e.g. `WHERE watermark_col > @last_run`). Update the watermark using `MERGE` upon successful completion.
+- Performance Indexing: When creating the clean target table, add DDL commands to create NONCLUSTERED indexes on the primary keys, join/relationship keys, and watermark columns.
+- Outlier Mitigation Safety (Catalog Checks): Implement the outlier flagging logic using a reusable stored procedure `dbo.sp_flag_outliers_iqr` that computes IQR and updates outlier flags dynamically. The procedure takes exactly two arguments: `@table_name` and `@column_name`. Validate that input table and column parameters exist in `sys.tables` and `sys.columns` (or `tempdb.sys.columns` for `#` temp tables) before dynamic SQL executions. NEVER call the procedure with extra parameters.
+- Reusable Outlier Procedure Call: When executing IQR flagging on a column, invoke it exactly as `EXEC dbo.sp_flag_outliers_iqr '#TableName_Staging', 'ColumnName'`. Do not repeat the execution or call it multiple times for the same column. Only run outlier stored procedures on numeric/metric columns. NEVER execute it on string identifiers, phones, or emails.
+- Rule Merging & Single-Scan Consolidation: NEVER generate separate, sequential `UPDATE` statements for each plan step on the same table. Instead:
+  1. Merge and consolidate all expression-based updates (like `LTRIM/RTRIM`, `LOWER/UPPER`, case normalization, formatting, phone normalization, date parsing, and range clipping) into a **single multi-column `UPDATE` statement** on the staging table `#<TableName>_Staging`.
+  2. Merge all default value fillings and invalid/sentinel replacements into a **single join-based `UPDATE` statement** joining `dbo.etl_default_values` and `dbo.etl_invalid_values` via `LEFT JOIN`s.
+- Zero Redundant Operations: Do not output duplicate or redundant CTE statements, updates, or procedure calls. Verify that any deduplication logic, outlier checks, or date/email validation is written once per column.
+- Type-Safe String Transformations: If applying `LTRIM`, `RTRIM`, `LOWER`, or `UPPER` on a non-string column (such as numeric/date columns), first cast the column explicitly to a string type (e.g. `CAST(col AS NVARCHAR(MAX))`) before calling the string function, then cast back to the target type. (e.g. `TRY_CAST(NULLIF(LTRIM(RTRIM(CAST(credits AS NVARCHAR(50)))), '') AS INT)`).
+- Rejects & Quarantine Logging: Enforce the use of `dbo.etl_rejects` table. For any row that fails validation format constraints (e.g. invalid date formats, invalid email patterns) or referential integrity (joins), insert the violating records into `dbo.etl_rejects` before deleting them from the staging table. Use `(SELECT * FROM staging_alias r2 WHERE r2.[pk] = r.[pk] FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)` to serialize the violating row data. Perform validation deletes before applying transformations/casts to preserve the original invalid values.
+- Default Value Sanity: Seed defaults/invalid values dynamically. Use `NULL` as the default value strategy for date, email, and phone/identifier columns to prevent downstream data pollution. Replace literal default values with lookup queries using `TRY_CAST(default_value AS <type>)` from `dbo.etl_default_values` (dynamic casting based on column data type).
+- Business-Key Deduplication: For row-level deduplication, partition by the candidate primary key and business keys (names containing `id`, `key`, `email`, `code`) instead of all non-key columns, and order the partition descending by watermark column (`ORDER BY <watermark> DESC`) to preserve the latest record. Perform deduplication inside the initial staging `INSERT INTO ... SELECT` statement using a CTE.
+- Index-Friendly Numeric Checks: For `zero_to_null` step, check numeric column placeholders without casting (e.g., `WHERE Quantity IN (-999, 999999)`). Avoid casting string columns to `NVARCHAR(MAX)` as well.
+- Active Curated Views: Generate active view layers `CREATE VIEW dbo.vw_<table_base>_Fact AS` (instead of commented templates) explicitly listing selected fields from Clean tables and prefixing duplicate fields as `[parent_prefix_col]` to prevent duplicate column view compilation errors.
 - Use bracket quoting [column] and TRY_CAST / TRY_CONVERT for safe casts.
-- IQR outlier logic: DECLARE @q1, @q3, @iqr variables — avoid expensive cross joins.
-- Wrap each dataset block in BEGIN TRY / BEGIN TRANSACTION / COMMIT; BEGIN CATCH ROLLBACK with error details.
-- never_drop_rows: UPDATE/SET only, no DELETE FROM for data quality fixes.
+- never_drop_rows: UPDATE/SET only, no DELETE FROM for data quality fixes (except when logging to rejects table).
 - ANSI-compatible where possible within T-SQL.
 """,
     "sql-ansi": f"""You are a senior data engineer writing portable ANSI SQL ETL scripts.
@@ -111,10 +129,26 @@ T-SQL REQUIREMENTS:
 
 ANSI SQL REQUIREMENTS:
 - Header comment block with plan_id.
-- One section per dataset; standard SQL UPDATE/WITH patterns.
+- Raw -> Staging -> Transform -> Clean Architecture: Raw tables are completely immutable. Never write updates/modifications/deletions directly on raw tables. Create the target clean table (e.g., `Orders_Clean` for `Orders_Raw`) if it does not exist with standard audit columns: `etl_created_at`, `etl_updated_at`, and `etl_batch_id`. 
+  Inside each table-cleaning stored procedure, initialize a temporary staging table (e.g. `#Orders_Staging`) by doing `SELECT * INTO #Orders_Staging FROM Orders_Clean WHERE 1=0;`. Copy the raw data (utilizing candidate key CTE deduplication and watermarking filters) into the staging table (populating `@run_id` to `etl_batch_id`). Execute all transformations, updates, and validations directly on the staging table `#Orders_Staging`. Finally, truncate/delete records in the target clean table `Orders_Clean` and insert the fully transformed records from the staging table into `Orders_Clean`.
+- Modular Stored Procedures: Wrap all cleaning steps for each table into dedicated stored procedures named `etl_clean_<table_name>`.
+- Master Orchestration: Generate a master coordinator procedure named `etl_main` that calls all the individual table cleaning stored procedures.
+- Execution Logging & Log ID Bugfix: Output DDL to create a logging table named `etl_log` and log the start, success, and failure status (with errors) within exception blocks. Always insert the log row first, and then capture the generated identity/auto-increment variable immediately to define the batch run ID safely without race conditions.
+- Incremental Loading, Watermarking & Watermark Storage: Accept `@load_type` and `@last_run` parameters. If incremental, retrieve the watermark value from `etl_watermark` if not provided, and filter raw source rows using the watermark. Prior to inserting the incremental batch, delete matching clean rows by primary key to prevent duplicate records.
+- Performance Indexing: Add statements or comments recommending indexes on primary keys, join keys, and watermark columns.
+- Rule Merging & Single-Scan Consolidation: NEVER generate separate, sequential `UPDATE` statements for each plan step on the same table. Instead:
+  1. Merge and consolidate all expression-based updates (like `LTRIM/RTRIM`, `LOWER/UPPER`, case normalization, formatting, phone normalization, date parsing, and range clipping) into a **single multi-column `UPDATE` statement** on the staging table.
+  2. Merge all default value fillings and invalid/sentinel replacements into a **single join-based `UPDATE` statement** joining `etl_default_values` and `etl_invalid_values` via `LEFT JOIN`s.
+- Zero Redundant Operations: Do not output duplicate or redundant CTE statements, updates, or procedure calls. Verify that any deduplication logic, outlier checks, or date/email validation is written once per column.
+- Type-Safe String Transformations: When trimming or lowercasing non-string columns, first cast the column explicitly to a string type (e.g. `CAST(col AS VARCHAR(50))`) before applying the string function.
+- Rejects & Quarantine Logging: Validate date and email constraints and quarantine violating records to an `etl_rejects` table before removing them from the staging table. Perform validation deletes before applying transformations/casts to preserve the original invalid values.
+- Default Value Sanity: Use `NULL` as the default value strategy for date, email, and phone/identifier columns to prevent downstream data pollution. Use `etl_default_values` lookup table queries (with type-safe dynamic casting based on column data type) and `etl_invalid_values` lookup table queries instead of hardcoded default/sentinel values.
+- Business-Key Deduplication: Partition row-level deduplication by business keys/primary keys, sorting descending by the watermark column to preserve the latest record. Perform deduplication inside the initial staging `INSERT` statement using a CTE rather than doing standalone `DELETE` statements.
+- Index-Friendly Numeric Checks: Avoid casting columns for sentinel/placeholder checks where possible (especially for numeric columns).
+- Active Curated Views: Generate active view layers `CREATE VIEW vw_<table_base>_Fact AS` explicitly listing selected fields and renaming duplicate joined fields to prevent duplicate column errors.
 - Safe casts (CAST/TRY semantics via CASE WHERE not available).
-- IQR outlier logic with subqueries or CTEs, not dialect-specific hacks unless noted in comments.
-- never_drop_rows: no DELETE for quality fixes.
+- IQR outlier logic with subqueries or CTEs, not dialect-specific hacks unless noted in comments. Only run outlier checks on numeric/metric columns.
+- never_drop_rows: no DELETE for quality fixes (except when logging to rejects table).
 - Comment dialect-specific assumptions where needed.
 """,
     "pyspark": f"""You are a senior data engineer writing production PySpark ETL.
@@ -214,6 +248,178 @@ def _safe_max_tokens(payload_json: str, engine_key: str) -> int:
     return max(1500, min(cap, available))
 
 
+def _classify_column(col_name: str, col_meta: dict) -> str:
+    """
+    Classify column as 'date', 'id', 'metric', 'categorical', or 'string'.
+    """
+    c_lower = str(col_name).lower()
+    
+    # 1. Date checks
+    dtype = str(col_meta.get("dtype") or col_meta.get("inferred_type") or "").lower()
+    target_dtype = str(col_meta.get("target_dtype") or "").lower()
+    
+    if any(x in dtype for x in ("date", "time", "stamp")) or \
+       any(x in target_dtype for x in ("date", "time", "stamp")):
+        return "date"
+    if any(x in c_lower for x in ("date", "time", "dob", "stamp")) or c_lower.endswith("_at"):
+        return "date"
+        
+    # 2. ID / Identifier checks
+    if any(x in c_lower for x in ("phone", "email", "ssn", "zip", "postal")):
+        return "id"
+    if c_lower.endswith("id") or c_lower.endswith("key") or c_lower.endswith("code") or c_lower.endswith("num"):
+        return "id"
+    if any(x in c_lower for x in ("student_id", "course_id", "instructor_id", "batch_id", "run_id")):
+        return "id"
+        
+    # 3. Metric checks
+    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")) or \
+       any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+        return "metric"
+    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count", "score", "grade", "val")):
+        return "metric"
+            
+    # 4. Categorical checks
+    if any(x in c_lower for x in ("status", "gender", "category", "type", "state", "country", "city", "active", "flag")):
+        return "categorical"
+        
+    # 5. String check/Fallback
+    if any(x in dtype for x in ("char", "str", "object", "string", "text")):
+        return "string"
+        
+    return "string"
+
+
+def _is_numeric_column(col_name: str, col_meta: dict) -> bool:
+    c_lower = str(col_name).lower()
+    # Identifiers, phones, emails, and dates are semantically NOT numeric measures
+    if any(x in c_lower for x in ("phone", "email", "name", "date", "time", "dob", "student_id", "course_id", "instructor", "department")):
+        return False
+    dtype = str(col_meta.get("dtype") or col_meta.get("inferred_type") or "").lower()
+    target_dtype = str(col_meta.get("target_dtype") or "").lower()
+    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+        return True
+    if any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+        return True
+    # Fallback keyword checks
+    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count")):
+        return True
+    return False
+
+
+def _consolidate_and_filter_datasets(
+    datasets: Dict[str, Any],
+    source_metadata: Dict[str, Any]
+) -> Dict[str, Any]:
+    cleaned_datasets = {}
+    
+    # Priority for sorting steps
+    priority = {
+        "trim": 10,
+        "lowercase": 11,
+        "uppercase": 11,
+        "sanitize_email": 12,
+        
+        "coerce_numeric": 20,
+        "cast_type": 21,
+        
+        "zero_to_null": 30,
+        
+        "fill_or_drop": 40,
+        "fill_nulls_simple": 40,
+        
+        "parse_dates": 50,
+        
+        "regex_replace": 60,
+        "replace_values": 61,
+        "standardize_boolean": 62,
+        "normalize_phone": 63,
+        "hash_phone": 64,
+        "mask_phone": 65,
+        
+        "range_clip": 70,
+        "clip_or_flag": 71,
+        "flag_outliers": 72,
+        "clip_outliers": 73,
+        "cap_outliers": 74,
+        
+        "deduplicate": 80,
+        "validate_referential_integrity_or_stage": 90
+    }
+    
+    for ds_name, block in (datasets or {}).items():
+        if not isinstance(block, dict):
+            cleaned_datasets[ds_name] = block
+            continue
+            
+        steps = block.get("steps") or []
+        if not steps:
+            cleaned_datasets[ds_name] = block
+            continue
+            
+        ds_meta = source_metadata.get(ds_name) or {}
+        columns_meta = ds_meta.get("columns") or {}
+        
+        filtered_steps = []
+        seen_operations = set()
+        
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            action = str(step.get("action") or "").strip().lower()
+            col = step.get("column")
+            
+            # 1. Type-aware filtering: trim/lower/upper/sanitize_email are string-only
+            if action in ("trim", "lowercase", "uppercase", "sanitize_email"):
+                if col:
+                    col_meta = columns_meta.get(col) or {}
+                    col_class = _classify_column(col, col_meta)
+                    if col_class in ("metric", "date"):
+                        continue
+            
+            # Type-aware filtering: outlier logic is numeric-only
+            if action in ("flag_outliers", "clip_or_flag", "clip_outliers", "cap_outliers"):
+                if col:
+                    col_meta = columns_meta.get(col) or {}
+                    if not _is_numeric_column(col, col_meta):
+                        continue
+                        
+            # 2. Operation Deduplication / Normalization
+            norm_action = action
+            if action in ("clip_or_flag", "flag_outliers"):
+                norm_action = "flag_outliers"
+            elif action in ("fill_nulls_simple", "fill_or_drop"):
+                norm_action = "fill_or_drop"
+            elif action in ("clip_outliers", "cap_outliers"):
+                norm_action = "modify_outliers"
+                
+            op_key = (norm_action, str(col).lower() if col else None)
+            if op_key in seen_operations:
+                continue
+            seen_operations.add(op_key)
+            
+            filtered_steps.append(step)
+            
+        # 3. Sort steps according to transform priority order
+        def get_step_priority(st):
+            act = str(st.get("action") or "").strip().lower()
+            return priority.get(act, 99)
+            
+        sorted_steps = sorted(filtered_steps, key=get_step_priority)
+        
+        # Re-assign order field
+        for idx, st in enumerate(sorted_steps):
+            st_copy = dict(st)
+            st_copy["order"] = idx + 1
+            sorted_steps[idx] = st_copy
+            
+        cleaned_block = dict(block)
+        cleaned_block["steps"] = sorted_steps
+        cleaned_datasets[ds_name] = cleaned_block
+        
+    return cleaned_datasets
+
+
 def _build_codegen_payload(
     plan: Dict[str, Any],
     assessment: Dict[str, Any],
@@ -235,13 +441,18 @@ def _build_codegen_payload(
                 if isinstance(cmeta, dict)
             },
         }
+    
+    # Consolidate, deduplicate, type-filter and sort plan steps before passing to LLM
+    raw_datasets = plan.get("datasets") or {}
+    cleaned_datasets = _consolidate_and_filter_datasets(raw_datasets, source_metadata)
+    
     base = {
         "plan_id": plan.get("plan_id"),
         "engine": plan.get("engine"),
         "output_mode": output_mode,
         "output_path": output_path,
         "business_rules": plan.get("business_rules"),
-        "datasets": plan.get("datasets"),
+        "datasets": cleaned_datasets,
         "global_steps": plan.get("global_steps"),
         "manual_review": plan.get("manual_review"),
         "blocked": plan.get("blocked"),

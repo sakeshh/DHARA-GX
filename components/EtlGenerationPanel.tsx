@@ -140,8 +140,6 @@ export default function EtlGenerationPanel({
   const [planValidationErrors, setPlanValidationErrors] = useState<string[]>([]);
   const [tenantId, setTenantId] = useState('default');
   const [tenantOptions, setTenantOptions] = useState<string[]>(['default', 'acme']);
-  const [gxCheckpoint, setGxCheckpoint] = useState<Record<string, unknown> | null>(null);
-  const [gxBusy, setGxBusy] = useState(false);
   const [requiredColumns, setRequiredColumns] = useState('');
   const [excludeColumns, setExcludeColumns] = useState('');
   const [notes, setNotes] = useState('');
@@ -495,27 +493,6 @@ export default function EtlGenerationPanel({
     }
   };
 
-  const runGxCheckpoint = async () => {
-    setGxBusy(true);
-    setErr(null);
-    try {
-      const res = await fetch('/api/etl/gx-checkpoint', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, run_gx_if_available: true }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.ok) {
-        setErr(data?.message || data?.error || `GX checkpoint failed (${res.status})`);
-        return;
-      }
-      setGxCheckpoint((data.checkpoint as Record<string, unknown>) || null);
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'GX checkpoint request failed');
-    } finally {
-      setGxBusy(false);
-    }
-  };
 
   const runGenerate = async () => {
     setBusy(true);
@@ -543,7 +520,6 @@ export default function EtlGenerationPanel({
           engine: eng,
           sql_dialect: sqlDialect,
           codegen_mode: codegenMode,
-          run_gx_on_generate: !useAiCodegen,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -566,7 +542,6 @@ export default function EtlGenerationPanel({
       setArtifactPath(typeof data?.artifact_rel_path === 'string' ? data.artifact_rel_path : null);
       setGeneratedBy(typeof data?.generated_by === 'string' ? data.generated_by : null);
       setIsDraft(Boolean(data?.is_draft ?? !data?.validation_ok));
-      if (data?.gx_checkpoint) setGxCheckpoint(data.gx_checkpoint as Record<string, unknown>);
       if (!data?.ok) {
         setErr(data?.message || 'Code saved as draft — fix validation errors before deploy.');
       }
@@ -1311,52 +1286,7 @@ export default function EtlGenerationPanel({
               Plain UTF-8. Deploy over HTTPS so one-click copy works. Code is AI-generated from your approved plan
               (template fallback if the model is unavailable)—wire your own sources, credentials, and schedules.
             </p>
-            <motion.div
-              className={`rounded-xl border p-3 ${dm ? 'border-white/10 bg-black/20' : 'border-black/10 bg-white/80'}`}
-            >
-              <p className={`mb-2 text-[11px] font-black uppercase tracking-widest ${label}`}>
-                Post-ETL GX checkpoint
-              </p>
-              <p className={`mb-2 text-xs ${dm ? 'text-zinc-300' : 'text-zinc-700'}`}>
-                Build expectation metadata from your approved plan and assessment (run after staging ETL output).
-              </p>
-              <button
-                type="button"
-                disabled={gxBusy || !code.trim()}
-                onClick={() => void runGxCheckpoint()}
-                className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-50"
-              >
-                <FaShieldAlt className="text-xs" />
-                {gxBusy ? 'Running…' : 'Run GX checkpoint'}
-              </button>
-              {gxCheckpoint ? (
-                <div className={`mt-3 space-y-1 text-xs font-mono ${dm ? 'text-zinc-200' : 'text-zinc-800'}`}>
-                  {(() => {
-                    const summary = gxCheckpoint.summary as Record<string, unknown> | undefined;
-                    const overall = summary?.overall_ok;
-                    return (
-                      <p className={overall ? 'text-emerald-500' : 'text-amber-600'}>
-                        Overall: {overall === true ? 'OK' : overall === false ? 'Review' : '—'}
-                        {typeof summary?.expectation_count === 'number'
-                          ? ` · ${summary.expectation_count} expectations`
-                          : ''}
-                      </p>
-                    );
-                  })()}
-                  {Array.isArray(gxCheckpoint.expectations) ? (
-                    <ul className="max-h-32 list-disc overflow-auto pl-4">
-                      {(gxCheckpoint.expectations as Record<string, unknown>[]).slice(0, 12).map((ex, i) => (
-                        <li key={i}>
-                          {String(ex.type || 'expectation')}
-                          {ex.column ? ` · ${String(ex.column)}` : ''}
-                          {ex.passed === true ? ' ✓' : ex.passed === false ? ' ✗' : ''}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-            </motion.div>
+
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"

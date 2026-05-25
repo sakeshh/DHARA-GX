@@ -154,6 +154,9 @@ def enrich_step_record(
         classification = "review"
 
     requires = _requires_user_choice(alternatives, classification)
+    from agent.etl_pipeline.classify_steps import _AUTO_ACTIONS
+    if action in _AUTO_ACTIONS:
+        requires = False
     if action == "lowercase" and issue_type == "case_inconsistency":
         requires = False
 

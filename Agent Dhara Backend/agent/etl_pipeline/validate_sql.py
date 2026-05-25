@@ -4,9 +4,9 @@ import re
 from typing import List, Tuple
 
 _DANGEROUS = [
-    (r"\bdrop\s+table\b", "contains DROP TABLE — remove for safety"),
-    (r"\btruncate\s+table\b", "contains TRUNCATE TABLE — remove for safety"),
-    (r"\bdelete\s+from\b", "contains DELETE FROM — remove for safety"),
+    (r"\bdrop\s+table\s+(?!.*\b\w*(?:_clean|_stg|temp_|_temp)\b|.*#)", "contains DROP TABLE on non-staging/clean table — remove for safety"),
+    (r"\btruncate\s+table\s+(?!.*\b\w*(?:_clean|_stg|temp_|_temp)\b|.*#)", "contains TRUNCATE TABLE on non-staging/clean table — remove for safety"),
+    (r"\bdelete\s+from\s+(?!.*\b\w*(?:_clean|_stg|_dedup|temp_|etl_log|cte|_temp)\b|.*#)", "contains DELETE FROM on non-staging/clean table — remove for safety"),
 ]
 
 

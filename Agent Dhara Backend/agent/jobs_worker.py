@@ -11,7 +11,7 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
     job_id = job.get("job_id")
     kind = job.get("kind")
     inp = job.get("input") or {}
-    add_event(job_id=job_id, level="debug", message=f"JobWorker processing {kind}", data={"gx_enabled": inp.get("gx_enabled")})
+    add_event(job_id=job_id, level="debug", message=f"JobWorker processing {kind}")
     
     if kind == "assess":
         from agent.langgraph_orchestrator import run_orchestrator
@@ -21,7 +21,6 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
             sources_path=str(inp.get("sources_path") or "config/sources.yaml"),
             selected_sources=inp.get("selected_sources") or [],
             job_id=job_id,
-            gx_enabled=bool(inp.get("gx_enabled", False))
         )
 
     if kind == "chat":
@@ -31,7 +30,6 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
             session_id=str(inp.get("session_id") or "default"), 
             message=str(inp.get("message") or ""),
             job_id=job_id,
-            gx_enabled=bool(inp.get("gx_enabled", False))
         )
 
     raise ValueError(f"Unknown job kind: {kind}")

@@ -4,7 +4,7 @@ Engine-specific join / load codegen from plan.relationships + connector_manifest
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _safe(name: str) -> str:
@@ -119,7 +119,13 @@ def emit_python_load_and_join(
     return lines
 
 
-def emit_sql_joins(plan: Dict[str, Any], manifest: Dict[str, Any], *, dialect: str = "tsql") -> List[str]:
+def emit_sql_joins(
+    plan: Dict[str, Any],
+    manifest: Dict[str, Any],
+    *,
+    assessment: Optional[Dict[str, Any]] = None,
+    dialect: str = "tsql",
+) -> List[str]:
     lines: List[str] = []
     rel = plan.get("relationships") or {}
     m_ds = (manifest or {}).get("datasets") or {}
@@ -139,12 +145,55 @@ def emit_sql_joins(plan: Dict[str, Any], manifest: Dict[str, Any], *, dialect: s
         how = (j.get("join_type") or "LEFT").upper()
         if dialect != "tsql":
             how = how if how in ("INNER", "LEFT") else "LEFT"
-        lines.append(f"-- Join {p} -> {c} ({j.get('cardinality')})")
-        lines.append(f"-- CREATE VIEW vw_{_safe(c)}_enriched AS")
-        lines.append(f"SELECT c.*, p.*")
-        lines.append(f"FROM {q('stg_' + _safe(c))} c")
-        lines.append(f"{how} JOIN {q('stg_' + _safe(p))} p ON c.{q(ck)} = p.{q(pk)};")
-        lines.append("")
+        def _tsql_qualified_name(two_part: str) -> str:
+            parts = two_part.split(".", 1)
+            if len(parts) == 2:
+                return f"[{parts[0]}].[{parts[1]}]"
+            return f"[{two_part}]"
+        
+        tbl_c = _tsql_qualified_name(c) if dialect == "tsql" else q("stg_" + _safe(c))
+        tbl_p = _tsql_qualified_name(p) if dialect == "tsql" else q("stg_" + _safe(p))
+
+        if dialect == "tsql":
+            c_base = c.split(".")[-1].strip("[]")
+            p_base = p.split(".")[-1].strip("[]")
+            
+            # Fetch column metadata from assessment
+            c_cols = []
+            p_cols = []
+            if assessment and "datasets" in assessment:
+                c_cols = list(((assessment["datasets"].get(c) or {}).get("columns") or {}).keys())
+                p_cols = list(((assessment["datasets"].get(p) or {}).get("columns") or {}).keys())
+                
+            if c_cols:
+                c_cols_lower = {col.lower() for col in c_cols}
+                select_items = [f"c.[{col}]" for col in c_cols]
+                for col in p_cols:
+                    if col.lower() in c_cols_lower:
+                        select_items.append(f"p.[{col}] AS [{p_base}_{col}]")
+                    else:
+                        select_items.append(f"p.[{col}]")
+                select_clause = ",\n        ".join(select_items)
+            else:
+                select_clause = "c.*, p.*"
+
+            lines.append(f"-- Join {p} -> {c} ({j.get('cardinality')})")
+            lines.append(f"IF OBJECT_ID('dbo.vw_{c_base}_Fact', 'V') IS NOT NULL DROP VIEW dbo.vw_{c_base}_Fact;")
+            lines.append("GO")
+            lines.append(f"CREATE VIEW dbo.vw_{c_base}_Fact AS")
+            lines.append("SELECT")
+            lines.append(f"        {select_clause}")
+            lines.append(f"FROM {tbl_c} c")
+            lines.append(f"{how} JOIN {tbl_p} p ON c.{q(ck)} = p.{q(pk)};")
+            lines.append("GO")
+            lines.append("")
+        else:
+            lines.append(f"-- Join {p} -> {c} ({j.get('cardinality')})")
+            lines.append(f"-- CREATE VIEW vw_{_safe(c)}_enriched AS")
+            lines.append(f"SELECT c.*, p.*")
+            lines.append(f"FROM {tbl_c} c")
+            lines.append(f"{how} JOIN {tbl_p} p ON c.{q(ck)} = p.{q(pk)};")
+            lines.append("")
 
     for b in rel.get("many_to_many") or []:
         lines.append(f"-- M:N bridge {b.get('bridge_name')}: {b.get('dataset_a')}.{b.get('column_a')}")
