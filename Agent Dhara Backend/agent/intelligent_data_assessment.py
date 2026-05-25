@@ -128,6 +128,21 @@ def _is_text_dtype(dtype) -> bool:
     return "object" in ds or "string" in ds or "str" in ds or "category" in ds
 
 
+def _is_actual_numeric_column(col_name: str) -> bool:
+    """
+    Check if a column is semantically numeric, filtering out identifiers,
+    phones, emails, zipcodes, dates, etc.
+    """
+    c_lower = str(col_name).lower()
+    if any(x in c_lower for x in ("phone", "email", "ssn", "zip", "postal", "date", "time", "dob", "stamp")) or c_lower.endswith("_at"):
+        return False
+    if c_lower.endswith("id") or c_lower.endswith("key") or c_lower.endswith("code"):
+        return False
+    if any(x in c_lower for x in ("student_id", "course_id", "instructor_id", "batch_id", "run_id")):
+        return False
+    return True
+
+
 def scalar_type_distribution(series: pd.Series, max_sample: int = 2000) -> Dict[str, Any]:
     """
     Summarize Python scalar types present in a column.
@@ -188,7 +203,12 @@ def detect_semantic_type(values: pd.Series, col_name: str = "") -> str:
     if any(hint in col_lower for hint in _PHONE_NAME_HINTS):
         return "phone"
 
-    sample = values.dropna().astype(str).head(200) # Increased from 100 to 200
+    non_null_vals = values.dropna()
+    if len(non_null_vals) > 200:
+        sample = non_null_vals.sample(n=200, random_state=42).astype(str)
+    else:
+        sample = non_null_vals.astype(str)
+
     if sample.empty:
         return "unknown"
 
@@ -222,7 +242,7 @@ def detect_semantic_type(values: pd.Series, col_name: str = "") -> str:
     try:
         from dateutil import parser as du_parser
         parsed_ok = 0
-        is_date_hint = any(h in col_lower for h in ["date", "time", "dt", "created", "updated", "at"])
+        is_date_hint = bool(re.search(r'(?:\b|_)(date|time|dt|created|updated|dob|birth|bday|birthday)(?:\b|_)|(_at\b|\bat\b)', col_lower))
         for v in sample.head(30):
             # If it's a simple numeric value, don't parse as date unless column name hints date or len is 8 (YYYYMMDD)
             val_strip = v.strip()
@@ -259,6 +279,16 @@ def _validate_phone_phonenumbers(val: str, default_region: str = "IN") -> bool:
     default_region: ISO 3166-1 alpha-2 (e.g. "IN", "US", "GB").
     Used when number has no + prefix.
     """
+    val = str(val).strip()
+    if val.endswith(".0"):
+        val = val[:-2]
+    elif "." in val:
+        try:
+            parts = val.split(".")
+            if len(parts) == 2 and all(c == '0' for c in parts[1]):
+                val = parts[0]
+        except Exception:
+            pass
     try:
         import phonenumbers
         # Try parsing with + prefix (international) first
@@ -286,6 +316,15 @@ def _detect_phone_formats(series: pd.Series) -> Dict[str, int]:
         buckets = {"e164": 0, "national": 0, "invalid": 0, "empty": 0}
         for val in series.dropna().astype(str).head(500):
             v = val.strip()
+            if v.endswith(".0"):
+                v = v[:-2]
+            elif "." in v:
+                try:
+                    parts = v.split(".")
+                    if len(parts) == 2 and all(c == '0' for c in parts[1]):
+                        v = parts[0]
+                except Exception:
+                    pass
             if not v:
                 buckets["empty"] += 1
                 continue
@@ -410,6 +449,280 @@ def _dtype_inference_for_object(series: pd.Series) -> Optional[str]:
 
 
 # ============================================================
+# ACCURACY UPGRADE HELPERS
+# ============================================================
+
+def count_file_lines(fp: str) -> int:
+    try:
+        with open(fp, "rb") as f:
+            lines = 0
+            buf_size = 1024 * 1024
+            read_f = f.raw.read
+            buf = read_f(buf_size)
+            while buf:
+                lines += buf.count(b"\n")
+                buf = read_f(buf_size)
+            return lines
+    except Exception:
+        return 0
+
+
+def load_csv_sampled(fp: str, sep: str = ",", max_rows: Optional[int] = None) -> pd.DataFrame:
+    if not max_rows:
+        return pd.read_csv(fp, sep=sep, low_memory=False)
+    
+    total_lines = count_file_lines(fp)
+    if total_lines <= max_rows:
+        return pd.read_csv(fp, sep=sep, low_memory=False)
+        
+    chunk_size = 50000
+    sample_rate = max_rows / max(1, total_lines)
+    chunks = []
+    
+    try:
+        for chunk in pd.read_csv(fp, sep=sep, chunksize=chunk_size, low_memory=False):
+            target_n = int(round(len(chunk) * sample_rate))
+            if target_n > 0:
+                sampled_chunk = chunk.sample(n=min(len(chunk), target_n), random_state=42)
+                chunks.append(sampled_chunk)
+        if chunks:
+            df = pd.concat(chunks, ignore_index=True)
+            if len(df) > max_rows:
+                df = df.sample(n=max_rows, random_state=42).reset_index(drop=True)
+            return df
+        else:
+            return pd.read_csv(fp, sep=sep, nrows=max_rows)
+    except Exception:
+        try:
+            return pd.read_csv(fp, sep=sep, nrows=max_rows)
+        except Exception:
+            return pd.DataFrame()
+
+
+def match_column_key(col_key: str, dataset_name: str, column_name: str) -> bool:
+    col_key_parts = [p.strip().lower() for p in col_key.split(".")]
+    ds_parts = [p.strip().lower() for p in dataset_name.split(".")]
+    col_name = column_name.strip().lower()
+    
+    if not col_key_parts or not col_name:
+        return False
+        
+    if col_key_parts[-1] != col_name:
+        return False
+        
+    if len(col_key_parts) == 1:
+        return True
+        
+    prefix_parts = col_key_parts[:-1]
+    min_len = min(len(ds_parts), len(prefix_parts))
+    for idx in range(1, min_len + 1):
+        if ds_parts[-idx] != prefix_parts[-idx]:
+            return False
+            
+    return True
+
+
+def get_valid_values_for_column(
+    business_rules: Optional[Dict[str, Any]],
+    dataset_name: str,
+    column_name: str
+) -> Optional[List[str]]:
+    if not business_rules:
+        return None
+    vv = business_rules.get("valid_values")
+    if not vv or not isinstance(vv, dict):
+        return None
+    for col_key, vals in vv.items():
+        if match_column_key(col_key, dataset_name, column_name):
+            if isinstance(vals, list):
+                return vals
+            return [str(vals)]
+    return None
+
+
+def check_custom_assertions(df: pd.DataFrame, rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Evaluates custom/formula cross-column assertions.
+    Unlike check_formula_rules, this does not coerce columns to numeric automatically
+    unless they are already numeric, supporting string evaluations (e.g. col == 'IT').
+    """
+    issues = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        assertion = rule.get("assertion")
+        if not assertion:
+            continue
+        severity = str(rule.get("severity", "medium")).lower()
+        custom_msg = rule.get("message")
+        
+        try:
+            ref_cols = []
+            for col in df.columns:
+                pattern = r'\b' + re.escape(col) + r'\b'
+                if re.search(pattern, assertion):
+                    ref_cols.append(col)
+                    
+            if not ref_cols:
+                continue
+                
+            res = df.eval(assertion, engine='python')
+            
+            if isinstance(res, pd.Series):
+                viol_mask = ~res.fillna(False)
+                viol_cnt = int(viol_mask.sum())
+                if viol_cnt > 0:
+                    rows = df.index[viol_mask].tolist()
+                    msg = custom_msg or f"Custom rule violation: '{assertion}' ({viol_cnt} violations)"
+                    issues.append(dq_issue(
+                        severity,
+                        "custom_rule_violation",
+                        msg,
+                        column=",".join(ref_cols),
+                        count=viol_cnt,
+                        rows=rows,
+                        sample=df.loc[viol_mask, ref_cols].head(5).to_dict(orient="records")
+                    ))
+        except Exception as e:
+            issues.append(dq_issue(
+                "low",
+                "custom_rule_error",
+                f"Failed to evaluate custom assertion '{assertion}': {str(e)}"
+            ))
+    return issues
+
+
+def profile_database_table_full(
+    connector: Any,
+    table: str,
+    df_sample: pd.DataFrame,
+    job_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Run aggregate SELECT query in-place to profile 100% of database rows instead of downloading them.
+    Exclude text/blob columns. Cast bit to int.
+    """
+    from agent.jobs_store import add_event
+    if job_id:
+        add_event(job_id=job_id, level="info", message=f"Performing in-database profiling for table: {table}")
+        
+    try:
+        schema = connector.get_table_schema(table)
+    except Exception as e:
+        if job_id:
+            add_event(job_id=job_id, level="warning", message=f"Failed to get table schema for database profiling: {e}")
+        schema = [{"name": c, "type": "varchar", "nullable": "YES"} for c in df_sample.columns]
+
+    if not schema:
+        return {}
+
+    unsafe_types = {"text", "ntext", "image", "xml", "geography", "geometry", "varbinary", "binary"}
+    select_items = ["COUNT(*) AS [__total_rows__]"]
+    profiled_cols = []
+    
+    for col in schema:
+        col_name = col["name"]
+        col_type = str(col.get("type", "varchar")).lower()
+        if col_type in unsafe_types:
+            continue
+            
+        profiled_cols.append((col_name, col_type))
+        col_quoted = f"[{col_name}]"
+        
+        select_items.append(f"SUM(CASE WHEN {col_quoted} IS NULL THEN 1 ELSE 0 END) AS [{col_name}__null_cnt]")
+        select_items.append(f"COUNT(DISTINCT {col_quoted}) AS [{col_name}__distinct_cnt]")
+        
+        if col_type == "bit":
+            select_items.append(f"MIN(CAST({col_quoted} AS INT)) AS [{col_name}__min_val]")
+            select_items.append(f"MAX(CAST({col_quoted} AS INT)) AS [{col_name}__max_val]")
+        else:
+            select_items.append(f"MIN({col_quoted}) AS [{col_name}__min_val]")
+            select_items.append(f"MAX({col_quoted}) AS [{col_name}__max_val]")
+            
+    table_quoted = connector._quote_two_part_name(table)
+    sql = f"SELECT {', '.join(select_items)} FROM {table_quoted}"
+    
+    try:
+        res_df = connector.execute_select(sql)
+        if res_df.empty:
+            return {}
+        row_data = res_df.iloc[0].to_dict()
+    except Exception as e:
+        if job_id:
+            add_event(job_id=job_id, level="warning", message=f"In-database profiling SQL failed: {e}")
+        return {}
+        
+    total_rows = int(row_data.get("__total_rows__", 0))
+    db_profile = {
+        "row_count": total_rows,
+        "columns": {}
+    }
+    
+    for col_name, col_type in profiled_cols:
+        null_cnt = row_data.get(f"{col_name}__null_cnt")
+        distinct_cnt = row_data.get(f"{col_name}__distinct_cnt")
+        min_val = row_data.get(f"{col_name}__min_val")
+        max_val = row_data.get(f"{col_name}__max_val")
+        
+        try:
+            null_cnt = int(null_cnt) if null_cnt is not None else 0
+        except (ValueError, TypeError):
+            null_cnt = 0
+            
+        try:
+            distinct_cnt = int(distinct_cnt) if distinct_cnt is not None else 0
+        except (ValueError, TypeError):
+            distinct_cnt = 0
+            
+        null_pct = null_cnt / max(1, total_rows)
+        is_cpk = (null_cnt == 0 and distinct_cnt == total_rows and total_rows > 0)
+        
+        db_profile["columns"][col_name] = {
+            "null_count": null_cnt,
+            "null_percentage": null_pct,
+            "unique_count": distinct_cnt,
+            "min": min_val,
+            "max": max_val,
+            "candidate_primary_key": is_cpk
+        }
+        
+    return db_profile
+
+
+def merge_in_db_profile(sample_profile: Dict[str, Any], db_profile: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Overwrites statistical counts, bounds, and PK flags in the sample profile with full DB stats.
+    """
+    if not db_profile:
+        return sample_profile
+        
+    sample_profile["row_count"] = db_profile.get("row_count", sample_profile.get("row_count", 0))
+    sample_profile["sampling_info"] = f"Full dataset has {sample_profile['row_count']:,} rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows."
+    
+    db_cols = db_profile.get("columns") or {}
+    sample_cols = sample_profile.setdefault("columns", {})
+    
+    for col_name, db_col_info in db_cols.items():
+        if col_name not in sample_cols:
+            sample_cols[col_name] = {}
+        col_prof = sample_cols[col_name]
+        
+        col_prof["null_percentage"] = db_col_info.get("null_percentage", col_prof.get("null_percentage", 0.0))
+        col_prof["unique_count"] = db_col_info.get("unique_count", col_prof.get("unique_count", 0))
+        col_prof["candidate_primary_key"] = db_col_info.get("candidate_primary_key", col_prof.get("candidate_primary_key", False))
+        
+        if "min" in db_col_info:
+            col_prof["min"] = db_col_info["min"]
+        if "max" in db_col_info:
+            col_prof["max"] = db_col_info["max"]
+            
+        if "null_count" in db_col_info:
+            col_prof["null_count"] = db_col_info["null_count"]
+            
+    return sample_profile
+
+
+# ============================================================
 # DATA PROFILING (pandas dtypes + inference hint for object)
 # ============================================================
 
@@ -528,7 +841,10 @@ def _sql_location_key_prefix(loc: Dict[str, Any], conn: Dict[str, Any], db_index
 
 
 def load_sql_datasets(
-    connection_cfg: Dict[str, Any], dataset_key_prefix: str = "", max_rows: Optional[int] = None
+    connection_cfg: Dict[str, Any],
+    dataset_key_prefix: str = "",
+    max_rows: Optional[int] = None,
+    db_connectors_by_dataset: Optional[Dict[str, Tuple[Any, str]]] = None
 ) -> Dict[str, pd.DataFrame]:
     """
     Loads all discovered tables from Azure SQL using the provided connector configuration.
@@ -551,6 +867,8 @@ def load_sql_datasets(
             key = f"{p}{table}" if p else table
             try:
                 datasets[key] = connector.load_table(table, max_rows=max_rows)
+                if db_connectors_by_dataset is not None:
+                    db_connectors_by_dataset[key] = (connector, table)
             except Exception as e:
                 print(f"[ERROR] Failed to load table {table}: {e}")
     except Exception as e:
@@ -627,18 +945,40 @@ def _json_deep_flatten(data: Any) -> pd.DataFrame:
 
 def _load_json_to_df(path: str, max_rows: Optional[int] = None) -> pd.DataFrame:
     if path.lower().endswith(".jsonl"):
-        rows = []
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
+        if max_rows is not None:
+            import random
+            reservoir = []
+            count = 0
+            rng = random.Random(42)
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if len(reservoir) < max_rows:
+                        reservoir.append(line)
+                    else:
+                        j = rng.randint(0, count)
+                        if j < max_rows:
+                            reservoir[j] = line
+                    count += 1
+            rows = []
+            for line in reservoir:
                 try:
                     rows.append(json.loads(line))
                 except Exception:
                     rows.append({"value": line})
-                if max_rows and len(rows) >= int(max_rows):
-                    break
+        else:
+            rows = []
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        rows.append({"value": line})
         if not rows:
             return pd.DataFrame()
         return pd.json_normalize(rows, max_level=1)
@@ -712,9 +1052,9 @@ def load_file_datasets(path: str, max_rows: Optional[int] = None) -> Dict[str, p
         try:
             low = file.lower()
             if low.endswith(".csv"):
-                data[file] = pd.read_csv(fp, low_memory=False, nrows=max_rows)
+                data[file] = load_csv_sampled(fp, sep=",", max_rows=max_rows)
             elif low.endswith(".tsv"):
-                data[file] = pd.read_csv(fp, sep="\t", low_memory=False, nrows=max_rows)
+                data[file] = load_csv_sampled(fp, sep="\t", max_rows=max_rows)
             elif low.endswith(".json") or low.endswith(".jsonl"):
                 data[file] = _load_json_to_df(fp, max_rows=max_rows)
             elif low.endswith(".xml"):
@@ -1460,6 +1800,20 @@ def analyze_column(
     mixed_low = _get_threshold(thresholds, "mixed_types", "parse_rate_low", default=0.20)
     mixed_high = _get_threshold(thresholds, "mixed_types", "parse_rate_high", default=0.80)
 
+    # Load custom placeholders or use global default set
+    placeholders_list = thresholds.get("placeholders")
+    if placeholders_list is not None:
+        local_placeholders = set(str(p).lower() for p in placeholders_list)
+    else:
+        local_placeholders = PLACEHOLDERS
+        
+    # Load custom sentinels or use global default set
+    sentinels_list = thresholds.get("sentinels")
+    if sentinels_list is not None:
+        local_sentinels = set(float(s) for s in sentinels_list if s is not None)
+    else:
+        local_sentinels = SENTINEL_NUMBERS
+
     issues: List[Dict[str, Any]] = []
     n = len(series)
     
@@ -1477,7 +1831,7 @@ def analyze_column(
 
     # null/placeholder
     null_like_mask = s_stripped.isna() | s_stripped.astype(object).map(
-        lambda v: isinstance(v, str) and v.lower() in PLACEHOLDERS
+        lambda v: isinstance(v, str) and v.lower() in local_placeholders
     )
     null_cnt = int(null_like_mask.sum())
     if null_cnt > 0:
@@ -1954,7 +2308,7 @@ def analyze_column(
         if (not _is_text_dtype(s.dtype)) or (semantic in ("numeric_id",)):
             num_chk = pd.to_numeric(s_stripped, errors="coerce").dropna()
             if len(num_chk) > 0:
-                sentinel_mask = num_chk.apply(lambda v: float(v) in SENTINEL_NUMBERS)
+                sentinel_mask = num_chk.apply(lambda v: float(v) in local_sentinels)
                 sent_cnt = int(sentinel_mask.sum())
                 if sent_cnt > 0 and sent_cnt / max(len(num_chk), 1) > 0.01:
                     rows = num_chk.index[sentinel_mask].tolist()
@@ -2139,7 +2493,7 @@ def run_extended_dq_checks(
         s_str = s_eff.astype(str).str.strip() if _is_text_dtype(s_eff.dtype) else s_eff
         num = pd.to_numeric(s_str, errors="coerce")
         parse_ok = int(num.notna().sum())
-        if parse_ok >= max(10, int(0.85 * non_null)):
+        if parse_ok >= max(10, int(0.85 * non_null)) and _is_actual_numeric_column(col):
             v = num.dropna()
             if len(v) > max_heavy:
                 v = v.sample(max_heavy, random_state=42)
@@ -2325,7 +2679,7 @@ def run_extended_dq_checks(
             semantic = (meta.get("semantic_type") or "unknown").lower()
 
             # Z-Score outliers (> 4 std deviations)
-            if parse_ok >= max(10, int(0.85 * non_null)):
+            if parse_ok >= max(10, int(0.85 * non_null)) and _is_actual_numeric_column(col):
                 v = num.dropna()
                 if len(v) >= 10:
                     try:
@@ -2347,7 +2701,7 @@ def run_extended_dq_checks(
                         pass
 
             # Round number anomaly: >30% of values are multiples of 1000 (or 100 for smaller values)
-            if parse_ok >= max(10, int(0.85 * non_null)):
+            if parse_ok >= max(10, int(0.85 * non_null)) and _is_actual_numeric_column(col):
                 v = num.dropna()
                 if len(v) >= 20:
                     try:
@@ -2524,17 +2878,51 @@ def run_extended_dq_checks(
             threshold = float(nd_cfg.get("threshold", 0.92)) * 100
             near_dups = []
             
-            # Limit scan to prevent CPU lockup
-            scan_limit = min(len(row_strings), 1500)
-            for i in range(scan_limit):
-                for j in range(i + 1, scan_limit):
-                    ratio = fuzz.token_sort_ratio(row_strings[i], row_strings[j])
-                    if ratio >= threshold:
-                        near_dups.append((row_indices[i], row_indices[j], ratio / 100.0))
+            # If the dataset is small, do full comparison
+            if len(row_strings) <= 300:
+                for i in range(len(row_strings)):
+                    for j in range(i + 1, len(row_strings)):
+                        ratio = fuzz.token_sort_ratio(row_strings[i], row_strings[j])
+                        if ratio >= threshold:
+                            near_dups.append((row_indices[i], row_indices[j], ratio / 100.0))
+            else:
+                # Group by blocking keys (first two chars of first two significant words)
+                buckets = {}
+                for idx, r_str in enumerate(row_strings):
+                    words = [w for w in re.findall(r'\w+', r_str.lower()) if len(w) > 2]
+                    keys = set()
+                    if len(words) >= 1:
+                        keys.add(words[0][:2])
+                    if len(words) >= 2:
+                        keys.add(words[1][:2])
+                    if not keys:
+                        keys.add(f"len_{len(r_str) // 10}")
+                        
+                    for key in keys:
+                        buckets.setdefault(key, []).append(idx)
+                
+                # Pairwise comparison only within buckets
+                compared_pairs = set()
+                for key, idx_list in buckets.items():
+                    if len(idx_list) < 2:
+                        continue
+                    bucket_limit = min(len(idx_list), 200)
+                    for i in range(bucket_limit):
+                        for j in range(i + 1, bucket_limit):
+                            ii, jj = idx_list[i], idx_list[j]
+                            pair = (min(ii, jj), max(ii, jj))
+                            if pair in compared_pairs:
+                                continue
+                            compared_pairs.add(pair)
+                            
+                            ratio = fuzz.token_sort_ratio(row_strings[ii], row_strings[jj])
+                            if ratio >= threshold:
+                                near_dups.append((row_indices[ii], row_indices[jj], ratio / 100.0))
                         
             if len(near_dups) > 0:
                 issues.append(dq_issue("medium", "near_duplicate_rows",
                                        f"Found {len(near_dups)} pair(s) of near-duplicate rows with string similarity >= {threshold/100:.2f}",
+                                       column="[Row-level]",
                                        count=len(near_dups),
                                        sample=[{"row_index_a": int(a), "row_index_b": int(b), "similarity": float(s)}
                                                for a, b, s in near_dups[:10]]))
@@ -2561,6 +2949,7 @@ def run_extended_dq_checks(
                     if len(outliers) > 0:
                         issues.append(dq_issue("medium", "multivariate_outliers",
                                                f"Detected {len(outliers)} multivariate outlier(s) using IsolationForest (contamination={contamination})",
+                                               column="[Row-level]",
                                                count=len(outliers),
                                                rows=outliers.index.tolist()[:50],
                                                sample=outliers.head(5).to_dict(orient="records")))
@@ -2574,9 +2963,22 @@ def run_extended_dq_checks(
     if len(id_cols) >= 2:
         for col_pk in id_cols:
             if df[col_pk].dropna().is_unique and df[col_pk].notna().any():
+                pk_lower = col_pk.lower()
+                # Extract PK base name: e.g. "order" from "OrderID" or "order_id"
+                pk_base = pk_lower[:-2].strip("_")
                 for col_fk in id_cols:
                     if col_fk == col_pk:
                         continue
+                    
+                    fk_lower = col_fk.lower()
+                    
+                    # Smart self-referencing check:
+                    # If PK is order_id and FK is customer_id, they are different entities and not hierarchical.
+                    # We only check if fk contains pk_base (e.g., parent_order_id) or known hierarchy keywords.
+                    is_hierarchical = any(w in fk_lower for w in ["parent", "manager", "prev", "next", "reports", "sub", "master", "hierarchy", "ancestor", "descendant"])
+                    if pk_base and pk_base not in fk_lower and not is_hierarchical:
+                        continue
+                        
                     fk_vals = df[col_fk].dropna()
                     if len(fk_vals) > 0:
                         pk_vals = set(df[col_pk].dropna())
@@ -2843,12 +3245,78 @@ def check_conditional_rules(df: pd.DataFrame, rules: List[Dict[str, Any]], ds_na
     return issues
 
 
+def check_formula_rules(df: pd.DataFrame, rules: List[Dict[str, Any]], issue_type: str = "formula_rule_violation") -> List[Dict[str, Any]]:
+    """
+    Evaluates multi-column math/logical formula assertions from dq_thresholds.yaml (`formula_rules`).
+    """
+    issues = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        assertion = rule.get("assertion")
+        if not assertion:
+            continue
+        severity = str(rule.get("severity", "medium")).lower()
+        custom_msg = rule.get("message")
+        
+        try:
+            # Find which columns are in the assertion using word-boundary regex
+            ref_cols = []
+            for col in df.columns:
+                pattern = r'\b' + re.escape(col) + r'\b'
+                if re.search(pattern, assertion):
+                    ref_cols.append(col)
+                    
+            if not ref_cols:
+                continue
+                
+            # Create evaluation dataframe where referenced columns are coerced to numeric
+            eval_df = pd.DataFrame(index=df.index)
+            valid_rows = pd.Series(True, index=df.index)
+            
+            for col in ref_cols:
+                eval_df[col] = pd.to_numeric(df[col], errors='coerce')
+                valid_rows &= eval_df[col].notna()
+                
+            if not valid_rows.any():
+                continue
+                
+            # Evaluate assertion on valid rows
+            res = eval_df.eval(assertion)
+            
+            # Mask of violations (valid rows where assertion evaluated to False or nan)
+            viol_mask = valid_rows & (~res.fillna(False))
+            viol_cnt = int(viol_mask.sum())
+            
+            if viol_cnt > 0:
+                rows = df.index[viol_mask].tolist()
+                msg = custom_msg or f"Formula assertion failed: '{assertion}' ({viol_cnt} violations)"
+                issues.append(dq_issue(
+                    severity,
+                    issue_type,
+                    msg,
+                    column=",".join(ref_cols),
+                    count=viol_cnt,
+                    rows=rows,
+                    sample=df.loc[viol_mask, ref_cols].head(5).to_dict(orient="records")
+                ))
+        except Exception as e:
+            issues.append(dq_issue(
+                "low",
+                "formula_rule_error",
+                f"Failed to evaluate formula '{assertion}': {str(e)}"
+            ))
+            
+    return issues
+
+
 def analyze_dataset_quality(
     name: str,
     df: pd.DataFrame,
     profile: Dict[str, Any],
     thresholds: Optional[Dict[str, Any]] = None,
     job_id: Optional[str] = None,
+    business_rules: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Return a dict with dataset-level issues + summary (uses config-driven thresholds for duplicate severity).
@@ -2872,7 +3340,7 @@ def analyze_dataset_quality(
         sev = "high" if ratio > dup_pct_high else ("medium" if ratio > dup_pct_warn else "low")
         rows = df.index[dup_mask].tolist()
         issues.append(dq_issue(sev, "duplicate_rows", f"{dup_rows} duplicate row(s)",
-                               count=dup_rows, rows=rows))
+                               column="[Row-level]", count=dup_rows, rows=rows))
 
     # Parallelized column-level DQ checks
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -2916,6 +3384,63 @@ def analyze_dataset_quality(
         for ci in cond_iss:
             enrich_issue_with_fixability(ci)
         issues.extend(cond_iss)
+
+    formula_rules = (thresholds or {}).get("formula_rules") or []
+    if formula_rules:
+        form_iss = check_formula_rules(df, formula_rules)
+        for fi in form_iss:
+            enrich_issue_with_fixability(fi)
+        issues.extend(form_iss)
+
+    if business_rules:
+        # 1. Valid values validation
+        for col in df.columns:
+            vv = get_valid_values_for_column(business_rules, name, col)
+            if vv is not None:
+                lower_vv = {str(v).lower() for v in vv}
+                col_values_lower = df[col].astype(str).str.lower()
+                invalid_mask = df[col].notna() & (~col_values_lower.isin(lower_vv))
+                invalid_cnt = int(invalid_mask.sum())
+                if invalid_cnt > 0:
+                    rows = df.index[invalid_mask].tolist()
+                    sample = df.loc[invalid_mask, col].head(5).tolist()
+                    iss = dq_issue(
+                        "high",
+                        "invalid_lookup_value",
+                        f"Value not in allowed lookup list for {col} ({invalid_cnt} invalid value(s))",
+                        column=col,
+                        count=invalid_cnt,
+                        rows=rows,
+                        sample=[str(v) for v in sample]
+                    )
+                    enrich_issue_with_fixability(iss)
+                    issues.append(iss)
+
+        # 2. Custom assertions validation
+        rules_list = []
+        if isinstance(business_rules, dict):
+            rules_list.extend(business_rules.get("custom_assertions") or [])
+            rules_list.extend(business_rules.get("assertions") or [])
+        
+        seen_assertions = set()
+        deduped_rules = []
+        for r in rules_list:
+            if isinstance(r, dict) and r.get("assertion"):
+                ast = r.get("assertion")
+                if ast not in seen_assertions:
+                    seen_assertions.add(ast)
+                    deduped_rules.append(r)
+        
+        if deduped_rules:
+            custom_iss = check_custom_assertions(df, deduped_rules)
+            for ci in custom_iss:
+                enrich_issue_with_fixability(ci)
+            issues.extend(custom_iss)
+
+    # Filter out suppressed rules
+    suppressed = (thresholds or {}).get("suppressed_rules") or []
+    if suppressed:
+        issues = [it for it in issues if it.get("type") not in suppressed]
 
     # DQ score (0-100) and clean row estimates
     try:
@@ -3282,7 +3807,8 @@ def load_and_profile(
     location_types: Optional[Collection[str]] = None,
     job_id: Optional[str] = None,
     max_rows: Optional[int] = None,
-    gx_enabled: bool = False,
+    business_rules: Optional[Dict[str, Any]] = None,
+    db_connectors: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Orchestrator:
@@ -3296,16 +3822,21 @@ def load_and_profile(
       If set, only those location blocks are loaded from YAML. Blob data still comes only via additional_data
       (caller should pass {} when blob is excluded). If None, all location types are processed.
     """
-    if gx_enabled:
-        import logging
-        logging.getLogger(__name__).info("Great Expectations (GX) audit layer ENABLED for this run.")
-
     thresholds = dq_thresholds
     if thresholds is None:
         thresholds = load_dq_thresholds(dq_thresholds_path)
 
     datasets: Dict[str, pd.DataFrame] = {}
     source_root_by_dataset: Dict[str, str] = {}
+
+    db_connectors_by_dataset: Dict[str, Tuple[Any, str]] = {}
+    if db_connectors:
+        for k, v in db_connectors.items():
+            if isinstance(v, tuple) and len(v) == 2:
+                db_connectors_by_dataset[k] = v
+            else:
+                table_name = k.split("__")[-1]
+                db_connectors_by_dataset[k] = (v, table_name)
 
     locations = list(source_cfg.get("locations", []) or [])
     if location_types is not None:
@@ -3322,7 +3853,9 @@ def load_and_profile(
             conn = loc.get("connection", {}) or {}
             prefix = _sql_location_key_prefix(loc, conn, db_seen, multi_db)
             label = (prefix.rstrip("_") if prefix else "") or "__default__"
-            for table_key, df in load_sql_datasets(conn, dataset_key_prefix=prefix, max_rows=max_rows).items():
+            for table_key, df in load_sql_datasets(
+                conn, dataset_key_prefix=prefix, max_rows=max_rows, db_connectors_by_dataset=db_connectors_by_dataset
+            ).items():
                 datasets[table_key] = df
                 source_root_by_dataset[table_key] = (
                     f"__database__:{label}" if multi_db else "__database__"
@@ -3357,15 +3890,41 @@ def load_and_profile(
             from agent.jobs_store import add_event
             add_event(job_id=job_id, level="info", message=f"Profiling dataset: {name}")
         meta = profile_dataframe(df, job_id=job_id)
+        try:
+            from agent.specialists.ydata_profiler import enrich_assessment_with_profile
+            meta = enrich_assessment_with_profile(df, meta)
+        except Exception:
+            pass # ydata-profiling optional — graceful skip
+            
+        if name in db_connectors_by_dataset:
+            connector, table = db_connectors_by_dataset[name]
+            try:
+                db_prof = profile_database_table_full(connector, table, df, job_id=job_id)
+                meta = merge_in_db_profile(meta, db_prof)
+            except Exception as e:
+                if job_id:
+                    from agent.jobs_store import add_event
+                    add_event(job_id=job_id, level="warning", message=f"Full database profiling failed for {name}: {e}")
+                    
         meta["source_root"] = source_root_by_dataset.get(name, "")
         metadata[name] = meta
+
+    if len(datasets) >= 2:
+        try:
+            from agent.specialists.cross_dataset_agent import generate_sweetviz_comparison
+            names = list(datasets.keys())
+            generate_sweetviz_comparison(
+                datasets[names[0]], datasets[names[1]], names[0], names[1]
+            )
+        except Exception:
+            pass
 
     per_dataset_dq = {}
     for name, df in datasets.items():
         if job_id:
             from agent.jobs_store import add_event
             add_event(job_id=job_id, level="info", message=f"Analyzing data quality: {name}")
-        per_dataset_dq[name] = analyze_dataset_quality(name, df, metadata[name], thresholds, job_id=job_id)
+        per_dataset_dq[name] = analyze_dataset_quality(name, df, metadata[name], thresholds, job_id=job_id, business_rules=business_rules)
         metadata[name]["quality"] = per_dataset_dq[name]
         if job_id:
             add_event(job_id=job_id, level="info", message=f"Quality check complete for {name}")
@@ -3445,19 +4004,5 @@ def load_and_profile(
     }
     if return_datasets:
         out["_datasets"] = datasets
-
-    if gx_enabled:
-        out["gx_results"] = {} # Default for UI
-        try:
-            from agent.specialists.gx_validation_specialist import run_gx_validation
-            if job_id:
-                from agent.jobs_store import add_event
-                add_event(job_id=job_id, level="info", message="Running Great Expectations (GX) deep audit...")
-            out["gx_results"] = run_gx_validation(datasets, out)
-        except Exception as e:
-            if job_id:
-                from agent.jobs_store import add_event
-                add_event(job_id=job_id, level="error", message=f"GX Audit failed: {e}")
-            out["gx_results"] = {"error": str(e), "success": False}
 
     return out

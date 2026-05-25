@@ -105,7 +105,23 @@ dq_score:
 #     params: {}
 
 # Cross-column conditional business rules (after standard DQ checks). Default: none enabled.
-conditional_rules: []
+conditional_rules:
+  - type: conditional_not_null
+    when_column: status
+    when_value: "shipped"
+    then_column: ship_date
+    severity: high
+  - type: conditional_not_null
+    when_column: status
+    when_value: "closed"
+    then_column: closed_date
+    severity: medium
+  - type: mutual_exclusion
+    columns: [refund_amount, discount_amount]
+    severity: high
+  - type: at_least_one
+    columns: [email, phone, address]
+    severity: medium
 
 # Functional dependency rules
 functional_dependencies: []
@@ -125,25 +141,95 @@ multivariate_outliers:
 date_checks:
   check_ordering: true
   flag_ambiguous_format: true
-#
-# conditional_rules:
-#   - type: conditional_not_null
-#     when_column: status
-#     when_value: "shipped"
-#     then_column: ship_date
-#     severity: high
-#
-#   - type: conditional_format
-#     when_column: country
-#     when_value: "IN"
-#     then_column: phone
-#     then_regex: '^[6-9]\\d{9}$'
-#     severity: medium
-#
-#   - type: mutual_exclusion
-#     columns: [refund_amount, discount_amount]
-#     severity: high
-#
-#   - type: at_least_one
-#     columns: [email, phone, address]
-#     severity: medium
+
+# Custom placeholders for detection (e.g. text patterns indicating nulls/missing data)
+placeholders:
+  - ""
+  - " "
+  - "-"
+  - "--"
+  - "---"
+  - "n/a"
+  - "na"
+  - "none"
+  - "null"
+  - "nil"
+  - "unknown"
+  - "not available"
+  - "missing"
+  - "undefined"
+  - "not applicable"
+  - "tbd"
+  - "tba"
+  - "n.a."
+  - "n.a"
+  - "#n/a"
+  - "#null!"
+  - "error"
+  - "nan"
+  - "inf"
+  - "-inf"
+  - "0000-00-00"
+  - "1900-01-01"
+  - "9999-12-31"
+  - "00"
+  - "000"
+  - "0000"
+  - "?"
+  - "??"
+  - "???"
+  - "!"
+  - "temp"
+  - "test"
+  - "dummy"
+  - "placeholder"
+  - "not set"
+
+# Custom sentinel values for detection (e.g. magic/sentinel numeric codes)
+sentinels:
+  - -999
+  - -9999
+  - -99999
+  - -999999
+  - -9999999
+  - 999
+  - 9999
+  - 99999
+  - 999999
+  - 9999999
+  - -1
+  - -99
+  - -100
+  - -1000
+  - 0.0
+  - -0.0
+  - 1111
+  - 1234
+  - 12345
+  - 123456
+  - 1234567
+  - 9876
+  - 98765
+  - 9876543
+  - 11111
+  - 22222
+  - 33333
+  - 44444
+  - 55555
+  - 66666
+  - 77777
+  - 88888
+
+# Anomaly checks to suppress (e.g. features which are expected in the dataset context)
+suppressed_rules:
+  - "weekend_date_anomaly"
+  - "round_number_anomaly"
+
+# Multi-column math/logical formula assertions
+formula_rules:
+  - assertion: "TotalAmount >= 0"
+    severity: "high"
+    message: "TotalAmount must be non-negative."
+  - assertion: "OrderAmount >= 0"
+    severity: "high"
+    message: "OrderAmount must be non-negative."

@@ -80,7 +80,6 @@ class AssessPayload(BaseModel):
     - requirements: optional structured requirement object (will be serialized into user_request for now)
     - sources_path: optional override; defaults to MCP_SOURCES_PATH or config/sources.yaml
     - do_transform: optional hint (future)
-    - gx_enabled: optional flag for Great Expectations usage
     """
 
     sources: Optional[List[str]] = None
@@ -88,13 +87,11 @@ class AssessPayload(BaseModel):
     requirements: Optional[Dict[str, Any]] = None
     sources_path: Optional[str] = None
     do_transform: Optional[bool] = None
-    gx_enabled: Optional[bool] = False
 
 
 class ChatPayload(BaseModel):
     session_id: Optional[str] = "default"
     message: str
-    gx_enabled: Optional[bool] = False
 
 
 class SessionContextPayload(BaseModel):
@@ -132,7 +129,6 @@ class EtlGeneratePayload(BaseModel):
     engine: Optional[str] = "python"
     sql_dialect: Optional[str] = "tsql"
     codegen_mode: Optional[str] = None  # template | llm | llm_then_template
-    run_gx_on_generate: Optional[bool] = None
 
 
 setup_logging()
@@ -390,7 +386,6 @@ def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
         sources_path=sources_path,
         selected_sources=selected_sources,
         request_id=getattr(getattr(request, "state", None), "request_id", "") or "",
-        gx_enabled=payload.gx_enabled or False,
     )
     return {"ok": True, "result": result}
 
@@ -403,7 +398,7 @@ def api_chat(payload: ChatPayload) -> Dict[str, Any]:
     from agent.chat_graph import run_chat
 
     sid = (payload.session_id or "default").strip() or "default"
-    out = run_chat(session_id=sid, message=payload.message, gx_enabled=payload.gx_enabled or False)
+    out = run_chat(session_id=sid, message=payload.message)
     try:
         logger.info(
             "chat_routed",
@@ -479,21 +474,6 @@ def api_etl_tenants() -> Dict[str, Any]:
     return etl_list_tenants()
 
 
-class EtlGxCheckpointPayload(BaseModel):
-    session_id: str = "default"
-    run_gx_if_available: Optional[bool] = True
-
-
-@app.post("/etl/gx-checkpoint")
-def api_etl_gx_checkpoint(payload: EtlGxCheckpointPayload) -> Dict[str, Any]:
-    from agent.etl_handlers import etl_run_gx_checkpoint
-
-    return etl_run_gx_checkpoint(
-        payload.session_id,
-        run_gx_if_available=bool(payload.run_gx_if_available),
-    )
-
-
 @app.post("/etl/apply-manual-resolutions")
 def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) -> Dict[str, Any]:
     """Promote user-selected manual review resolutions into plan steps."""
@@ -524,7 +504,6 @@ def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
         engine=payload.engine or "python",
         sql_dialect=payload.sql_dialect or "tsql",
         codegen_mode=payload.codegen_mode,
-        run_gx_on_generate=payload.run_gx_on_generate,
     )
     if not result.get("ok") and result.get("http_status") == 409:
         raise HTTPException(status_code=409, detail=result)

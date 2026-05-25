@@ -51,12 +51,33 @@ def normalize_business_rules(raw: Any) -> Dict[str, Any]:
         line for line in str(notes_raw).strip().splitlines() if line.strip()
     ) if notes_raw else ""
 
+    assertions_raw = raw.get("custom_assertions") or raw.get("customAssertions") or raw.get("assertions") or []
+    if not isinstance(assertions_raw, list):
+        assertions_raw = [assertions_raw] if assertions_raw else []
+    
+    normalized_assertions = []
+    for entry in assertions_raw:
+        if isinstance(entry, dict) and entry.get("assertion"):
+            normalized_assertions.append({
+                "assertion": str(entry["assertion"]).strip(),
+                "severity": str(entry.get("severity") or "medium").strip().lower(),
+                "message": str(entry.get("message") or "").strip()
+            })
+        elif isinstance(entry, str) and entry.strip():
+            normalized_assertions.append({
+                "assertion": entry.strip(),
+                "severity": "medium",
+                "message": ""
+            })
+
     return {
         "never_drop_rows": _bool(raw.get("never_drop_rows") or raw.get("neverDropRows"), False),
+        "auto_resolve_pending": _bool(raw.get("auto_resolve_pending") or raw.get("autoResolvePending"), False),
         "required_columns": req,
         "non_nullable": nn,
         "exclude_columns": sorted(set(excl)),
         "valid_values": {str(k): list(v) if isinstance(v, list) else [str(v)] for k, v in vv.items()},
+        "custom_assertions": normalized_assertions,
         "outlier_strategy": str(raw.get("outlier_strategy") or raw.get("outlierStrategy") or "flag").lower(),
         "notes": notes,
     }

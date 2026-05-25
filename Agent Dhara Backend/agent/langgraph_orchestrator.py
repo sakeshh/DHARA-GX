@@ -47,7 +47,6 @@ class OrchestratorState(TypedDict, total=False):
     stream_records: List[Dict[str, Any]]
     stream_name: str
     job_id: str
-    gx_enabled: bool
 
     # Derived / intermediate
     plan: Dict[str, Any]
@@ -100,7 +99,6 @@ async def _node_extract_async(state: OrchestratorState) -> OrchestratorState:
         stream_records=state.get("stream_records"),
         stream_name=state.get("stream_name") or "stream",
         job_id=state.get("job_id"),
-        gx_enabled=state.get("gx_enabled", False),
     )
 
     # Normalize to JSON-serializable output (no dataclasses)
@@ -262,7 +260,6 @@ def run_orchestrator(
     stream_name: str = "stream",
     request_id: str = "",
     job_id: str = "",
-    gx_enabled: bool = False,
 ) -> Dict[str, Any]:
     """
     High-level convenience wrapper.
@@ -277,7 +274,6 @@ def run_orchestrator(
             "stream_name": stream_name,
             "request_id": request_id or "",
             "job_id": job_id or "",
-            "gx_enabled": gx_enabled,
             "timings": {},
         }
     )

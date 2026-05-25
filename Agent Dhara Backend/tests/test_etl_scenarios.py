@@ -15,7 +15,6 @@ from tests.fixtures.blob_pair_assessment import blob_session_context, make_blob_
 from agent.etl_handlers import _rehydrate_plan, _template_fallback
 from agent.etl_pipeline.business_rules import normalize_business_rules
 from agent.etl_pipeline.connector_manifest import build_connector_manifest
-from agent.etl_pipeline.etl_gx_checkpoint import _expectations_from_plan
 from agent.etl_pipeline.planner import build_etl_plan
 from agent.etl_pipeline.preview_impact import build_impact_preview
 from agent.etl_pipeline.source_context import build_source_context
@@ -312,23 +311,7 @@ class TestEtlScenarios(unittest.TestCase):
         self.assertIn("run_joins", code)
         self.assertIn("load_all_datasets", code)
 
-    # ── Scenario 13: GX expectations ────────────────────────────────────────
 
-    def test_scenario_13_gx_expectations_for_transformed_columns(self) -> None:
-        plan, rules = _build_plan(
-            self.assess,
-            {"never_drop_rows": True, "required_columns": ["id", "name"]},
-        )
-        exps = _expectations_from_plan(plan, self.assess, rules)
-        types = {e.get("type") for e in exps}
-        self.assertIn("expect_column_to_exist", types)
-        cols_mentioned = " ".join(
-            str(e.get("column") or "") + str(e.get("detail") or "") for e in exps
-        )
-        self.assertTrue(
-            "name" in cols_mentioned or "department" in cols_mentioned,
-            "expected expectations referencing transformed columns",
-        )
 
     # ── Scenario 14: guidance snippets vs full plan ─────────────────────────
 

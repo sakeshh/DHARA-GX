@@ -16,13 +16,31 @@ from agent.etl_pipeline.manual_review_catalog import (
 _ACTION_PRIORITY: Dict[str, int] = {
     "trim": 5,
     "lowercase": 8,
+    "uppercase": 8,
+    "fill_or_drop": 20,
+    "fill_nulls_simple": 20,
+    "zero_to_null": 30,
+    "cast_type": 35,
+    "coerce_numeric": 40,
+    "parse_dates": 45,
+    "at_least_one": 46,
+    "nullify_future_dates": 48,
+    "sanitize_email": 50,
+    "normalize_phone": 55,
     "hash_phone": 56,
     "mask_phone": 57,
+    "regex_replace": 60,
+    "range_clip": 65,
+    "clip_or_flag": 65,
+    "flag_outliers": 65,
+    "clip_outliers": 65,
+    "cap_outliers": 65,
+    "standardize_boolean": 70,
+    "replace_values": 75,
     "drop_column": 85,
     "exclude_column": 86,
-    "nullify_future_dates": 48,
-    "flag_outliers": 65,
     "deduplicate": 200,
+    "validate_referential_integrity_or_stage": 300,
     "noop": 999,
 }
 
@@ -86,7 +104,7 @@ def apply_manual_resolutions(
             continue
 
         issue_type = str(item.get("issue_type") or "")
-        action = action_for_resolution(issue_type, rid)
+        action = action_for_resolution(issue_type, rid, item.get("resolution_options"))
         if not action:
             errs.append(f"No action for resolution '{rid}' on issue '{issue_type}'")
             continue

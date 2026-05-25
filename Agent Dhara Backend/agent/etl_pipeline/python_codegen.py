@@ -179,8 +179,22 @@ def _emit_deduplicate_col(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str
     return [f"{ds_var} = {ds_var}.drop_duplicates(subset=[{_col_expr(col)}], keep='first')"]
 
 
-def _emit_zero_to_null(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
-    return [f"{ds_var}[{_col_expr(col)}] = {ds_var}[{_col_expr(col)}].replace(0, pd.NA)"]
+def _emit_zero_to_null(col: str, ds_var: str, params: Dict[str, Any]) -> List[str]:
+    c = _col_expr(col)
+    replace_vals = params.get("replace_values") or ["0", "-999", "999999", "9999999", "###"]
+    numeric_vals = []
+    for v in replace_vals:
+        try:
+            numeric_vals.append(float(v))
+            if float(v).is_integer():
+                numeric_vals.append(int(v))
+        except ValueError:
+            pass
+    all_replace = list(set(replace_vals + numeric_vals))
+    return [
+        f"# Nullify zero, sentinel, or punctuation placeholder values",
+        f"{ds_var}[{c}] = {ds_var}[{c}].replace({repr(all_replace)}, pd.NA)"
+    ]
 
 
 def _emit_range_clip(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
@@ -225,6 +239,17 @@ def _emit_ri(col: str, ds_var: str, p: Dict[str, Any]) -> List[str]:
     ]
 
 
+def _emit_at_least_one(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
+    cols_split = [c.strip() for c in col.split(",")]
+    return [
+        f"# Ensure at least one of {cols_split} is non-null",
+        f"_mask = {ds_var}[{cols_split!r}].isna().all(axis=1)",
+        f"if _mask.any():",
+        f"    logging.warning(f'Quarantining {{_mask.sum()}} rows where all of {cols_split} are null')",
+        f"    {ds_var} = {ds_var}[~_mask]",
+    ]
+
+
 def _emit_unsupported(action: str, col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
     return [f"# Unsupported in codegen v1: {action} ({col})"]
 
@@ -261,6 +286,7 @@ _ACTION_REGISTRY: Dict[str, Callable[[str, str, Dict[str, Any]], List[str]]] = {
     "nullify_future_dates": _emit_nullify_future_dates,
     "noop": _emit_noop,
     "validate_referential_integrity_or_stage": _emit_ri,
+    "at_least_one": _emit_at_least_one,
 }
 
 
@@ -272,7 +298,7 @@ def _emit_step(
 ) -> List[str]:
     params = step_params(step_meta)
     act = (action or "").lower()
-    if not col:
+    if not col or str(col).lower() in ("row-level", "[row-level]"):
         if act == "deduplicate":
             return _emit_deduplicate_ds(ds_var)
         return []
