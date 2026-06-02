@@ -43,8 +43,8 @@ from agent.etl_pipeline.agentic_rules import analyze_agentic_intent
 logger = logging.getLogger("agent.etl")
 
 
-def _collect_etl_preview_datasets(ctx: Dict[str, Any], assess: Dict[str, Any]) -> Dict[str, Any]:
-    """Return dataset name -> DataFrame for optional DuckDB preview (session or assessment)."""
+def _collect_etl_preview_datasets(ctx: Dict[str, Any], assess: Dict[str, Any]) -> tuple[Dict[str, Any], str]:
+    """Return (dataset name -> DataFrame, debug_msg) for optional DuckDB preview (session or assessment)."""
     import pandas as pd
 
     out: Dict[str, Any] = {}
@@ -54,7 +54,7 @@ def _collect_etl_preview_datasets(ctx: Dict[str, Any], assess: Dict[str, Any]) -
             if isinstance(v, pd.DataFrame):
                 out[str(k)] = v
     if out:
-        return out
+        return out, "loaded from ctx.etl_preview_datasets"
     ep = assess.get("etl_preview_input") if isinstance(assess, dict) else None
     if isinstance(ep, dict):
         d = ep.get("datasets")
@@ -62,7 +62,123 @@ def _collect_etl_preview_datasets(ctx: Dict[str, Any], assess: Dict[str, Any]) -
             for k, v in d.items():
                 if isinstance(v, pd.DataFrame):
                     out[str(k)] = v
-    return out
+    if out:
+        return out, "loaded from assess.etl_preview_input"
+
+    debug_parts = []
+    # Dynamic loading fallback if not already in memory
+    if assess and isinstance(assess, dict) and assess.get("datasets"):
+        import os
+        import json
+        from agent.master_agent import load_sources_config
+
+        selected = list((assess.get("datasets") or {}).keys())
+        sources_path = ctx.get("sources_path") or "config/sources.yaml"
+        debug_parts.append(f"sources_path={sources_path}")
+        debug_parts.append(f"selected={selected}")
+        
+        try:
+            source_root = load_sources_config(sources_path)
+            debug_parts.append(f"locations={len(source_root.get('locations', []))}")
+        except Exception as exc:
+            source_root = {}
+            debug_parts.append(f"config_err={exc}")
+        
+        try:
+            max_rows = int(os.getenv("DHARA_DUCKDB_SAMPLE_ROWS", "5000"))
+        except ValueError:
+            max_rows = 5000
+
+        locations = source_root.get("locations") or []
+        for loc in locations:
+            typ = str(loc.get("type") or "").lower()
+            if typ == "database":
+                conn_cfg = loc.get("connection", {}) or {}
+                try:
+                    from connectors.azure_sql_pythonnet import AzureSQLPythonNetConnector
+                    conn = AzureSQLPythonNetConnector(conn_cfg)
+                    discovered = conn.discover_tables()
+                    for t in selected:
+                        try:
+                            # Database tables might have prefixes or be exact match
+                            if t in discovered:
+                                out[t] = conn.load_table(t, max_rows=max_rows)
+                                debug_parts.append(f"loaded_db_{t}")
+                            else:
+                                # Try stripping prefix
+                                matched = False
+                                for real_t in discovered:
+                                    if t.endswith(real_t):
+                                        out[t] = conn.load_table(real_t, max_rows=max_rows)
+                                        debug_parts.append(f"loaded_db_suffix_{t}")
+                                        matched = True
+                                        break
+                                if not matched:
+                                    debug_parts.append(f"db_no_match_{t}")
+                        except Exception as tbl_err:
+                            debug_parts.append(f"db_tbl_err_{t}={tbl_err}")
+                except Exception as db_err:
+                    debug_parts.append(f"db_conn_err={db_err}")
+            elif typ == "filesystem":
+                fp = loc.get("path")
+                if fp and os.path.isdir(fp):
+                    for t in selected:
+                        p = os.path.join(fp, t)
+                        if os.path.isfile(p):
+                            low = p.lower()
+                            try:
+                                if low.endswith(".csv"):
+                                    out[t] = pd.read_csv(p, nrows=max_rows, low_memory=False)
+                                elif low.endswith(".tsv"):
+                                    out[t] = pd.read_csv(p, sep="\t", nrows=max_rows, low_memory=False)
+                                elif low.endswith(".jsonl"):
+                                    rows = []
+                                    with open(p, "r", encoding="utf-8") as f:
+                                        for line in f:
+                                            line = line.strip()
+                                            if not line:
+                                                continue
+                                            try:
+                                                rows.append(json.loads(line))
+                                            except Exception:
+                                                pass
+                                            if len(rows) >= max_rows:
+                                                break
+                                    out[t] = pd.json_normalize(rows, max_level=1) if rows else pd.DataFrame()
+                                elif low.endswith((".xlsx", ".xls")):
+                                    out[t] = pd.read_excel(p, nrows=max_rows)
+                                elif low.endswith(".parquet"):
+                                    out[t] = pd.read_parquet(p).head(max_rows)
+                                debug_parts.append(f"loaded_fs_{t}")
+                            except Exception as fs_err:
+                                debug_parts.append(f"fs_err_{t}={fs_err}")
+                        else:
+                            debug_parts.append(f"fs_file_not_found_{t}")
+            elif typ == "azure_blob":
+                conn_cfg = loc.get("connection", {}) or {}
+                try:
+                    from connectors.azure_blob_storage import AzureBlobStorageConnector
+                    conn = AzureBlobStorageConnector(conn_cfg)
+                    discovered = conn.list_blobs()
+                    for t in selected:
+                        if t in discovered:
+                            try:
+                                loaded = conn.load_all_blobs(folder_prefix="", blobs=[t], max_rows=max_rows)
+                                if loaded and t in loaded:
+                                    out[t] = loaded[t]
+                                    debug_parts.append(f"loaded_blob_{t}")
+                                else:
+                                    debug_parts.append(f"blob_empty_{t}")
+                            except Exception as blob_err:
+                                debug_parts.append(f"blob_err_{t}={blob_err}")
+                        else:
+                            debug_parts.append(f"blob_not_discovered_{t}")
+                except Exception as blob_conn_err:
+                    debug_parts.append(f"blob_conn_err={blob_conn_err}")
+    else:
+        debug_parts.append("assess_datasets_missing")
+
+    return out, ", ".join(debug_parts) if debug_parts else "empty_fallback"
 
 
 def _maybe_build_etl_duckdb_diff(
@@ -83,9 +199,9 @@ def _maybe_build_etl_duckdb_diff(
         return None
     if not ok or not (code or "").strip():
         return None
-    dfs = _collect_etl_preview_datasets(ctx, assess)
+    dfs, debug_msg = _collect_etl_preview_datasets(ctx, assess)
     if not dfs:
-        return {"skipped": True, "reason": "no_preview_datasets"}
+        return {"skipped": True, "reason": f"no_preview_datasets. Debug info: {debug_msg}"}
     env_on = os.getenv("DHARA_ETL_DUCKDB_DIFF", "").strip().lower() in ("1", "true", "yes")
     auto_ex = os.getenv("DHARA_ETL_DUCKDB_AUTO_EXTRACT", "").strip().lower() in ("1", "true", "yes")
     ep = assess.get("etl_preview_input") if isinstance(assess, dict) else {}
@@ -1058,3 +1174,89 @@ def etl_deploy(session_id: str) -> Dict[str, Any]:
     sess["session_state"] = "deployed"
     save_session(sess)
     return {"ok": True, "session_id": sid, "session_state": "deployed"}
+
+
+def etl_execute_sql(
+    session_id: str,
+    *,
+    approved: bool = False,
+    dry_run: bool = False,
+    connection_string: str | None = None,
+    timeout_s: int = 120,
+) -> dict:
+    """
+    Execute the already-generated SQL for a session.
+    Reads generated code from flow["code"] and flow["target_engine"].
+    Only runs for sql/tsql/ansi engines — returns error for others.
+    Calls orchestrate_sql_execution() from execution_orchestrator.py.
+    Saves execution_result to flow["sql_execution_result"].
+    Saves execution metadata to governance if assessment is present:
+        assessment["governance"]["sql_execution_status"]
+        assessment["governance"]["sql_execution_summary"]
+    Transitions ETL phase to "downloadable" on success.
+    Returns the orchestrator result dict + session_id.
+    """
+    sid = (session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    ctx = _ctx(sess)
+    flow = ctx.setdefault("etl_flow", {})
+
+    target_engine = str(flow.get("target_engine") or "").lower()
+    if target_engine not in ("sql", "tsql", "ansi"):
+        return {
+            "ok": False,
+            "session_id": sid,
+            "error": "UNSUPPORTED_ENGINE",
+            "message": f"Execution only supported for SQL/T-SQL/ANSI target engines, not '{target_engine}'."
+        }
+
+    sql = flow.get("code")
+    if not sql:
+        return {
+            "ok": False,
+            "session_id": sid,
+            "error": "NO_CODE",
+            "message": "No generated SQL code found for this session. Generate code first."
+        }
+
+    plan = flow.get("approved_plan")
+    table_names = []
+    if plan and isinstance(plan, dict) and "datasets" in plan:
+        table_names = list(plan["datasets"].keys())
+
+    from agent.etl_pipeline.execution_orchestrator import orchestrate_sql_execution, build_pre_execution_counts
+    
+    pre_counts = None
+    if table_names and not dry_run:
+        pre_counts = build_pre_execution_counts(table_names, connection_string)
+
+    assess = _get_assessment(sess, None)
+    result = orchestrate_sql_execution(
+        sql,
+        session_id=sid,
+        run_id=None,
+        approved=approved,
+        dry_run=dry_run,
+        connection_string=connection_string,
+        pre_execution_counts=pre_counts,
+        assessment=assess,
+        timeout_s=timeout_s,
+    )
+
+    flow["sql_execution_result"] = result
+
+    if assess and isinstance(assess, dict):
+        gov = assess.setdefault("governance", {})
+        gov["sql_execution_status"] = "success" if result.get("ok") else "failed"
+        gov["sql_execution_summary"] = result.get("post_execution_summary")
+        ctx["last_assessment_result"] = assess
+
+    if result.get("ok") and not dry_run:
+        try:
+            _transition(flow, "downloadable", by="system", reason="sql_execution_succeeded")
+        except ValueError:
+            flow["phase"] = "downloadable"
+
+    save_session(sess)
+    result["session_id"] = sid
+    return result

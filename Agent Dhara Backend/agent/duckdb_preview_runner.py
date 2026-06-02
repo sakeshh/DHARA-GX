@@ -29,23 +29,31 @@ def preview_table_aliases(datasets: Dict[str, pd.DataFrame]) -> Dict[str, str]:
 
 def extract_duckdb_preview_sql(full_sql: str) -> Optional[str]:
     """
-    Best-effort: first SELECT-only statement for DuckDB (won't parse T-SQL GO batches).
+    Best-effort: first top-level SELECT-only statement for DuckDB.
+    Filters out SELECT subqueries nested within UPDATE/INSERT or procedure blocks.
     """
     if not full_sql or not str(full_sql).strip():
         return None
-    s = re.sub(r"/\*.*?\*/", "", str(full_sql), flags=re.S).strip()
-    if not s:
-        return None
-    lower = s.lower()
-    pos = lower.find("select")
-    if pos < 0:
-        return None
-    tail = s[pos:]
-    parts = [p.strip() for p in tail.split(";") if p.strip()]
-    for p in parts:
-        if re.match(r"(?is)^select\b", p):
-            return p
-    return parts[0] if parts else None
+
+    # Split on semicolon or T-SQL 'GO' boundaries to get candidate statements
+    raw_statements = re.split(r';|(?i)\bgo\b', str(full_sql))
+    
+    for stmt in raw_statements:
+        stmt_strip = stmt.strip()
+        if not stmt_strip:
+            continue
+        
+        # Remove comments to check the actual statement content
+        # Block comments /* ... */
+        stmt_clean = re.sub(r"/\*.*?\*/", "", stmt_strip, flags=re.S)
+        # Line comments -- ...
+        stmt_clean = re.sub(r"--.*$", "", stmt_clean, flags=re.M).strip()
+        
+        # Match standalone top-level SELECT statement
+        if re.match(r"(?is)^select\b", stmt_clean):
+            return stmt_strip
+            
+    return None
 
 
 def duckdb_available() -> bool:

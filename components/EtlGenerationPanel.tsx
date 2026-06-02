@@ -22,6 +22,7 @@ import RequirementsPhasePanel from '@/components/RequirementsPhasePanel';
 import RequirementValidator from '@/components/RequirementValidator';
 import ETLCodeTabView from '@/components/ETLCodeTabView';
 import { DQGateResult, ManualReviewItem, ValidationResult } from '@/types/pipeline';
+import { DuckDbDiffPanel } from '@/components/etl/DuckDbDiffPanel';
 
 type Step = 'rules' | 'plan' | 'preview' | 'code';
 
@@ -210,6 +211,7 @@ export default function EtlGenerationPanel({
   const [phase2Code, setPhase2Code] = useState<string | null>(null);
   const [manualReviewItemsState, setManualReviewItemsState] = useState<ManualReviewItem[]>([]);
   const [sqlQualityScore, setSqlQualityScore] = useState<{ score: number; grade: string; warnings_count: number; critical_count: number } | null>(null);
+  const [duckdbDiff, setDuckdbDiff] = useState<any>(null);
 
   const [validationOk, setValidationOk] = useState<boolean | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -340,6 +342,7 @@ export default function EtlGenerationPanel({
         setPlan(flow.approved_plan as Record<string, unknown>);
         if (flow.preview) setPreview(flow.preview as Record<string, unknown>);
         if (flow.lineage) setLineage(flow.lineage as Record<string, unknown>);
+        if (flow.duckdb_diff) setDuckdbDiff(flow.duckdb_diff);
         const ce = parseCodegenEngine(flow.codegen_engine ?? flow.target_engine);
         setEngine(ce);
         const sd = flow.sql_dialect;
@@ -395,7 +398,11 @@ export default function EtlGenerationPanel({
       if (variant !== 'chat') {
         planBody.assessment_result = assessment;
       }
-      let { res, data } = await postEtlPlanWithRetries(planBody);
+      let res: Response;
+      let data: any;
+      const initialPlanResult = await postEtlPlanWithRetries(planBody);
+      res = initialPlanResult.res;
+      data = initialPlanResult.data;
       // Session may not have last_assessment_result yet (e.g. restored UI); fall back to inline assessment.
       const noSessionAssessment =
         variant === 'chat' &&
@@ -405,7 +412,9 @@ export default function EtlGenerationPanel({
         typeof data === 'object' &&
         (data as { error?: string }).error === 'NO_ASSESSMENT';
       if (noSessionAssessment) {
-        ({ res, data } = await postEtlPlanWithRetries({ ...planBody, assessment_result: assessment }));
+        const retryResult = await postEtlPlanWithRetries({ ...planBody, assessment_result: assessment });
+        res = retryResult.res;
+        data = retryResult.data;
       }
       const blocked = Array.isArray(data?.blocked) ? data.blocked : [];
       const builtPlan = (data?.plan || null) as Record<string, unknown> | null;
@@ -660,6 +669,9 @@ export default function EtlGenerationPanel({
       
       const p1 = String(data1?.code || '');
       setPhase1Code(p1);
+      if (data1?.duckdb_diff) {
+        setDuckdbDiff(data1.duckdb_diff);
+      }
       
       // Parse quality metrics from Phase 1
       const score = parseQualityScore(p1);
@@ -682,6 +694,9 @@ export default function EtlGenerationPanel({
         const data2 = await res2.json().catch(() => null);
         if (res2.ok && data2?.code) {
           p2 = String(data2.code);
+          if (data2?.duckdb_diff) {
+            setDuckdbDiff(data2.duckdb_diff);
+          }
         }
       }
       setPhase2Code(p2);
@@ -1335,6 +1350,8 @@ export default function EtlGenerationPanel({
               onForceUnlock={() => setForceUnlock(true)}
             />
 
+            <DuckDbDiffPanel diff={duckdbDiff} darkMode={dm} />
+
             <div className="flex flex-wrap gap-2 pt-2">
               <button
                 type="button"
@@ -1354,6 +1371,7 @@ export default function EtlGenerationPanel({
                   setPlanJson('');
                   setPlanRows([]);
                   setSqlQualityScore(null);
+                  setDuckdbDiff(null);
                 }}
                 className={`rounded-xl px-4 py-2 text-sm font-semibold ${dm ? 'bg-white/10 text-white' : 'border border-black/10 bg-white text-zinc-800'}`}
               >

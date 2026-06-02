@@ -7,6 +7,8 @@ _DANGEROUS = [
     (r"\bdrop\s+table\s+(?!.*\b\w*(?:_clean|_transformed|_stg|temp_|_temp)\b|.*#)", "contains DROP TABLE on non-staging/clean/transformed table — remove for safety"),
     (r"\btruncate\s+table\s+(?!.*\b\w*(?:_clean|_transformed|_stg|temp_|_temp)\b|.*#)", "contains TRUNCATE TABLE on non-staging/clean/transformed table — remove for safety"),
     (r"\bdelete\s+from\s+(?!.*\b\w*(?:_clean|_transformed|_stg|_dedup|temp_|etl_log|cte|_temp)\b|.*#)", "contains DELETE FROM on non-staging/clean/transformed table — remove for safety"),
+    (r"\bxp_cmdshell\b", "contains xp_cmdshell — system command execution not allowed"),
+    (r"\bopenrowset\b", "contains OPENROWSET — external data source access not allowed in execution mode"),
 ]
 
 
@@ -152,3 +154,64 @@ def validate_sql_basic(source: str) -> Tuple[bool, List[str]]:
     if result.get("error") and not errs:
         errs.append(str(result["error"]))
     return False, errs
+
+
+def validate_for_execution(sql: str) -> dict:
+    """
+    Stricter pre-execution gate on top of validate_sql_basic_dict().
+    Additionally checks:
+    - SQL is not empty after stripping comments
+    - No raw credential patterns (password=, pwd=, connectionstring= in non-comment lines)
+    - No EXEC xp_cmdshell
+    - No OPENROWSET or BULK INSERT pointing to external paths
+    - No USE [database] switching mid-script
+    Returns {"valid": bool, "issues": list[str], "warnings": list[str]}
+    """
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if not sql or not sql.strip():
+        return {"valid": False, "issues": ["SQL script is empty"], "warnings": []}
+
+    # Strip single-line comments (-- comment)
+    cleaned = re.sub(r"--.*$", "", sql, flags=re.MULTILINE)
+    # Strip multi-line comments (/* comment */)
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
+
+    if not cleaned.strip():
+        return {"valid": False, "issues": ["SQL script is empty after stripping comments"], "warnings": []}
+
+    cleaned_lower = cleaned.lower()
+
+    # Raw credential patterns
+    if re.search(r"\b(password|pwd|connectionstring)\s*=", cleaned_lower):
+        issues.append("contains raw credential patterns (password, pwd, or connectionstring)")
+
+    # System command execution
+    if re.search(r"\bxp_cmdshell\b", cleaned_lower):
+        issues.append("contains xp_cmdshell — system command execution not allowed")
+
+    # OPENROWSET or BULK INSERT
+    if re.search(r"\bopenrowset\b", cleaned_lower):
+        issues.append("contains OPENROWSET — external data source access not allowed in execution mode")
+    if re.search(r"\bbulk\s+insert\b", cleaned_lower):
+        issues.append("contains BULK INSERT — external data source access not allowed in execution mode")
+
+    # DB switching switching mid-script
+    if re.search(r"\buse\s+\[?\w+\]?\b", cleaned_lower):
+        issues.append("contains USE statement — database switching not allowed mid-script")
+
+    # Basic validations
+    basic_res = validate_sql_basic_dict(sql)
+    if not basic_res.get("valid", False):
+        for iss in basic_res.get("issues", []):
+            if iss not in issues:
+                issues.append(iss)
+        if basic_res.get("error") and basic_res["error"] not in issues:
+            issues.append(basic_res["error"])
+
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "warnings": warnings,
+    }
