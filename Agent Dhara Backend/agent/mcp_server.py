@@ -812,6 +812,27 @@ def api_etl_download(session_id: str):
     )
 
 
+def _job_public_view(job: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Omit bulky fields from GET /jobs/:id so Next.js (and other proxies) do not time out.
+    Chat jobs store the full `messages` array in input and historically returned full `session` in result.
+    """
+    out = dict(job)
+    kind = str(out.get("kind") or "")
+    inp = out.get("input")
+    if kind == "chat" and isinstance(inp, dict):
+        out["input"] = {
+            "session_id": inp.get("session_id"),
+            "threadId": inp.get("threadId"),
+            "message": inp.get("message"),
+            "gx_enabled": inp.get("gx_enabled"),
+        }
+    res = out.get("result")
+    if isinstance(res, dict) and "session" in res:
+        out["result"] = {k: v for k, v in res.items() if k != "session"}
+    return out
+
+
 @app.post("/jobs")
 def api_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """
@@ -832,7 +853,7 @@ def api_get_job(job_id: str) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"ok": True, "job": j}
+    return {"ok": True, "job": _job_public_view(j)}
 
 
 @app.get("/etl/assessment/status/{job_id}")

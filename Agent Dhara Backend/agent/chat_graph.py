@@ -4352,6 +4352,14 @@ def run_chat(*, session_id: str, message: str, job_id: Optional[str] = None) -> 
         lum["nl_sql"] = nlu
     if lum:
         pl["llm_usage"] = lum
-    raw["payload"] = pl
-    return raw
+    # Do not return the full graph state (especially `session` + last_assessment_result) as the
+    # async job result: it can be megabytes and breaks polling via Next.js proxy (timeouts / aborts).
+    out: Dict[str, Any] = {
+        "reply": raw.get("reply") if isinstance(raw.get("reply"), str) else "",
+        "payload": pl,
+    }
+    tid = raw.get("threadId")
+    if tid is not None:
+        out["threadId"] = tid
+    return out
 
