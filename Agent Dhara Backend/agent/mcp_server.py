@@ -145,6 +145,22 @@ class EtlDeployPayload(BaseModel):
     session_id: str = "default"
 
 
+class EtlExecutePayload(BaseModel):
+    session_id: str
+    approved: Optional[bool] = False
+    dry_run: Optional[bool] = False
+    timeout_s: Optional[int] = 120
+
+
+class TestConnectionPayload(BaseModel):
+    connection_string: Optional[str] = None
+
+
+class ExecutionApprovalPayload(BaseModel):
+    session_id: str
+    approved: bool
+
+
 setup_logging()
 logger = logging.getLogger("mcp_server")
 
@@ -899,6 +915,54 @@ async def api_upload(
     if fmt == "md" and _build_md:
         return {"report": _build_md(result)}
     return {"result": result}
+
+
+@app.post("/etl/execute")
+def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
+    from agent.etl_handlers import etl_execute_sql
+    res = etl_execute_sql(
+        payload.session_id,
+        approved=bool(payload.approved),
+        dry_run=bool(payload.dry_run),
+        timeout_s=payload.timeout_s or 120,
+    )
+    return res
+
+
+@app.get("/etl/execution-status/{session_id}")
+def api_etl_execution_status_route(session_id: str) -> Dict[str, Any]:
+    from agent.session_store import load_session
+    sid = (session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    flow = sess.get("context", {}).get("etl_flow", {})
+    res = flow.get("sql_execution_result")
+    if not res:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "NOT_FOUND", "message": "No execution results found for this session."}
+        )
+    return res
+
+
+@app.post("/etl/test-connection")
+def api_etl_test_connection(payload: TestConnectionPayload) -> Dict[str, Any]:
+    from agent.azure_sql_executor import test_connection
+    return test_connection(payload.connection_string)
+
+
+@app.post("/etl/execution-approval")
+def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, Any]:
+    from agent.session_store import load_session, save_session
+    sid = (payload.session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    flow = sess.setdefault("context", {}).setdefault("etl_flow", {})
+    flow["execution_approved"] = bool(payload.approved)
+    save_session(sess)
+    return {
+        "ok": True,
+        "session_id": sid,
+        "approved": bool(payload.approved)
+    }
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ azure-storage-blob>=12.0.0
 
 # Optional: Azure Identity (managed identity)
 azure-identity>=1.12.0
+pyodbc>=4.0.39          # Azure SQL / SQL Server ODBC driver
+# mssql-python>=1.0.0  # Optional: Microsoft's newer driver (uncomment if preferred)
 
 # Azure OpenAI client support
 openai>=1.0.0

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaDatabase, FaFileAlt, FaChartBar, FaCode, FaCheck, FaArrowLeft, FaDownload, FaEye, FaArrowRight, FaClipboardList, FaTags } from 'react-icons/fa';
+import { FaDatabase, FaFileAlt, FaChartBar, FaCode, FaCheck, FaArrowLeft, FaDownload, FaEye, FaArrowRight, FaClipboardList, FaTags, FaExclamationTriangle } from 'react-icons/fa';
 import { useRouter } from 'next/navigation';
 import AnimatedBackground from '@/components/AnimatedBackground';
 import DatabaseSelector from '@/components/DatabaseSelector';
@@ -14,6 +14,26 @@ import Confetti from '@/components/Confetti';
 import SemanticReviewPanel from '@/components/SemanticReviewPanel';
 import DQGateDashboard from '@/components/DQGateDashboard';
 import { DQGateResult } from '@/types/pipeline';
+
+interface ExecutionResult {
+  ok: boolean;
+  stage: string;
+  run_id: string;
+  requires_approval: boolean;
+  ops_found: string[];
+  dry_run: boolean;
+  execution?: any;
+  post_execution_summary?: {
+    transaction_committed: boolean;
+    total_rows_affected: number;
+    total_duration_ms: number;
+    batch_count: number;
+    row_deltas?: Record<string, { before: number | null; after: number | null; delta: number | null }>;
+    rollback_reason: string | null;
+  };
+  timestamp_utc: string;
+}
+
 type Step = 'database' | 'files' | 'assessment' | 'report' | 'semantics' | 'requirements' | 'etl' | 'cleaning' | 'complete';
 
 function generateHtmlReportFromBackend(html: string): string {
@@ -48,6 +68,44 @@ export default function DataPipelinePage() {
   const [dqThreshold, setDqThreshold] = useState<number>(70);
   const [forceUnlock, setForceUnlock] = useState<boolean>(false);
   const [semanticOverrides, setSemanticOverrides] = useState<Record<string, any>>({});
+
+  const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
+  const [execLoading, setExecLoading] = useState(false);
+  const [approvalRequired, setApprovalRequired] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+
+  async function handleExecuteSQL(approved = false) {
+    setExecLoading(true);
+    setExecutionError(null);
+    try {
+      const res = await fetch('/api/etl/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: etlSessionId,
+          approved: approved,
+          dry_run: dryRun,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Execution failed');
+      }
+      if (data.stage === 'approval_required') {
+        setApprovalRequired(true);
+        setExecResult(data);
+      } else {
+        setExecResult(data);
+        setApprovalRequired(false);
+      }
+    } catch (e: any) {
+      setExecutionError(e.message || 'Execution failed');
+    } finally {
+      setExecLoading(false);
+      setDryRun(false);
+    }
+  }
 
   // Memoized client-side DQ Gate calculation matching backend check_dq_gate
   const dqGate = useMemo<DQGateResult | null>(() => {
@@ -596,23 +654,247 @@ export default function DataPipelinePage() {
                     Complete earlier steps before generating ETL code.
                   </p>
                 ) : (
-                  <EtlGenerationPanel
-                    sessionId={etlSessionId}
-                    assessment={(assessmentData?.result ?? assessmentData) as Record<string, unknown>}
-                    variant="pipeline"
-                    pipelineMode="etl"
-                    gateResult={dqGate}
-                    semanticOverrides={semanticOverrides}
-                    onEditPlanInRequirements={() => {
-                      setDirection('back');
-                      setCurrentStep('requirements');
-                    }}
-                    onCodeGenerated={handleETLGenerated}
-                    onContinueAfterCode={handleStartCleaning}
-                  />
+                  <>
+                    <EtlGenerationPanel
+                      sessionId={etlSessionId}
+                      assessment={(assessmentData?.result ?? assessmentData) as Record<string, unknown>}
+                      variant="pipeline"
+                      pipelineMode="etl"
+                      gateResult={dqGate}
+                      semanticOverrides={semanticOverrides}
+                      onEditPlanInRequirements={() => {
+                        setDirection('back');
+                        setCurrentStep('requirements');
+                      }}
+                      onCodeGenerated={handleETLGenerated}
+                      onContinueAfterCode={handleStartCleaning}
+                    />
+
+                    {/* SQL direct execution section */}
+                    {etlCode && (
+                      <div className="mt-6 border-t border-black/10 pt-6 space-y-6">
+                        <h4 className="text-lg font-bold text-zinc-900 flex items-center gap-2">
+                          <FaDatabase className="text-[#0070AD]" />
+                          Azure SQL Direct Execution
+                        </h4>
+
+                        <div className="flex flex-wrap gap-3">
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            disabled={execLoading}
+                            onClick={() => { setDryRun(false); handleExecuteSQL(false); }}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                          >
+                            ▶ Execute in Azure SQL
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            disabled={execLoading}
+                            onClick={() => { setDryRun(true); handleExecuteSQL(false); }}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-black/10 bg-white text-zinc-900 font-semibold hover:bg-zinc-50 hover:border-[#0070AD]/30 transition-colors disabled:opacity-50"
+                          >
+                            🔍 Dry Run
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => router.push('/execution-report')}
+                            className="flex items-center gap-2 px-6 py-3 rounded-xl border border-dashed border-[#0070AD]/40 bg-[#0070AD]/5 text-[#0070AD] font-semibold hover:bg-[#0070AD]/10 transition-colors"
+                          >
+                            📋 View Execution Report
+                          </motion.button>
+                        </div>
+
+                        {execLoading && (
+                          <div className="flex items-center gap-2 text-sm text-[#0070AD] font-medium" role="status">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            <span>Executing T-SQL batches on database...</span>
+                          </div>
+                        )}
+
+                        {executionError && (
+                          <div className="flex items-start gap-2 rounded-xl border border-red-300/50 bg-red-50 px-3 py-2 text-sm text-red-900">
+                            <FaExclamationTriangle className="mt-0.5 shrink-0 text-red-600" />
+                            <span>{executionError}</span>
+                          </div>
+                        )}
+
+                        {/* Approval Gate */}
+                        {approvalRequired && execResult && (
+                          <div className="p-5 rounded-xl border border-amber-300 bg-amber-50 text-amber-950 space-y-3 shadow-sm">
+                            <div className="flex items-center gap-2 font-bold">
+                              <FaExclamationTriangle className="text-amber-600" />
+                              <span>Destructive Operations Detected</span>
+                            </div>
+                            <p className="text-sm">
+                              The SQL script contains statements that modify DB structure or delete data:
+                            </p>
+                            <ul className="list-disc pl-5 text-xs font-mono font-bold">
+                              {execResult.ops_found?.map((op, idx) => (
+                                <li key={idx}>{op}</li>
+                              ))}
+                            </ul>
+                            <p className="text-xs text-black/60">
+                              Please confirm you understand that these changes will be executed inside a database transaction.
+                            </p>
+                            <div className="flex gap-3">
+                              <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handleExecuteSQL(true)}
+                                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-sm transition-colors"
+                              >
+                                I understand, proceed
+                              </motion.button>
+                              <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => setApprovalRequired(false)}
+                                className="px-4 py-2 rounded-lg border border-black/10 hover:bg-black/5 text-zinc-900 font-semibold text-sm transition-colors"
+                              >
+                                Cancel
+                              </motion.button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Execution Result Panel */}
+                        {execResult && execResult.stage === 'execution' && (
+                          <div className="p-6 rounded-2xl border border-black/10 bg-white/90 shadow-sm space-y-4">
+                            <div className="flex items-center justify-between">
+                              <h5 className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                                <FaClipboardList className="text-[#0070AD]" />
+                                Execution Result
+                              </h5>
+                              <span className="text-xs text-black/45 font-mono">Run ID: {execResult.run_id}</span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                              <div className="p-3 rounded-xl bg-black/[0.02] border border-black/5">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-black/45">Status</div>
+                                <div className="mt-1">
+                                  {execResult.post_execution_summary?.transaction_committed ? (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                                      <FaCheck className="text-[10px]" /> Committed
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800">
+                                      <FaExclamationTriangle className="text-[10px]" /> Rolled Back
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="p-3 rounded-xl bg-black/[0.02] border border-black/5">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-black/45">Rows Affected</div>
+                                <div className="mt-1 text-base font-bold text-zinc-900">
+                                  {execResult.post_execution_summary?.total_rows_affected ?? 0}
+                                </div>
+                              </div>
+
+                              <div className="p-3 rounded-xl bg-black/[0.02] border border-black/5">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-black/45">Duration</div>
+                                <div className="mt-1 text-base font-bold text-zinc-900">
+                                  {execResult.post_execution_summary?.total_duration_ms?.toFixed(1) ?? 0} ms
+                                </div>
+                              </div>
+
+                              <div className="p-3 rounded-xl bg-black/[0.02] border border-black/5">
+                                <div className="text-[10px] font-black uppercase tracking-wider text-black/45">Timestamp (UTC)</div>
+                                <div className="mt-1 text-xs font-bold text-zinc-900 truncate">
+                                  {execResult.timestamp_utc ? new Date(execResult.timestamp_utc).toLocaleTimeString() : '—'}
+                                </div>
+                              </div>
+                            </div>
+
+                            {execResult.post_execution_summary?.rollback_reason && (
+                              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-950 text-xs">
+                                <strong>Rollback Reason:</strong> {execResult.post_execution_summary.rollback_reason}
+                              </div>
+                            )}
+
+                            {execResult.execution?.batch_results && (
+                              <div className="mt-4">
+                                <div className="text-xs font-bold text-zinc-800 mb-2">Batch Execution Breakdown</div>
+                                <div className="overflow-hidden rounded-xl border border-black/10">
+                                  <table className="w-full text-left text-xs">
+                                    <thead className="bg-black/[0.02]">
+                                      <tr>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Batch #</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Rows Affected</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Duration</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {execResult.execution.batch_results.map((batch: any, idx: number) => (
+                                        <tr key={idx} className="border-t border-black/5">
+                                          <td className="p-2.5 font-mono">{idx + 1}</td>
+                                          <td className="p-2.5">{batch.rows_affected}</td>
+                                          <td className="p-2.5">{batch.duration_ms?.toFixed(1)} ms</td>
+                                          <td className="p-2.5">
+                                            {batch.error ? (
+                                              <span className="text-rose-600 font-semibold truncate max-w-[200px] inline-block">{batch.error}</span>
+                                            ) : (
+                                              <span className="text-emerald-600 font-semibold">Success</span>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Row counts reconciliation */}
+                            {execResult.post_execution_summary?.row_deltas && Object.keys(execResult.post_execution_summary.row_deltas).length > 0 && (
+                              <div className="mt-4">
+                                <div className="text-xs font-bold text-zinc-800 mb-2">Row Count Reconciliation</div>
+                                <div className="overflow-hidden rounded-xl border border-black/10">
+                                  <table className="w-full text-left text-xs">
+                                    <thead className="bg-black/[0.02]">
+                                      <tr>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Table Name</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55 text-right">Before Count</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55 text-right">After Count</th>
+                                        <th className="p-2.5 font-bold uppercase tracking-wider text-black/55 text-right">Delta</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {Object.entries(execResult.post_execution_summary.row_deltas).map(([tbl, counts]: [string, any]) => (
+                                        <tr key={tbl} className="border-t border-black/5">
+                                          <td className="p-2.5 font-mono">{tbl}</td>
+                                          <td className="p-2.5 text-right">{counts.before ?? '—'}</td>
+                                          <td className="p-2.5 text-right">{counts.after ?? '—'}</td>
+                                          <td className="p-2.5 text-right font-bold">
+                                            {counts.delta !== null && counts.delta !== undefined ? (
+                                              <span className={counts.delta > 0 ? 'text-emerald-600' : counts.delta < 0 ? 'text-rose-600' : 'text-zinc-500'}>
+                                                {counts.delta > 0 ? `+${counts.delta}` : counts.delta}
+                                              </span>
+                                            ) : '—'}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
+
 
             {currentStep === 'cleaning' && (
               <DataCleaner
