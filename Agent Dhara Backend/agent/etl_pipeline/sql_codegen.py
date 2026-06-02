@@ -353,6 +353,115 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
         lines.append("-- __DEFAULT_VALUES_SEED_PLACEHOLDER__")
         lines.append("")
 
+        # Initialize target clean tables at script level to ensure dependent views compile
+        lines.append("-- ============================================================")
+        lines.append("-- Initialize Clean Tables if not exists")
+        lines.append("-- ============================================================")
+        for ds_name, block in ds_plan.items():
+            tbl_clean = _get_clean_table_name(ds_name)
+            tbl_base = ds_name.split(".")[-1].strip("[]")
+            clean_tbl = tsql_qualified_name(tbl_clean)
+            
+            # Get columns info
+            ds_info = assessment.get("datasets", {}).get(ds_name) or {} if assessment else {}
+            cols_info = ds_info.get("columns") or {}
+            local_excluded_columns = set(excluded_columns)
+            for st in (block.get("steps") or []):
+                if st.get("action") in ("exclude_column", "drop_column") and st.get("column"):
+                    local_excluded_columns.add(st.get("column"))
+            cols = [c for c in cols_info.keys() if c not in local_excluded_columns]
+            
+            # Fallback primary key search
+            pk_col = None
+            if cols:
+                for col_name, cmeta in cols_info.items():
+                    if cmeta.get("candidate_primary_key") and not pk_col:
+                        pk_col = col_name
+                if not pk_col:
+                    for c in cols:
+                        if c.lower().endswith("id") or c.lower().endswith("key"):
+                            pk_col = c
+                            break
+                    if not pk_col:
+                        pk_col = cols[0]
+            
+            scd_config = (business_rules.get("scd") or {}).get(ds_name) or {}
+            scd_type_raw = scd_config.get("type") or block.get("scd_type") or business_rules.get("scd_type") or "type1"
+            scd_type = str(scd_type_raw).lower().replace(" ", "")
+            if scd_type not in ("type1", "type2", "append", "truncate"):
+                scd_type = "type1"
+            if not pk_col and scd_type in ("type1", "type2"):
+                scd_type = "append"
+            
+            # Explicit CREATE TABLE
+            create_cols = []
+            for c in cols:
+                c_meta = cols_info.get(c) or {}
+                c_type = c_meta.get("dtype") or c_meta.get("target_dtype") or ""
+                target_type = get_sql_cast_type(c_type, c)
+                
+                # Check nullability
+                non_nullable_cols = business_rules.get("non_nullable") or []
+                if c == pk_col or c in non_nullable_cols:
+                    null_str = "NOT NULL"
+                else:
+                    null_str = "NULL"
+                create_cols.append(f"    [{c}] {target_type} {null_str}")
+            
+            # Add metadata columns
+            create_cols.append("    etl_created_at DATETIME DEFAULT GETDATE()")
+            create_cols.append("    etl_updated_at DATETIME DEFAULT GETDATE()")
+            create_cols.append("    etl_batch_id INT NULL")
+            
+            if scd_type == "type2":
+                create_cols.append("    start_date DATETIME DEFAULT GETDATE()")
+                create_cols.append("    end_date DATETIME DEFAULT '9999-12-31'")
+                create_cols.append("    is_current BIT DEFAULT 1")
+            
+            if pk_col:
+                if scd_type == "type2":
+                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}], start_date)")
+                else:
+                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}])")
+            
+            lines.append(f"IF OBJECT_ID('{tbl_clean}', 'U') IS NULL")
+            lines.append("BEGIN")
+            lines.append(f"    CREATE TABLE {clean_tbl} (")
+            lines.append(",\n".join(create_cols))
+            lines.append("    );")
+            
+            index_keys = []
+            rel = plan.get("relationships") or {}
+            for j in rel.get("joins") or []:
+                if j.get("parent_dataset") == ds_name:
+                    index_keys.append(j.get("parent_key"))
+                elif j.get("child_dataset") == ds_name:
+                    index_keys.append(j.get("child_key"))
+            
+            # resolve watermark column
+            watermark_col = None
+            for col_name in cols_info.keys():
+                col_lower = col_name.lower()
+                if any(x in col_lower for x in ("modified", "update", "changed")) or col_lower.endswith("_at"):
+                    if "date" in col_lower or "time" in col_lower or "stamp" in col_lower or col_lower.endswith("_at"):
+                        watermark_col = col_name
+                        break
+            if not watermark_col:
+                for col_name in cols_info.keys():
+                    col_lower = col_name.lower()
+                    if "date" in col_lower or "time" in col_lower or "stamp" in col_lower:
+                        watermark_col = col_name
+                        break
+            
+            if watermark_col:
+                index_keys.append(watermark_col)
+            
+            for ik in sorted(list(set(index_keys))):
+                lines.append(f"    CREATE NONCLUSTERED INDEX idx_{tbl_base}_Clean_{ik} ON {clean_tbl}([{ik}]);")
+            lines.append("END;")
+            lines.append("GO")
+            lines.append("")
+
     # Emit reusable stored procedure for IQR outlier flagging (DRY pattern)
     has_outlier_steps = any(
         any(str(st.get("action") or "") in ("flag_outliers", "clip_or_flag") for st in (b.get("steps") or []))

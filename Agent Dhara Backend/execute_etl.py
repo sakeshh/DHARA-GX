@@ -4,7 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-server = os.environ.get("AZURE_SQL_SERVER") + ".database.windows.net"
+server = os.environ.get("AZURE_SQL_SERVER")
+if server and not server.endswith(".database.windows.net") and "localhost" not in server and "127.0.0.1" not in server:
+    server += ".database.windows.net"
 database = os.environ.get("AZURE_SQL_DATABASE")
 username = os.environ.get("AZURE_SQL_USERNAME")
 password = os.environ.get("AZURE_SQL_PASSWORD")

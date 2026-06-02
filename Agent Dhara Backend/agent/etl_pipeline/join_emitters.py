@@ -135,7 +135,9 @@ def emit_sql_joins(
     lines.append("-- ── Staging / load order (connector manifest) ──")
     for ds_name in rel.get("load_order") or list((plan.get("datasets") or {}).keys()):
         ent = m_ds.get(ds_name) or {}
-        lines.append(f"-- {ds_name}: {ent.get('read_snippet_sql', '-- file staging required')}")
+        snip = ent.get('read_snippet_sql', '-- file staging required')
+        for snip_line in snip.splitlines():
+            lines.append(f"-- {ds_name}: {snip_line}")
     lines.append("")
 
     for j in rel.get("joins") or []:
