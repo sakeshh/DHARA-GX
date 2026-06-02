@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -454,8 +455,9 @@ def build_etl_plan(
                             "descriptor": descriptor
                         }
 
-    # Layer 2: LLM enrichment for low-confidence columns
-    if low_conf_cols:
+    # Layer 2: Optional LLM enrichment for low-confidence columns (adds latency + cost).
+    # Enable explicitly with ETL_PLAN_SEMANTIC_LLM=1 when you need semantic hints from the model.
+    if low_conf_cols and os.getenv("ETL_PLAN_SEMANTIC_LLM", "").strip().lower() in ("1", "true", "yes"):
         enriched = enrich_low_confidence_columns(low_conf_cols)
         for key, enriched_desc in enriched.items():
             sem_schema[key] = SemanticDescriptor(enriched_desc)

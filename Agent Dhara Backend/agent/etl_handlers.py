@@ -116,20 +116,26 @@ def _resolve_codegen_mode(
 ) -> str:
     """
     template | llm | llm_then_template
-    Default: template for pyspark (fast, manifest-aware); llm_then_template for others.
-    Override with ETL_CODEGEN_MODE env or API codegen_mode.
+    Resolution order: explicit API `codegen_mode`, then env ETL_CODEGEN_MODE, then:
+    - default **template** (fast, deterministic)
+    - set ETL_CODEGEN_LLM_DEFAULT=1 to restore **llm_then_template** for python/sql/adf when no API mode is sent.
+    PySpark still honors DHARA_ETL_FAST_PYSPARK=1 under ETL_CODEGEN_LLM_DEFAULT=1.
     """
     if requested and str(requested).strip().lower() in ("template", "llm", "llm_then_template"):
         return str(requested).strip().lower()
     env = os.getenv("ETL_CODEGEN_MODE", "").strip().lower()
     if env in ("template", "llm", "llm_then_template"):
         return env
-    eng = (engine or "python").lower()
-    if eng in ("spark", "pyspark"):
-        fast = os.getenv("DHARA_ETL_FAST_PYSPARK", "1").strip().lower() in ("1", "true", "yes")
-        if fast:
-            return "template"
-    return "llm_then_template"
+    # Fast default: deterministic template codegen. Opt in to LLM paths via ETL_CODEGEN_MODE or
+    # ETL_CODEGEN_LLM_DEFAULT=1 (restores previous llm_then_template default for python/sql/adf).
+    if os.getenv("ETL_CODEGEN_LLM_DEFAULT", "0").strip().lower() in ("1", "true", "yes"):
+        eng = (engine or "python").lower()
+        if eng in ("spark", "pyspark"):
+            fast = os.getenv("DHARA_ETL_FAST_PYSPARK", "1").strip().lower() in ("1", "true", "yes")
+            if fast:
+                return "template"
+        return "llm_then_template"
+    return "template"
 
 
 # ── Phase state machine ───────────────────────────────────────────────────────
@@ -437,10 +443,14 @@ def etl_plan_start(
     plan["blocked"] = []
 
     flow = ctx.setdefault("etl_flow", {})
-    narr_mode = os.getenv("ETL_NARRATOR_MODE", "tiered").strip().lower()
+    # Default "fallback" avoids LLM calls during plan build (tiered/llm add significant latency).
+    narr_mode = os.getenv("ETL_NARRATOR_MODE", "fallback").strip().lower()
     use_llm_full = narr_mode in ("llm", "full") or os.getenv(
         "ETL_NARRATOR_USE_LLM", "0"
     ).strip().lower() in ("1", "true", "yes")
+    if (generation_mode or "").strip().lower() == "cleanse_only":
+        narr_mode = "fallback"
+        use_llm_full = False
     cache_key = f"narr_{plan.get('plan_id')}_{plan.get('assessment_signature')}"
     cached = (flow.get("narration_cache") or {}).get(cache_key)
     if isinstance(cached, dict) and cached.get("engine_explanation"):
@@ -492,7 +502,7 @@ def etl_plan_start(
                 "generation_mode": generation_mode,
             },
             "approved_plan": None,
-            "preview": None,
+            "preview": preview,
             "code": None,
             "validation_ok": None,
             "validation_errors": [],

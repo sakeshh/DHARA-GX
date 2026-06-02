@@ -85,6 +85,37 @@ function rowsToPlan(base: Record<string, unknown>, rows: StepRow[]): Record<stri
   return { ...base, datasets };
 }
 
+/** POST /api/etl/plan with retries — browsers surface timeouts as AbortError ("This operation was aborted"). */
+async function postEtlPlanWithRetries(
+  body: Record<string, unknown>,
+  retries = 3
+): Promise<{ res: Response; data: unknown }> {
+  let lastErr: unknown;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch('/api/etl/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      return { res, data };
+    } catch (e) {
+      lastErr = e;
+      const name = e instanceof Error ? e.name : '';
+      const msg = e instanceof Error ? e.message : '';
+      const retryable =
+        name === 'AbortError' ||
+        name === 'TypeError' ||
+        /aborted|Failed to fetch|NetworkError|network/i.test(msg);
+      if (!retryable || i === retries - 1) break;
+      await new Promise((r) => setTimeout(r, 700 * 2 ** i));
+    }
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error(String(lastErr ?? 'Plan request failed'));
+}
+
 function parseCodegenEngine(raw: string | undefined): EtlEngine {
   const e = (raw || 'python').toLowerCase();
   if (e === 'sql' || e === 'ansi' || e === 'tsql') return 'sql';
@@ -347,23 +378,35 @@ export default function EtlGenerationPanel({
     setErr(null);
     try {
       const planEngine = engine === 'spark' || engine === 'adf' ? 'python' : engine;
-      const res = await fetch('/api/etl/plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          business_rules: businessRulesPayload(),
-          assessment_result: assessment,
-          engine: planEngine,
-          codegen_engine: engine,
-          sql_dialect: sqlDialect,
-          target_destination: targetDestination,
-          target_path: targetDestination === 'new_path' ? targetPath : undefined,
-          tenant_id: tenantId,
-          engine_user_override: engineUserOverride,
-        }),
-      });
-      const data = await res.json().catch(() => null);
+      // Chat UI already persisted `last_assessment_result` on the backend session when the report
+      // was generated. Omitting the full assessment here avoids multi‑MB POST bodies and proxy timeouts.
+      const planBody: Record<string, unknown> = {
+        session_id: sessionId,
+        business_rules: businessRulesPayload(),
+        engine: planEngine,
+        codegen_engine: engine,
+        sql_dialect: sqlDialect,
+        target_destination: targetDestination,
+        target_path: targetDestination === 'new_path' ? targetPath : undefined,
+        tenant_id: tenantId,
+        engine_user_override: engineUserOverride,
+        generation_mode: generationMode,
+      };
+      if (variant !== 'chat') {
+        planBody.assessment_result = assessment;
+      }
+      let { res, data } = await postEtlPlanWithRetries(planBody);
+      // Session may not have last_assessment_result yet (e.g. restored UI); fall back to inline assessment.
+      const noSessionAssessment =
+        variant === 'chat' &&
+        assessment &&
+        res.ok &&
+        data &&
+        typeof data === 'object' &&
+        (data as { error?: string }).error === 'NO_ASSESSMENT';
+      if (noSessionAssessment) {
+        ({ res, data } = await postEtlPlanWithRetries({ ...planBody, assessment_result: assessment }));
+      }
       const blocked = Array.isArray(data?.blocked) ? data.blocked : [];
       const builtPlan = (data?.plan || null) as Record<string, unknown> | null;
       if (!res.ok) {
@@ -410,7 +453,15 @@ export default function EtlGenerationPanel({
       );
       setStep('plan');
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Plan request failed');
+      const name = e instanceof Error ? e.name : '';
+      const msg = e instanceof Error ? e.message : '';
+      if (name === 'AbortError' || /aborted/i.test(msg)) {
+        setErr(
+          'Plan request was interrupted (usually a timeout or dropped connection). Wait a few seconds and try again. If it keeps happening, confirm the Python backend is running and reachable from Next.js (BACKEND_BASE_URL).'
+        );
+      } else {
+        setErr(e instanceof Error ? e.message : 'Plan request failed');
+      }
     } finally {
       setBusy(false);
     }
@@ -806,7 +857,7 @@ export default function EtlGenerationPanel({
         ))}
       </div>
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {(pipelineMode === 'full' || pipelineMode === 'requirements') && step === 'rules' && (
           <motion.div
             key="rules"

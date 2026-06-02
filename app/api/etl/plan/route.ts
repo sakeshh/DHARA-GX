@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl, proxyToBackend } from '@/lib/backend-bridge';
 
+/** Allow long-running planner + LLM narration when deployed (e.g. Vercel). */
+export const maxDuration = 900;
+
 export async function POST(req: NextRequest) {
   if (!getBackendBaseUrl()) {
     return NextResponse.json(
@@ -14,7 +17,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      timeoutMs: 120_000,
+      timeoutMs: 900_000,
     });
     const text = await res.text();
     return new NextResponse(text, {

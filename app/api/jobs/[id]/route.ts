@@ -8,6 +8,8 @@ export async function GET(
   try {
     const res = await proxyToBackend(`/jobs/${params.id}`, {
       method: 'GET',
+      // Chat jobs previously returned the full graph `session` blob; keep headroom for large legacy rows.
+      timeoutMs: 120_000,
     });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
