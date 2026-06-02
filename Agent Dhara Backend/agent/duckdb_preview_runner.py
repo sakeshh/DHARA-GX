@@ -36,7 +36,7 @@ def extract_duckdb_preview_sql(full_sql: str) -> Optional[str]:
         return None
 
     # Split on semicolon or T-SQL 'GO' boundaries to get candidate statements
-    raw_statements = re.split(r';|(?i)\bgo\b', str(full_sql))
+    raw_statements = re.split(r';|\bgo\b', str(full_sql), flags=re.IGNORECASE)
     
     for stmt in raw_statements:
         stmt_strip = stmt.strip()

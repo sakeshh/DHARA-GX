@@ -71,6 +71,8 @@ class AzureSQLPythonNetConnector:
 
     def _connect(self):
         server = _first_present(self.cfg, ["server", "Server", "host", "hostname"]) or os.environ.get("AZURE_SQL_SERVER")
+        if server and not server.endswith(".database.windows.net") and "localhost" not in server and "127.0.0.1" not in server and ":" not in server:
+            server = server + ".database.windows.net"
         database = _first_present(self.cfg, ["database", "Database", "db"]) or os.environ.get("AZURE_SQL_DATABASE")
         user = (
             _first_present(self.cfg, ["user", "username", "User Id", "UserID", "uid"])

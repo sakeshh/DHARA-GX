@@ -44,6 +44,8 @@ def get_connection(connection_string: str | None = None) -> pyodbc.Connection:
     conn_str = connection_string or os.getenv("DHARA_AZURE_SQL_CONN_STR")
     if not conn_str:
         server = os.getenv("AZURE_SQL_SERVER")
+        if server and not server.endswith(".database.windows.net") and "localhost" not in server and "127.0.0.1" not in server and ":" not in server:
+            server = server + ".database.windows.net"
         database = os.getenv("AZURE_SQL_DATABASE")
         user = os.getenv("AZURE_SQL_USERNAME") or os.getenv("AZURE_SQL_USER")
         password = os.getenv("AZURE_SQL_PASSWORD")
@@ -188,7 +190,8 @@ def execute_sql_batch(
     """
     t0 = time.perf_counter()
     try:
-        cursor.timeout = timeout_s
+        if hasattr(cursor, "connection") and cursor.connection:
+            cursor.connection.timeout = timeout_s
         cursor.execute(sql)
         rows = cursor.rowcount
 

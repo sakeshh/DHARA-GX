@@ -9,7 +9,7 @@ from agent import etl_handlers as eh
 
 def test_collect_etl_preview_datasets_from_ctx():
     ctx = {"etl_preview_datasets": {"ds1": pd.DataFrame({"x": [1]})}}
-    out = eh._collect_etl_preview_datasets(ctx, {})
+    out, _ = eh._collect_etl_preview_datasets(ctx, {})
     assert list(out.keys()) == ["ds1"]
 
 
