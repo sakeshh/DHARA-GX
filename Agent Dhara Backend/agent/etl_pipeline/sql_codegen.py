@@ -937,10 +937,10 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
         
             step_lines = []
         
-            # Step 0: Normalize empty strings to NULL before validation
+            # Step 0: Normalize empty strings and placeholders to NULL before validation
             if dialect == "tsql" and cols:
-                nullify_clauses = [f"[{c}] = NULLIF(LTRIM(RTRIM([{c}])), '')" for c in cols]
-                step_lines.append(f"-- Normalize empty strings to NULL before validation")
+                nullify_clauses = [f"[{c}] = CASE WHEN LOWER(LTRIM(RTRIM([{c}]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [{c}] END" for c in cols]
+                step_lines.append(f"-- Normalize empty strings and placeholders to NULL before validation")
                 step_lines.append(f"UPDATE {tbl_staging}")
                 step_lines.append(f"SET " + ",\n    ".join(nullify_clauses) + ";")
                 step_lines.append(f"")
@@ -1040,23 +1040,23 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                                 )
                         
                             if has_high_null:
-                                step_lines.append(f"-- Quarantine null dates from {tbl_staging}.{c} to dbo.etl_rejects")
+                                # Log null-date rows to etl_rejects (audit only — do NOT delete, nulls are kept)
+                                step_lines.append(f"-- Log null dates from {tbl_staging}.{c} to dbo.etl_rejects (audit only; row is kept)")
                                 step_lines.append(f"INSERT INTO dbo.etl_rejects (process_name, table_name, row_data, error_reason)")
                                 step_lines.append(f"SELECT '{sp_name}', '{tbl_clean}',")
                                 step_lines.append(f"       (SELECT r.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),")
-                                step_lines.append(f"       'Required date column [{col}] is NULL'")
+                                step_lines.append(f"       'Date column [{col}] is NULL (row kept)'")
                                 step_lines.append(f"FROM {tbl_staging} r")
                                 step_lines.append(f"WHERE r.{c} IS NULL;")
                                 step_lines.append(f"")
-                                step_lines.append(f"DELETE FROM {tbl_staging} WHERE {c} IS NULL;")
-                                step_lines.append(f"")
+                                # Phase 1: keep the row; the null date stays NULL in the clean table
 
-                            # 2. Reject invalid format dates
-                            step_lines.append(f"-- Quarantine invalid dates from {tbl_staging}.{c} to dbo.etl_rejects")
+                            # 2. Nullify (not delete) unparseable dates — row is kept, bad date becomes NULL
+                            step_lines.append(f"-- Log unparseable dates from {tbl_staging}.{c} to dbo.etl_rejects (audit only; row is kept)")
                             step_lines.append(f"INSERT INTO dbo.etl_rejects (process_name, table_name, row_data, error_reason)")
                             step_lines.append(f"SELECT '{sp_name}', '{tbl_clean}',")
                             step_lines.append(f"       (SELECT r.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),")
-                            step_lines.append(f"       'Column [{col}] with value ' + CAST(r.{c} AS NVARCHAR(MAX)) + ' is not a valid date format'")
+                            step_lines.append(f"       'Column [{col}] value ' + ISNULL(CAST(r.{c} AS NVARCHAR(MAX)), 'NULL') + ' is not a valid date (set to NULL)'")
                             step_lines.append(f"FROM {tbl_staging} r")
                             step_lines.append(f"WHERE r.{c} IS NOT NULL AND COALESCE(")
                             step_lines.append(f"    TRY_CONVERT(date, r.{c}, 120),")
@@ -1065,7 +1065,9 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                             step_lines.append(f"    TRY_CONVERT(date, r.{c}, 111)")
                             step_lines.append(f") IS NULL;")
                             step_lines.append(f"")
-                            step_lines.append(f"DELETE FROM {tbl_staging}")
+                            # Nullify the bad date value — row survives with NULL date
+                            step_lines.append(f"-- Nullify unparseable date values in {tbl_staging}.{c} (keep row, set bad date to NULL)")
+                            step_lines.append(f"UPDATE {tbl_staging} SET {c} = NULL")
                             step_lines.append(f"WHERE {c} IS NOT NULL AND COALESCE(")
                             step_lines.append(f"    TRY_CONVERT(date, {c}, 120),")
                             step_lines.append(f"    TRY_CONVERT(date, {c}, 103),")
@@ -1615,14 +1617,32 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
         lines.append("END;")
         lines.append("GO")
         lines.append("")
+        # -------------------------------------------------------
+        # Auto-execute: Call the orchestrator so data actually
+        # flows from Raw → Staging → Clean tables.
+        # Without this, the script only defines procedures but
+        # never runs them, leaving Customers_Clean with 0 rows.
+        # -------------------------------------------------------
+        lines.append("-- ============================================================")
+        lines.append("-- Auto-Execute: Run ETL pipeline to populate Clean tables")
+        lines.append("-- ============================================================")
+        lines.append("PRINT 'Starting ETL pipeline execution...';")
+        lines.append("EXEC dbo.etl_main @load_type = 'FULL';")
+        lines.append("PRINT 'ETL pipeline execution complete.';")
+        lines.append("GO")
+        lines.append("")
 
     for st in plan.get("global_steps") or []:
         lines.append(f"-- global: {st.get('action')} {st.get('column') or ''}")
 
     manifest = plan.get("connector_manifest") or {}
     rel = plan.get("relationships") or {}
-    if rel.get("joins") or rel.get("many_to_many") or manifest.get("datasets"):
+    # Views and join queries are Phase 2 (transform) artifacts — skip in cleanse_only mode
+    if generation_mode != "cleanse_only" and (rel.get("joins") or rel.get("many_to_many") or manifest.get("datasets")):
         lines.append("")
+        lines.append("-- ============================================================")
+        lines.append("-- Phase 2: Joined Views over Clean Tables")
+        lines.append("-- ============================================================")
         # Call emit_sql_joins and map output lines from Raw to Clean for views
         join_lines = emit_sql_joins(plan, manifest, assessment=assessment, dialect=dialect)
         if dialect == "tsql":
@@ -1642,6 +1662,10 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
             join_lines = clean_join_lines
             
         lines.extend(join_lines)
+    elif generation_mode == "cleanse_only" and (rel.get("joins") or rel.get("many_to_many")):
+        lines.append("")
+        lines.append("-- NOTE: Cross-dataset views omitted (cleanse_only mode).")
+        lines.append("-- Re-generate in 'full' mode to emit Phase 2 join views.")
 
     # Generate seed lines for default_values and invalid_values
     seed_lines = []
