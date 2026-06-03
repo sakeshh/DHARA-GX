@@ -4,7 +4,7 @@
 -- Grade: A
 -- No issues detected. Fully production ready!
 -- ============================================================
--- ETL SQL — Agent Dhara — plan_id=plan_1780413305
+-- ETL SQL — Agent Dhara — plan_id=plan_1780424676
 -- dialect=tsql — review before executing against production.
 
 -- ⚠ 1 item(s) flagged for manual review before production run.
@@ -164,15 +164,15 @@ AS BEGIN
             [phone] = REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(CAST([phone] AS NVARCHAR(MAX)))), N'-', N''), N' ', N''), N'(', N''), N')', N'')
         WHERE 1=1;
 
-        -- Normalize empty strings to NULL before validation
+        -- Normalize empty strings and placeholders to NULL before validation
         UPDATE #json_Staging
-        SET [id] = NULLIF(LTRIM(RTRIM([id])), ''),
-    [name] = NULLIF(LTRIM(RTRIM([name])), ''),
-    [department] = NULLIF(LTRIM(RTRIM([department])), ''),
-    [phone] = NULLIF(LTRIM(RTRIM([phone])), ''),
-    [email] = NULLIF(LTRIM(RTRIM([email])), ''),
-    [age] = NULLIF(LTRIM(RTRIM([age])), ''),
-    [salary] = NULLIF(LTRIM(RTRIM([salary])), '');
+        SET [id] = CASE WHEN LOWER(LTRIM(RTRIM([id]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [id] END,
+    [name] = CASE WHEN LOWER(LTRIM(RTRIM([name]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [name] END,
+    [department] = CASE WHEN LOWER(LTRIM(RTRIM([department]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [department] END,
+    [phone] = CASE WHEN LOWER(LTRIM(RTRIM([phone]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [phone] END,
+    [email] = CASE WHEN LOWER(LTRIM(RTRIM([email]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [email] END,
+    [age] = CASE WHEN LOWER(LTRIM(RTRIM([age]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [age] END,
+    [salary] = CASE WHEN LOWER(LTRIM(RTRIM([salary]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [salary] END;
 
         -- Quarantine rows where primary key [id] is NULL to dbo.etl_rejects
         INSERT INTO dbo.etl_rejects (process_name, table_name, row_data, error_reason)
@@ -297,15 +297,15 @@ AS BEGIN
             INSERT INTO #json_Transform_Staging ([id], [name], [department], [phone], [email], [age], [salary], etl_batch_id)
             SELECT [id], [name], [department], [phone], [email], [age], [salary], @run_id FROM [data_1].[json_Clean];
 
-        -- Normalize empty strings to NULL before validation
+        -- Normalize empty strings and placeholders to NULL before validation
         UPDATE #json_Transform_Staging
-        SET [id] = NULLIF(LTRIM(RTRIM([id])), ''),
-    [name] = NULLIF(LTRIM(RTRIM([name])), ''),
-    [department] = NULLIF(LTRIM(RTRIM([department])), ''),
-    [phone] = NULLIF(LTRIM(RTRIM([phone])), ''),
-    [email] = NULLIF(LTRIM(RTRIM([email])), ''),
-    [age] = NULLIF(LTRIM(RTRIM([age])), ''),
-    [salary] = NULLIF(LTRIM(RTRIM([salary])), '');
+        SET [id] = CASE WHEN LOWER(LTRIM(RTRIM([id]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [id] END,
+    [name] = CASE WHEN LOWER(LTRIM(RTRIM([name]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [name] END,
+    [department] = CASE WHEN LOWER(LTRIM(RTRIM([department]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [department] END,
+    [phone] = CASE WHEN LOWER(LTRIM(RTRIM([phone]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [phone] END,
+    [email] = CASE WHEN LOWER(LTRIM(RTRIM([email]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [email] END,
+    [age] = CASE WHEN LOWER(LTRIM(RTRIM([age]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [age] END,
+    [salary] = CASE WHEN LOWER(LTRIM(RTRIM([salary]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [salary] END;
 
         -- Copy fully transformed data from Staging to target Clean table (SCD Type 1)
         IF @load_type = 'FULL' OR @last_run IS NULL
@@ -422,15 +422,15 @@ AS BEGIN
             [phone] = REPLACE(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(CAST([phone] AS NVARCHAR(MAX)))), N'-', N''), N' ', N''), N'(', N''), N')', N'')
         WHERE 1=1;
 
-        -- Normalize empty strings to NULL before validation
+        -- Normalize empty strings and placeholders to NULL before validation
         UPDATE #xml_Staging
-        SET [id] = NULLIF(LTRIM(RTRIM([id])), ''),
-    [name] = NULLIF(LTRIM(RTRIM([name])), ''),
-    [department] = NULLIF(LTRIM(RTRIM([department])), ''),
-    [phone] = NULLIF(LTRIM(RTRIM([phone])), ''),
-    [email] = NULLIF(LTRIM(RTRIM([email])), ''),
-    [age] = NULLIF(LTRIM(RTRIM([age])), ''),
-    [salary] = NULLIF(LTRIM(RTRIM([salary])), '');
+        SET [id] = CASE WHEN LOWER(LTRIM(RTRIM([id]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [id] END,
+    [name] = CASE WHEN LOWER(LTRIM(RTRIM([name]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [name] END,
+    [department] = CASE WHEN LOWER(LTRIM(RTRIM([department]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [department] END,
+    [phone] = CASE WHEN LOWER(LTRIM(RTRIM([phone]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [phone] END,
+    [email] = CASE WHEN LOWER(LTRIM(RTRIM([email]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [email] END,
+    [age] = CASE WHEN LOWER(LTRIM(RTRIM([age]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [age] END,
+    [salary] = CASE WHEN LOWER(LTRIM(RTRIM([salary]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [salary] END;
 
         -- Quarantine rows where primary key [id] is NULL to dbo.etl_rejects
         INSERT INTO dbo.etl_rejects (process_name, table_name, row_data, error_reason)
@@ -555,15 +555,15 @@ AS BEGIN
             INSERT INTO #xml_Transform_Staging ([id], [name], [department], [phone], [email], [age], [salary], etl_batch_id)
             SELECT [id], [name], [department], [phone], [email], [age], [salary], @run_id FROM [data_1].[xml_Clean];
 
-        -- Normalize empty strings to NULL before validation
+        -- Normalize empty strings and placeholders to NULL before validation
         UPDATE #xml_Transform_Staging
-        SET [id] = NULLIF(LTRIM(RTRIM([id])), ''),
-    [name] = NULLIF(LTRIM(RTRIM([name])), ''),
-    [department] = NULLIF(LTRIM(RTRIM([department])), ''),
-    [phone] = NULLIF(LTRIM(RTRIM([phone])), ''),
-    [email] = NULLIF(LTRIM(RTRIM([email])), ''),
-    [age] = NULLIF(LTRIM(RTRIM([age])), ''),
-    [salary] = NULLIF(LTRIM(RTRIM([salary])), '');
+        SET [id] = CASE WHEN LOWER(LTRIM(RTRIM([id]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [id] END,
+    [name] = CASE WHEN LOWER(LTRIM(RTRIM([name]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [name] END,
+    [department] = CASE WHEN LOWER(LTRIM(RTRIM([department]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [department] END,
+    [phone] = CASE WHEN LOWER(LTRIM(RTRIM([phone]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [phone] END,
+    [email] = CASE WHEN LOWER(LTRIM(RTRIM([email]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [email] END,
+    [age] = CASE WHEN LOWER(LTRIM(RTRIM([age]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [age] END,
+    [salary] = CASE WHEN LOWER(LTRIM(RTRIM([salary]))) IN ('', 'n/a', 'na', 'null', 'unknown') THEN NULL ELSE [salary] END;
 
         -- Copy fully transformed data from Staging to target Clean table (SCD Type 1)
         IF @load_type = 'FULL' OR @last_run IS NULL
@@ -669,7 +669,18 @@ AS BEGIN
 END;
 GO
 
+-- ============================================================
+-- Auto-Execute: Run ETL pipeline to populate Clean tables
+-- ============================================================
+PRINT 'Starting ETL pipeline execution...';
+EXEC dbo.etl_main @load_type = 'FULL';
+PRINT 'ETL pipeline execution complete.';
+GO
 
+
+-- ============================================================
+-- Phase 2: Joined Views over Clean Tables
+-- ============================================================
 -- ── Staging / load order (connector manifest) ──
 -- data_1.json_Clean: -- file staging required
 -- data_1.xml_Clean: -- file staging required

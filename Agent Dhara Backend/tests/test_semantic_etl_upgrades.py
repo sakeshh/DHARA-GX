@@ -122,7 +122,7 @@ class TestSemanticEtlUpgrades(unittest.TestCase):
         sql_with_drop = generate_sql_etl(plan, assessment, dialect="tsql")
         
         self.assertIn("dbo.etl_rejects", sql_with_drop)
-        self.assertIn("Quarantine invalid dates", sql_with_drop)
+        self.assertIn("Log unparseable dates", sql_with_drop)
         self.assertIn("Quarantine invalid emails", sql_with_drop)
         self.assertIn("DELETE FROM [dbo].[Orders_Clean]", sql_with_drop)
         self.assertIn("FOR JSON PATH", sql_with_drop)
