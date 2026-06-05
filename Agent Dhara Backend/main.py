@@ -1242,7 +1242,7 @@ def build_html_report(result: Dict[str, Any]) -> str:
         n_high = len(buckets["high"])
         n_med = len(buckets["medium"])
         n_low = len(buckets["low"])
-        dq_details_open_attr = " open" if n_high > 0 else ""
+        dq_details_open_attr = " open" if (n_high + n_med + n_low) > 0 else ""
         return f"""
         <div class="nest-file-card dataset-card depth-card" id="ds-{i}" data-path-group="{pi}">
           <button type="button" class="nest-toggle nest-level-3" aria-expanded="true" aria-controls="dbc-{i}">
@@ -1377,6 +1377,7 @@ def build_html_report(result: Dict[str, Any]) -> str:
         xds = dq_global.get("cross_dataset_inconsistencies", []) or []
         rri = dq_global.get("relationship_row_issues", []) or []
         rw = dq_global.get("relationship_warnings", []) or []
+        xcons = dq_global.get("cross_dataset_consistency", []) or []
 
         def tbl(rows, headers, row_fn):
             if not rows:
@@ -1410,6 +1411,14 @@ def build_html_report(result: Dict[str, Any]) -> str:
             f"<td>{fmt_samples(z.get('sample_values') or [])}</td>"
             f"<td class='rec-cell'>{esc(z.get('recommendation') or '')}</td></tr>",
         )
+        xcons_tbl = tbl(
+            xcons,
+            ["Issue Type", "Severity", "Insight", "Recommendation"],
+            lambda xc: f"<tr><td><code>{esc(xc.get('type'))}</code></td>"
+            f"<td><span class='badge sev-{esc((xc.get('severity') or 'low').lower())}'>{esc((xc.get('severity') or 'low').upper())}</span></td>"
+            f"<td class='msg-cell'>{esc(xc.get('message'))}</td>"
+            f"<td class='rec-cell'>{esc(xc.get('recommendation') or '')}</td></tr>",
+        )
         rw_html = ""
         if rw:
             rw_html = "<h4 class='block-title'>Relationship model warnings (M:N)</h4><ul class='rel-list'>"
@@ -1425,7 +1434,8 @@ def build_html_report(result: Dict[str, Any]) -> str:
         return f"""<h4 class="block-title">Orphan key rows (which dataset / column / rows)</h4>{rri_tbl}
             {rw_html}
             <h4 class="block-title">Orphan values (set difference, no row index)</h4>{o_tbl}
-            <h4 class="block-title">Cross-dataset inconsistencies</h4>{x_tbl}"""
+            <h4 class="block-title">Cross-dataset inconsistencies</h4>{x_tbl}
+            <h4 class="block-title">Cross-dataset consistency insights</h4>{xcons_tbl}"""
 
     dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     rel_html = render_rels()
@@ -1823,6 +1833,13 @@ def build_html_report(result: Dict[str, Any]) -> str:
     }});
     document.querySelectorAll('.nest-toggle').forEach(function(b) {{
       b.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    }});
+    document.querySelectorAll('details.dq-issue-details').forEach(function(d) {{
+      if (expanded) {{
+        d.setAttribute('open', '');
+      }} else {{
+        d.removeAttribute('open');
+      }}
     }});
   }}
   document.getElementById('btn-expand-all').addEventListener('click', function() {{ expandCollapseAll(true); }});

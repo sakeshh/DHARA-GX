@@ -1,0 +1,18 @@
+{
+  "weird_casing_issue": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": false,
+      "description": "No transform; document in runbook."
+    },
+    {
+      "id": "opt_lowercase",
+      "label": "Convert to lowercase text",
+      "action": "lowercase",
+      "recommended": true,
+      "description": "Standardize string case to lowercase."
+    }
+  ]
+}

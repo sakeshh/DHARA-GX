@@ -349,5 +349,149 @@ class TestDataAssessmentEnhancements(unittest.TestCase):
         self.assertIn("out = out.dropDuplicates()", spark_code)
         self.assertNotIn("dropDuplicates('[Row-level]')", spark_code)
 
+    def test_validation_hardening_regex_and_whitespace(self):
+        # Create a dataframe with various validation issues:
+        # - contact_info has consecutive spaces (internal_whitespace) and leading/trailing spaces (whitespace)
+        # - description has HTML tags (html_tags_in_text)
+        # - remarks has only symbols/punctuation (punctuation_only_value)
+        # - custom_contact (non-standard name) has invalid email structure -> should be mapped correctly because of semantic_type="email"
+        df = pd.DataFrame({
+            "contact_info": [" hello ", "good  day", "valid"],
+            "description": ["<p>hello</p>", "normal text", "ok"],
+            "remarks": ["!!!", "...", "normal remark"],
+            "custom_contact": ["bademail", "another_bad@", "test@example.com"]
+        })
+        profile = {
+            "columns": {
+                "contact_info": {"semantic_type": "text"},
+                "description": {"semantic_type": "free_text"},
+                "remarks": {"semantic_type": "text"},
+                "custom_contact": {"semantic_type": "email"}
+            },
+            "priority_columns": ["contact_info", "description", "remarks", "custom_contact"]
+        }
+
+        res = analyze_dataset_quality("test_hardening", df, profile)
+        issues = res.get("issues", [])
+        
+        issue_types = [it.get("type") for it in issues]
+        
+        # Verify all issue types are detected and correctly mapped
+        self.assertIn("whitespace", issue_types)
+        self.assertIn("internal_whitespace", issue_types)
+        self.assertIn("html_tags_in_text", issue_types)
+        self.assertIn("punctuation_only_value", issue_types)
+        self.assertIn("invalid_email", issue_types)
+        
+        # Verify counts
+        whitespace_issue = next(it for it in issues if it["type"] == "whitespace")
+        self.assertEqual(whitespace_issue["count"], 1) # "  hello  "
+        self.assertEqual(whitespace_issue["column"], "contact_info")
+
+        internal_ws_issue = next(it for it in issues if it["type"] == "internal_whitespace")
+        self.assertEqual(internal_ws_issue["count"], 1) # "good  day"
+        self.assertEqual(internal_ws_issue["column"], "contact_info")
+
+        html_issue = next(it for it in issues if it["type"] == "html_tags_in_text")
+        self.assertEqual(html_issue["count"], 1) # "<p>hello</p>"
+        self.assertEqual(html_issue["column"], "description")
+
+        punct_issue = next(it for it in issues if it["type"] == "punctuation_only_value")
+        self.assertEqual(punct_issue["count"], 2) # "!!!", "..."
+        self.assertEqual(punct_issue["column"], "remarks")
+
+        email_issue = next(it for it in issues if it["type"] == "invalid_email")
+        self.assertEqual(email_issue["count"], 2) # "bademail", "another_bad@"
+        self.assertEqual(email_issue["column"], "custom_contact")
+
+    def test_numeric_bounds_and_suspicious_zeros(self):
+        # Create a dataframe:
+        # - order_id (ID column) has a value of 0 (suspicious_zero)
+        # - price (numeric column) has negative values (-10.0) (negative_values)
+        # - quantity (numeric column) has positive values only (should pass)
+        df = pd.DataFrame({
+            "order_id": [101, 0, 103],
+            "price": [15.5, -10.0, 20.0],
+            "quantity": [2, 5, 1]
+        })
+        profile = {
+            "columns": {
+                "order_id": {"semantic_type": "numeric_id"},
+                "price": {"semantic_type": "numeric"},
+                "quantity": {"semantic_type": "numeric"}
+            },
+            "priority_columns": ["order_id", "price", "quantity"]
+        }
+        
+        res = analyze_dataset_quality("test_bounds", df, profile)
+        issues = res.get("issues", [])
+        
+        issue_types = [it.get("type") for it in issues]
+        
+        self.assertIn("suspicious_zero", issue_types)
+        self.assertIn("negative_values", issue_types)
+        
+        zero_issue = next(it for it in issues if it["type"] == "suspicious_zero")
+        self.assertEqual(zero_issue["count"], 1) # 0
+        self.assertEqual(zero_issue["column"], "order_id")
+        
+        neg_issue = next(it for it in issues if it["type"] == "negative_values")
+        self.assertEqual(neg_issue["count"], 1) # -10.0
+        self.assertEqual(neg_issue["column"], "price")
+
+    def test_validation_on_non_priority_columns(self):
+        # Create a dataframe where contact_info has whitespace issue and is NOT a priority column
+        # and has unprofiled columns (e.g. unprofiled_email) whose semantic type should be resolved dynamically!
+        df = pd.DataFrame({
+            "contact_info": [" hello ", "valid"],
+            "unprofiled_email": ["bademail", "test@example.com"]
+        })
+        profile = {
+            "columns": {
+                "contact_info": {"semantic_type": "text"}
+            },
+            "priority_columns": [] # explicitly empty!
+        }
+        
+        res = analyze_dataset_quality("test_non_priority", df, profile)
+        issues = res.get("issues", [])
+        
+        issue_types = [it.get("type") for it in issues]
+        
+        # Both whitespace issue (on non-priority column) and invalid_email (on unprofiled column dynamically resolved) should be found!
+        self.assertIn("whitespace", issue_types)
+        self.assertIn("invalid_email", issue_types)
+        
+        whitespace_issue = next(it for it in issues if it["type"] == "whitespace")
+        self.assertEqual(whitespace_issue["column"], "contact_info")
+        
+        email_issue = next(it for it in issues if it["type"] == "invalid_email")
+        self.assertEqual(email_issue["column"], "unprofiled_email")
+
+    def test_nullable_column_nulls_reported(self):
+        # Create a dataframe with a nullable column containing missing/null values
+        df = pd.DataFrame({
+            "nullable_col": ["val1", None, "val2"]
+        })
+        profile = {
+            "columns": {
+                "nullable_col": {
+                    "nullable": "YES",
+                    "semantic_type": "text",
+                    "null_percentage": 1.0 / 3.0
+                }
+            }
+        }
+        res = analyze_dataset_quality("test_nullable_nulls", df, profile)
+        issues = res.get("issues", [])
+        
+        # Verify that the null value is reported despite the column being nullable
+        null_issues = [it for it in issues if it.get("type") == "nulls"]
+        self.assertEqual(len(null_issues), 1)
+        self.assertEqual(null_issues[0]["column"], "nullable_col")
+        self.assertEqual(null_issues[0]["count"], 1)
+        self.assertEqual(null_issues[0]["row_indexes"], [1])
+        self.assertEqual(null_issues[0]["severity"], "low") # Should be low severity for nullable columns
+
 if __name__ == "__main__":
     unittest.main()

@@ -201,10 +201,15 @@ export default function WelcomePage() {
                     <span className="pointer-events-none absolute -inset-3 rounded-xl blur-xl bg-[#0070AD]/20 opacity-0 transition-opacity duration-300 group-hover/logo:opacity-100" />
                     <SogetiLogo className="relative h-9 w-32 md:h-10 md:w-36 -translate-x-10 lg:-translate-x-8 transition-[filter] duration-300 group-hover/logo:drop-shadow-[0_0_24px_rgba(0,112,173,0.3)]" />
                   </span>
-                  <span className="inline-flex flex-wrap items-center justify-center lg:justify-start gap-x-4">
+                  <span className="inline-flex flex-wrap items-baseline justify-center lg:justify-start gap-x-4">
                     <span>AGENT</span>
-                    <span className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-900/55 bg-clip-text text-transparent">
-                      DHARA
+                    <span className="inline-flex flex-col items-center lg:items-start">
+                      <span className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-900/55 bg-clip-text text-transparent">
+                        DHARA
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-[#0070AD]/8 px-2 py-0.5 text-[10px] font-semibold tracking-normal normal-case text-[#0070AD]/75 mt-1.5 ml-6 w-fit backdrop-blur-[2px]">
+                        Powered by Great Expectations
+                      </span>
                     </span>
                   </span>
                 </motion.span>
@@ -306,8 +311,15 @@ export default function WelcomePage() {
                       >
                         <div className="flex items-start gap-3">
                           <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#0070AD] to-[#12ABDB] shadow-[0_0_0_4px_rgba(0,112,173,0.10)]" />
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                              {item.title === 'Validate' && (
+                                <span className="inline-flex items-center rounded-full bg-[#0070AD]/8 px-1.5 py-0.5 text-[10px] font-medium text-[#0070AD]/75 backdrop-blur-[2px]">
+                                  Powered by Great Expectations
+                                </span>
+                              )}
+                            </div>
                             <div className="text-sm text-black/60">{item.desc}</div>
                           </div>
                         </div>
