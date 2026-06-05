@@ -281,5 +281,69 @@ class TestReportAccuracyUpgrades(unittest.TestCase):
         action = action_for_resolution("weird_casing_issue", "opt_lowercase", opts)
         self.assertEqual(action, "lowercase")
 
+    def test_html_report_rendering_enhancements(self):
+        from main import build_html_report
+        
+        sample_result = {
+            "datasets": {
+                "test_dataset.csv": {
+                    "row_count": 100,
+                    "column_count": 2,
+                    "source_root": "azure_blob:",
+                    "columns": {
+                        "id": {"dtype": "int", "null_percentage": 0.0, "unique_count": 100},
+                        "name": {"dtype": "str", "null_percentage": 0.05, "unique_count": 95}
+                    }
+                }
+            },
+            "relationships": [],
+            "data_quality_issues": {
+                "datasets": {
+                    "test_dataset.csv": {
+                        "summary": {
+                            "issue_count": 1,
+                            "high_severity": 0,
+                            "medium_severity": 0,
+                            "low_severity": 1
+                        },
+                        "issues": [
+                            {
+                                "severity": "low",
+                                "type": "whitespace",
+                                "column": "name",
+                                "count": 5,
+                                "message": "5 leading/trailing spaces"
+                            }
+                        ]
+                    }
+                },
+                "global_issues": {
+                    "cross_dataset_consistency": [
+                        {
+                            "severity": "high",
+                            "type": "id_type_drift_across_datasets",
+                            "message": "ID column uses inconsistent scalar types across datasets (serialization/type drift).",
+                            "recommendation": "Align ID types to match across all sources."
+                        }
+                    ]
+                }
+            }
+        }
+        
+        html_report = build_html_report(sample_result)
+        
+        # Verify that since there is a low severity issue (n_low = 1, n_high = 0),
+        # dq_details_open_attr is " open", so "<details class=\"dq-issue-details\" open>" is present
+        self.assertIn("class=\"dq-issue-details\" open", html_report)
+        
+        # Verify the expanded javascript details logic is present
+        self.assertIn("details.dq-issue-details", html_report)
+
+        # Verify that cross-dataset consistency is rendered in the HTML report
+        self.assertIn("Cross-dataset consistency insights", html_report)
+        self.assertIn("id_type_drift_across_datasets", html_report)
+        self.assertIn("Align ID types to match across all sources.", html_report)
+
 if __name__ == "__main__":
     unittest.main()
+
