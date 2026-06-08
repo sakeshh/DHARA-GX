@@ -14,5 +14,14 @@
       "recommended": true,
       "description": "Standardize string case to lowercase."
     }
+  ],
+  "internal_whitespace": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": true,
+      "description": "No transform; document in runbook."
+    }
   ]
 }

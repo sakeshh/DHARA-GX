@@ -1,7 +1,7 @@
 {
     "data_quality_issues.csv": {
-        "id": "str",
-        "name": "str",
-        "email": "str"
+        "id": "object",
+        "name": "object",
+        "email": "object"
     }
 }
