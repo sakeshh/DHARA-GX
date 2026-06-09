@@ -1659,7 +1659,7 @@ PLACEHOLDERS = {
     "temp", "test", "dummy", "placeholder", "na.", "na,", "not set",
     "unknown unknown", "n.d.", "nd", "not known",
 }
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
 PHONE_RE = re.compile(r"^[+()\-\.\s0-9]{7,}$")
 URL_RE = re.compile(
     r"^(https?://|ftp://|www\.)[^\s/$.?#][^\s]*$",

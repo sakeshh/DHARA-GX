@@ -57,6 +57,14 @@ _ACTION_CODE_MARKERS: Dict[str, List[str]] = {
     "deduplicate": ["drop_duplicates", "dropDuplicates"],
     "exclude_column": [".drop(columns=", ".drop("],
     "drop_column": [".drop(columns=", ".drop("],
+    "standardize_boolean": ["isin(", "standardize_boolean"],
+    "zero_to_null": [".replace(", "zero_to_null"],
+    "range_clip": [".clip(lower=", "range_clip"],
+    "replace_values": ["replace_values"],
+    "regex_replace": [".str.replace(", "regex_replace"],
+    "nullify_future_dates": ["Timestamp.now", "nullify_future_dates"],
+    "noop": ["no transform", "noop"],
+    "at_least_one": ["isna().all(axis=1)", "at_least_one"],
 }
 
 

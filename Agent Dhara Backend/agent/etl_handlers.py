@@ -272,10 +272,10 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     "preview_ready": ["approved", "failed", "planned"],
     "approved": ["generating", "failed", "planned"],
     "generating": ["validated", "failed", "planned"],
-    "validated": ["code_ready", "failed", "planned"],
-    "code_ready": ["downloadable", "failed", "planned"],
+    "validated": ["code_ready", "failed", "planned", "generating"],
+    "code_ready": ["downloadable", "failed", "planned", "generating"],
     "failed": ["planned"],
-    "downloadable": ["planned"],
+    "downloadable": ["planned", "generating"],
 }
 
 _LEGACY_PHASE_MAP = {
@@ -983,7 +983,7 @@ def etl_generate_code(
 
     _migrate_phase(flow)
     current_phase = flow.get("phase", "planned")
-    allowed_phases = {"approved", "failed", "code_ready", "generating", "validated"}
+    allowed_phases = {"approved", "failed", "code_ready", "generating", "validated", "downloadable"}
     if current_phase not in allowed_phases:
         return {
             "ok": False,

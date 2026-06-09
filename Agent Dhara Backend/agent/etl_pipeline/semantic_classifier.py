@@ -7,7 +7,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 # Core regexes for value-based scanning
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
 _UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _IP4_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 _URL_RE = re.compile(r"^https?://[^\s/$.?#].[^\s]*$")
@@ -189,7 +189,7 @@ def classify_column_semantic(
         semantic_type = "id"
         sub_type = "email"
         pii_level = "high"
-        expected_format = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+        expected_format = r"^[^@\s]+@[^@\s]*\.[^@\s]+$"
         fill_strategy = "flag"
         transform_hints = ["trim", "lowercase", "sanitize_email"]
     elif final_sub == "phone":
