@@ -236,7 +236,7 @@ def run_gx_validation(
 
                     # Semantic Regex
                     if semantic_type == "email":
-                        validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+                        validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
                     elif semantic_type == "phone":
                         validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[+()\-\.\s0-9]{7,}$")
                     elif semantic_type in ("uuid", "guid"):
@@ -309,7 +309,7 @@ def run_gx_validation(
                     # Map semantic regex patterns to clean, specific expectation names
                     if exp_type == "expect_column_values_to_match_regex" and kwargs_dict:
                         pattern = kwargs_dict.get("regex")
-                        if pattern == r"^[^@\s]+@[^@\s]+\.[^@\s]+$":
+                        if pattern == r"^[^@\s]+@[^@\s]*\.[^@\s]+$":
                             exp_type_str = "invalid_email"
                         elif pattern == r"^[+()\-\.\s0-9]{7,}$":
                             exp_type_str = "invalid_phone"

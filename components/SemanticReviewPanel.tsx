@@ -208,181 +208,185 @@ export default function SemanticReviewPanel({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-zinc-900 mb-2 flex items-center gap-2">
-            <FaTags className="text-[#0070AD]" />
-            Verify Column Semantics
-          </h2>
-          <p className="text-black/60">
-            Review column types, check PII levels, and trigger LLM enrichment to refine classifications.
-          </p>
-        </div>
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 text-sm text-black/65 hover:text-black transition-colors"
-        >
-          <FaArrowLeft />
-          <span>Back</span>
-        </button>
-      </div>
-
-      {lowConfidenceCount > 0 && (
-        <div className="flex items-center justify-between p-4 rounded-xl border border-amber-500/10 bg-amber-500/5">
-          <div className="flex items-center gap-2.5 text-xs text-amber-800 font-semibold">
-            <FaExclamationTriangle className="text-amber-600 text-sm flex-shrink-0" />
-            <span>
-              {lowConfidenceCount} column(s) below 75% confidence — LLM enrichment is recommended.
-            </span>
+    <div className="flex flex-col h-full min-h-[calc(100vh-149px)]">
+      <div className="flex-1 flex flex-col min-h-0 space-y-6">
+        <div className="flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-3xl font-bold text-zinc-900 mb-2 flex items-center gap-2">
+              <FaTags className="text-[#0070AD]" />
+              Verify Column Semantics
+            </h2>
+            <p className="text-black/60">
+              Review column types, check PII levels, and trigger LLM enrichment to refine classifications.
+            </p>
           </div>
           <button
-            onClick={runLlmEnrichment}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white shadow-sm transition-colors"
+            onClick={onBack}
+            className="flex items-center gap-2 text-sm text-black/65 hover:text-black transition-colors"
           >
-            <FaMagic />
-            <span>Run LLM Enrichment</span>
+            <FaArrowLeft />
+            <span>Back</span>
           </button>
         </div>
-      )}
 
-      {error && (
-        <div className="p-4 rounded-xl border border-rose-500/10 bg-rose-500/5 text-xs text-rose-700 font-medium">
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div className="space-y-8 max-h-[calc(100vh-340px)] overflow-y-auto pr-2">
-        {Object.entries(semanticsMap).map(([tableName, columns]) => {
-          const dsScore = dqGate?.datasets?.[tableName]?.dq_score ?? 100;
-          return (
-            <motion.div
-              key={tableName}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-2xl border border-black/10 bg-white/60 p-6 shadow-sm"
+        {lowConfidenceCount > 0 && (
+          <div className="flex items-center justify-between p-4 rounded-xl border border-amber-500/10 bg-amber-500/5 shrink-0">
+            <div className="flex items-center gap-2.5 text-xs text-amber-800 font-semibold">
+              <FaExclamationTriangle className="text-amber-600 text-sm flex-shrink-0" />
+              <span>
+                {lowConfidenceCount} column(s) below 75% confidence — LLM enrichment is recommended.
+              </span>
+            </div>
+            <button
+              onClick={runLlmEnrichment}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-xs font-bold text-white shadow-sm transition-colors"
             >
-              <h3 className="text-md font-bold text-zinc-900 mb-4 pb-2 border-b border-black/5 flex items-center justify-between">
-                <span>
-                  Table: <span className="text-[#0070AD]">{tableName}</span>
-                </span>
-                <span className="text-xs text-black/50">DQ Score: {dsScore}%</span>
-              </h3>
+              <FaMagic />
+              <span>Run LLM Enrichment</span>
+            </button>
+          </div>
+        )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-[10px] font-bold uppercase tracking-wider text-black/40 border-b border-black/5 font-sans">
-                      <th className="py-3 text-left">Column</th>
-                      <th className="py-3 text-left">Category / Sub-type</th>
-                      <th className="py-3 text-left">PII Level</th>
-                      <th className="py-3 text-left">Confidence</th>
-                      <th className="py-3 text-left">Sample Values</th>
-                      <th className="py-3 w-20 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-black/5">
-                    {columns.map((col) => {
-                      const isEditing = editingCol?.table === tableName && editingCol?.col === col.name;
-                      const hasLowConfidence = col.confidence < 0.75;
-                      return (
-                        <tr key={col.name} className="hover:bg-black/[0.005]">
-                          <td className="py-3 font-semibold text-zinc-800">{col.name}</td>
-                          <td className="py-3 font-medium capitalize text-zinc-600">
-                            {col.semantic_type} ({col.sub_type})
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
-                                col.pii_level === 'high'
-                                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-600'
-                                  : col.pii_level === 'medium'
-                                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-600'
-                                    : col.pii_level === 'low'
-                                      ? 'bg-blue-500/10 border-blue-500/20 text-blue-600'
-                                      : 'bg-zinc-100 border-zinc-200 text-zinc-600'
-                              }`}
-                            >
-                              {col.pii_level}
-                            </span>
-                          </td>
-                          <td className="py-3">
-                            <span
-                              className={`font-semibold ${
-                                hasLowConfidence ? 'text-amber-600 font-bold' : 'text-emerald-600 font-bold'
-                              }`}
-                            >
-                              {Math.round(col.confidence * 100)}%
-                            </span>
-                            <span className="text-[10px] text-black/35 block font-medium capitalize">
-                              Inferred: {col.inferred_by}
-                            </span>
-                          </td>
-                          <td className="py-3 max-w-[200px] truncate">
-                            <div className="flex flex-wrap gap-1">
-                              {col.samples.length > 0 ? (
-                                col.samples.slice(0, 3).map((val, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="bg-black/5 px-2 py-0.5 rounded text-[10px] text-black/60 font-mono truncate"
-                                    title={val}
-                                  >
-                                    {val}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-black/35 italic">No samples</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2 text-center">
-                            <button
-                              type="button"
-                              onClick={() => setEditingCol({ table: tableName, col: col.name })}
-                              className="p-2 rounded hover:bg-black/5 text-[#0070AD] hover:text-[#0070AD]/90 flex items-center justify-center gap-1 font-bold text-xs mx-auto"
-                            >
-                              <FaEdit />
-                              <span>Edit</span>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+        {error && (
+          <div className="p-4 rounded-xl border border-rose-500/10 bg-rose-500/5 text-xs text-rose-700 font-medium shrink-0">
+            ⚠️ {error}
+          </div>
+        )}
 
-              {editingCol?.table === tableName && (
-                <AnimatePresence>
-                  {columns
-                    .filter((c) => c.name === editingCol.col)
-                    .map((col) => (
-                      <SemanticColumnEditor
-                        key={col.name}
-                        columnName={col.name}
-                        currentType={col.semantic_type}
-                        currentSubType={col.sub_type}
-                        currentPii={col.pii_level}
-                        onSave={(updates) => handleEditSave(tableName, col.name, updates)}
-                        onCancel={() => setEditingCol(null)}
-                      />
-                    ))}
-                </AnimatePresence>
-              )}
-            </motion.div>
-          );
-        })}
+        <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-8 options-scroll">
+          {Object.entries(semanticsMap).map(([tableName, columns]) => {
+            const dsScore = dqGate?.datasets?.[tableName]?.dq_score ?? 100;
+            return (
+              <motion.div
+                key={tableName}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl border border-black/10 bg-white/60 p-6 shadow-sm"
+              >
+                <h3 className="text-md font-bold text-zinc-900 mb-4 pb-2 border-b border-black/5 flex items-center justify-between">
+                  <span>
+                    Table: <span className="text-[#0070AD]">{tableName}</span>
+                  </span>
+                  <span className="text-xs text-black/50">DQ Score: {dsScore}%</span>
+                </h3>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[10px] font-bold uppercase tracking-wider text-black/40 border-b border-black/5 font-sans">
+                        <th className="py-3 text-left">Column</th>
+                        <th className="py-3 text-left">Category / Sub-type</th>
+                        <th className="py-3 text-left">PII Level</th>
+                        <th className="py-3 text-left">Confidence</th>
+                        <th className="py-3 text-left">Sample Values</th>
+                        <th className="py-3 w-20 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-black/5">
+                      {columns.map((col) => {
+                        const isEditing = editingCol?.table === tableName && editingCol?.col === col.name;
+                        const hasLowConfidence = col.confidence < 0.75;
+                        return (
+                          <tr key={col.name} className="hover:bg-black/[0.005]">
+                            <td className="py-3 font-semibold text-zinc-800">{col.name}</td>
+                            <td className="py-3 font-medium capitalize text-zinc-600">
+                              {col.semantic_type} ({col.sub_type})
+                            </td>
+                            <td className="py-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
+                                  col.pii_level === 'high'
+                                    ? 'bg-rose-500/10 border-rose-500/20 text-rose-600'
+                                    : col.pii_level === 'medium'
+                                      ? 'bg-amber-500/10 border-amber-500/20 text-amber-600'
+                                      : col.pii_level === 'low'
+                                        ? 'bg-blue-500/10 border-blue-500/20 text-blue-600'
+                                        : 'bg-zinc-100 border-zinc-200 text-zinc-600'
+                                }`}
+                              >
+                                {col.pii_level}
+                              </span>
+                            </td>
+                            <td className="py-3">
+                              <span
+                                className={`font-semibold ${
+                                  hasLowConfidence ? 'text-amber-600 font-bold' : 'text-emerald-600 font-bold'
+                                }`}
+                              >
+                                {Math.round(col.confidence * 100)}%
+                              </span>
+                              <span className="text-[10px] text-black/35 block font-medium capitalize">
+                                Inferred: {col.inferred_by}
+                              </span>
+                            </td>
+                            <td className="py-3 max-w-[200px] truncate">
+                              <div className="flex flex-wrap gap-1">
+                                {col.samples.length > 0 ? (
+                                  col.samples.slice(0, 3).map((val, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="bg-black/5 px-2 py-0.5 rounded text-[10px] text-black/60 font-mono truncate"
+                                      title={val}
+                                    >
+                                      {val}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-black/35 italic">No samples</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setEditingCol({ table: tableName, col: col.name })}
+                                className="p-2 rounded hover:bg-black/5 text-[#0070AD] hover:text-[#0070AD]/90 flex items-center justify-center gap-1 font-bold text-xs mx-auto"
+                              >
+                                <FaEdit />
+                                <span>Edit</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {editingCol?.table === tableName && (
+                  <AnimatePresence>
+                    {columns
+                      .filter((c) => c.name === editingCol.col)
+                      .map((col) => (
+                        <SemanticColumnEditor
+                          key={col.name}
+                          columnName={col.name}
+                          currentType={col.semantic_type}
+                          currentSubType={col.sub_type}
+                          currentPii={col.pii_level}
+                          onSave={(updates) => handleEditSave(tableName, col.name, updates)}
+                          onCancel={() => setEditingCol(null)}
+                        />
+                      ))}
+                  </AnimatePresence>
+                )}
+              </motion.div>
+            );
+          })}
+        </div>
       </div>
 
-      <motion.button
-        onClick={handleConfirm}
-        className="w-full py-4 rounded-xl border border-[#0070AD]/40 bg-[#0070AD]/10 text-[#0070AD] font-semibold hover:bg-[#0070AD]/15 hover:border-[#0070AD]/60 transition-all flex items-center justify-center gap-2"
-        whileHover={{ scale: 1.01 }}
-        whileTap={{ scale: 0.99 }}
-      >
-        <FaCheck />
-        <span>Confirm Semantics & Continue to Requirements</span>
-      </motion.button>
+      <div className="pt-6 shrink-0">
+        <motion.button
+          onClick={handleConfirm}
+          className="w-full py-4 rounded-xl border border-[#0070AD]/40 bg-[#0070AD]/10 text-[#0070AD] font-semibold hover:bg-[#0070AD]/15 hover:border-[#0070AD]/60 transition-all flex items-center justify-center gap-2"
+          whileHover={{ scale: 1.01 }}
+          whileTap={{ scale: 0.99 }}
+        >
+          <FaCheck />
+          <span>Confirm Semantics & Continue to Requirements</span>
+        </motion.button>
+      </div>
     </div>
   );
 }

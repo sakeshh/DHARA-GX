@@ -14,5 +14,37 @@
       "recommended": true,
       "description": "Standardize string case to lowercase."
     }
+  ],
+  "internal_whitespace": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": true,
+      "description": "No transform; document in runbook."
+    }
+  ],
+  "duplicate_primary_key": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": false,
+      "description": "No transform; document in runbook."
+    },
+    {
+      "id": "deduplicate_rows",
+      "label": "Deduplicate Rows",
+      "action": "deduplicate",
+      "recommended": true,
+      "description": "Remove duplicate rows based on the primary key column to ensure data integrity."
+    },
+    {
+      "id": "flag_duplicate_rows",
+      "label": "Flag Duplicate Rows",
+      "action": "flag_outliers",
+      "recommended": false,
+      "description": "Add a boolean audit column to flag duplicate rows for further review before deletion."
+    }
   ]
 }
