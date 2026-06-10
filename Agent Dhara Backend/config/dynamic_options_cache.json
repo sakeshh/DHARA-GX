@@ -23,7 +23,6 @@
       "recommended": true,
       "description": "No transform; document in runbook."
     }
-<<<<<<< HEAD
   ],
   "duplicate_primary_key": [
     {
@@ -93,7 +92,5 @@
       "recommended": false,
       "description": "Exclude the email column from the output dataset to prevent the use of invalid email addresses."
     }
-=======
->>>>>>> 6d0a878cfbb6c20a78e8cbc8120f7519713ebb5a
   ]
 }

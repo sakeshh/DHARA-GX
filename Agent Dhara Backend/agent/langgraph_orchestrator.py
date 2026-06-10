@@ -518,11 +518,8 @@ def run_orchestrator(
     job_id: str = "",
     approved_semantics: Optional[Dict[str, Dict[str, str]]] = None,
     session_id: str = "",
-<<<<<<< HEAD
     business_rules: Optional[Dict[str, Any]] = None,
-=======
     checkpointer=None,
->>>>>>> 6d0a878cfbb6c20a78e8cbc8120f7519713ebb5a
 ) -> Dict[str, Any]:
     """
     High-level convenience wrapper.
