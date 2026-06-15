@@ -369,7 +369,7 @@ export default function DataPipelinePage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-transparent">
-      <AnimatedBackground />
+      <AnimatedBackground pauseTime={0} />
 
       {/* Header */}
       <motion.div

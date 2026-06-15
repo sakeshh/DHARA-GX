@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import SogetiLogo from '@/components/SogetiLogo';
 import AnimatedBackground from '@/components/AnimatedBackground';
 import { FaRocket } from 'react-icons/fa';
+import { useState } from 'react';
 
 const THREAD_TILE = 800;
 /** Fewer threads + steps for smooth performance; no per-thread JS animation. */
@@ -149,33 +150,35 @@ function ThreadBundleSvg({
 export default function WelcomePage() {
   const router = useRouter();
   const reduceMotion = useReducedMotion();
+  const [showContent, setShowContent] = useState(false);
   /** Continuous flow angle (no % 2π) — trig wraps; avoids visible loop “reset”. Throttled setState. */
   return (
     <div className="relative min-h-screen overflow-hidden bg-transparent">
-      <AnimatedBackground />
+      <AnimatedBackground onVideoEnd={() => setShowContent(true)} />
 
       {/* Content */}
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-7 md:px-10 md:py-8">
         {/* Top bar */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
+          animate={showContent ? { opacity: 1, y: 0 } : { opacity: 0, y: -10 }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+          style={{ pointerEvents: showContent ? 'auto' : 'none' }}
           className="ml-auto w-fit"
         >
-          <div className="hidden md:inline-flex items-center gap-3 rounded-full border border-black/10 bg-white/70 px-3 py-2 text-xs text-black/60 backdrop-blur">
+          <div className="hidden md:inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 backdrop-blur-sm">
             <span className="inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#0070AD] shadow-[0_0_0_4px_rgba(0,112,173,0.12)]" />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#12ABDB] shadow-[0_0_0_4px_rgba(18,171,219,0.18)]" />
               AI-native data transformation suite
             </span>
-            <span className="text-black/25">|</span>
+            <span className="text-white/20">|</span>
             <span className="inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#0070AD]/90" />
+              <span className="h-1.5 w-1.5 rounded-full bg-white/80" />
               Secure by design
             </span>
-            <span className="text-black/25">|</span>
+            <span className="text-white/20">|</span>
             <span className="inline-flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#12ABDB]/90" />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#12ABDB]/95" />
               Fast onboarding
             </span>
           </div>
@@ -185,12 +188,17 @@ export default function WelcomePage() {
         <div className="flex flex-1 items-center py-7 md:py-10">
           <div className="grid w-full gap-8 lg:grid-cols-[1.12fr_0.88fr] lg:items-center">
             {/* Left: headline + actions */}
-            <div className="flex flex-col text-center lg:text-left">
+            <motion.div
+              className="flex flex-col text-center lg:text-left"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 5.5, ease: 'easeInOut' }}
+            >
               <motion.h1
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.65, delay: 0.2, ease: 'easeOut' }}
-                className="mt-4 text-4xl font-extrabold tracking-tight text-zinc-900 sm:text-5xl lg:text-6xl [font-family:Helvetica,Arial,sans-serif]"
+                className="mt-4 text-4xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl [font-family:Helvetica,Arial,sans-serif]"
               >
                 <motion.span
                   className="group/logo inline-flex flex-col items-center justify-center gap-3 lg:items-start lg:justify-start cursor-default"
@@ -198,16 +206,16 @@ export default function WelcomePage() {
                   transition={{ duration: reduceMotion ? 0 : 0.2 }}
                 >
                   <span className="relative inline-flex opacity-95">
-                    <span className="pointer-events-none absolute -inset-3 rounded-xl blur-xl bg-[#0070AD]/20 opacity-0 transition-opacity duration-300 group-hover/logo:opacity-100" />
-                    <SogetiLogo className="relative h-9 w-32 md:h-10 md:w-36 -translate-x-10 lg:-translate-x-8 transition-[filter] duration-300 group-hover/logo:drop-shadow-[0_0_24px_rgba(0,112,173,0.3)]" />
+                    <span className="pointer-events-none absolute -inset-3 rounded-xl blur-xl bg-[#12ABDB]/20 opacity-0 transition-opacity duration-300 group-hover/logo:opacity-100" />
+                    <SogetiLogo className="relative h-9 w-32 md:h-10 md:w-36 -translate-x-10 lg:-translate-x-8 transition-[filter] duration-300 group-hover/logo:drop-shadow-[0_0_24px_rgba(255,255,255,0.4)] brightness-0 invert" />
                   </span>
                   <span className="inline-flex flex-wrap items-baseline justify-center lg:justify-start gap-x-4">
                     <span>AGENT</span>
                     <span className="inline-flex flex-col items-center lg:items-start">
-                      <span className="bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-900/55 bg-clip-text text-transparent">
+                      <span className="bg-gradient-to-r from-white via-sky-100 to-white/60 bg-clip-text text-transparent">
                         DHARA
                       </span>
-                      <span className="inline-flex items-center rounded-full bg-[#0070AD]/8 px-2 py-0.5 text-[10px] font-semibold tracking-normal normal-case text-[#0070AD]/75 mt-1.5 ml-6 w-fit backdrop-blur-[2px]">
+                      <span className="inline-flex items-center rounded-full border border-sky-400/30 bg-[#0070AD] px-2.5 py-0.5 text-[10px] font-bold tracking-normal normal-case text-white mt-1.5 ml-6 w-fit shadow-sm">
                         Powered by Great Expectations
                       </span>
                     </span>
@@ -225,23 +233,23 @@ export default function WelcomePage() {
                   onClick={() => router.push('/auth/signup')}
                   whileHover={{ y: reduceMotion ? 0 : -2 }}
                   whileTap={{ scale: reduceMotion ? 1 : 0.98 }}
-                  className="group relative inline-flex min-w-[180px] items-center justify-center gap-3 rounded-full border border-[#0070AD]/40 bg-transparent px-6 py-3 text-sm font-semibold text-[#0070AD] transition-all duration-300 hover:border-[#0070AD]/60 hover:bg-[#0070AD]/10 hover:text-[#0070AD] hover:shadow-[0_18px_60px_rgba(0,112,173,0.15)]"
+                  className="group relative inline-flex min-w-[180px] items-center justify-center gap-3 rounded-full border border-white/20 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 hover:border-white/40 hover:bg-white/20 hover:shadow-[0_18px_60px_rgba(255,255,255,0.1)]"
                 >
                   <span className="relative z-10 flex items-center gap-3">
                     Sign up
                     <FaRocket className="transition-transform duration-300 group-hover:translate-x-1 group-hover:rotate-12" />
                   </span>
-                  <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#12ABDB]/20 via-[#0070AD]/20 to-[#12ABDB]/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                  <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#12ABDB]/20 via-white/10 to-[#12ABDB]/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 </motion.button>
 
                 <motion.button
                   onClick={() => router.push('/auth/login')}
                   whileHover={{ y: reduceMotion ? 0 : -2 }}
                   whileTap={{ scale: reduceMotion ? 1 : 0.98 }}
-                  className="group relative inline-flex min-w-[180px] items-center justify-center rounded-full border border-[#0070AD]/40 bg-transparent px-6 py-3 text-sm font-semibold text-[#0070AD] transition-all duration-300 hover:border-[#0070AD]/60 hover:bg-[#0070AD]/10 hover:text-[#0070AD] hover:shadow-[0_18px_60px_rgba(0,112,173,0.15)]"
+                  className="group relative inline-flex min-w-[180px] items-center justify-center rounded-full border border-white/20 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-all duration-300 hover:border-white/40 hover:bg-white/20 hover:shadow-[0_18px_60px_rgba(255,255,255,0.1)]"
                 >
                   <span className="relative z-10">Login</span>
-                  <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#12ABDB]/20 via-[#0070AD]/20 to-[#12ABDB]/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                  <span className="absolute inset-0 rounded-full bg-gradient-to-r from-[#12ABDB]/20 via-white/10 to-[#12ABDB]/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                 </motion.button>
               </motion.div>
 
@@ -252,45 +260,46 @@ export default function WelcomePage() {
                 transition={{ duration: 0.55, delay: 0.55, ease: 'easeOut' }}
                 className="mt-9 lg:mt-auto pt-7"
               >
-                <div className="mt-5 flex flex-wrap justify-center gap-x-7 gap-y-2 text-sm text-black/60 lg:justify-start">
+                <div className="mt-5 flex flex-wrap justify-center gap-x-7 gap-y-2 text-sm text-white/70 lg:justify-start">
                   {['AI-Powered', 'Real-time profiling', 'Quality-first outputs'].map((t) => (
                     <span key={t} className="inline-flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-black/25" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-white/30" />
                       {t}
                     </span>
                   ))}
                 </div>
 
-                <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-black/60 lg:mx-0">
+                <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-white/70 lg:mx-0">
                   Intelligent Data Assessment, Quality & Transformation — designed for enterprise teams that need speed, trust, and repeatability.
                 </p>
 
-                <div className="mt-6 text-xs text-black/40">
+                <div className="mt-6 text-xs text-white/45">
                   © {new Date().getFullYear()} AGENT DHARA. Built by Sogeti.
                 </div>
               </motion.div>
-            </div>
+            </motion.div>
 
             {/* Right: capabilities / preview */}
             <motion.div
               initial={{ opacity: 0, y: 18 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.25, ease: 'easeOut' }}
+              animate={showContent ? { opacity: 1, y: 0 } : { opacity: 0, y: 18 }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+              style={{ pointerEvents: showContent ? 'auto' : 'none' }}
               className="relative"
             >
-              <div className="relative overflow-hidden rounded-3xl border border-black/10 bg-white/70 p-5 backdrop-blur-xl">
-                <div className="absolute inset-0 bg-gradient-to-br from-[#0070AD]/10 via-transparent to-[#12ABDB]/10" />
+              <div className="relative overflow-hidden rounded-3xl border border-white/20 bg-white/5 p-5 backdrop-blur-sm shadow-xl">
+                <div className="absolute inset-0 bg-gradient-to-br from-[#12ABDB]/10 via-transparent to-white/5" />
 
                 <div className="relative">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <div className="text-sm font-semibold text-zinc-900">What you can do</div>
-                      <div className="mt-1 text-sm text-black/60">
+                      <div className="text-sm font-semibold text-white">What you can do</div>
+                      <div className="mt-1 text-sm text-white/70">
                         From raw datasets to trusted, deployment-ready pipelines.
                       </div>
                     </div>
-                    <div className="hidden sm:flex items-center gap-2 rounded-full border border-black/10 bg-white/75 px-3 py-1 text-xs text-black/60 animate-badge-pulse">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#0070AD]/90" />
+                    <div className="hidden sm:flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/90 animate-badge-pulse">
+                      <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
                       Ready
                     </div>
                   </div>
@@ -305,22 +314,17 @@ export default function WelcomePage() {
                       <motion.div
                         key={item.title}
                         initial={{ opacity: 0, y: 16, scale: 0.97 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{ duration: 0.45, delay: 0.5 + i * 0.12, ease: 'easeOut' }}
-                        className="group/card relative rounded-2xl border border-black/10 bg-white/75 p-4 transition-all duration-300 hover:bg-white/90 hover:shadow-[0_0_30px_rgba(0,112,173,0.12)] hover:border-[#0070AD]/25"
+                        animate={showContent ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 16, scale: 0.97 }}
+                        transition={{ duration: 0.45, delay: showContent ? 0.2 + i * 0.12 : 0, ease: 'easeOut' }}
+                        className="group/card relative rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-all duration-300 hover:bg-white/10 hover:shadow-[0_0_30px_rgba(255,255,255,0.05)] hover:border-white/20"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-[#0070AD] to-[#12ABDB] shadow-[0_0_0_4px_rgba(0,112,173,0.10)]" />
+                          <div className="mt-0.5 h-2.5 w-2.5 rounded-full bg-gradient-to-br from-sky-400 to-sky-200 shadow-[0_0_0_4px_rgba(255,255,255,0.08)]" />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
-                              {item.title === 'Validate' && (
-                                <span className="inline-flex items-center rounded-full bg-[#0070AD]/8 px-1.5 py-0.5 text-[10px] font-medium text-[#0070AD]/75 backdrop-blur-[2px]">
-                                  Powered by Great Expectations
-                                </span>
-                              )}
+                              <div className="text-sm font-semibold text-white">{item.title}</div>
                             </div>
-                            <div className="text-sm text-black/60">{item.desc}</div>
+                            <div className="text-sm text-white/70">{item.desc}</div>
                           </div>
                         </div>
                         <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-transparent transition group-hover/card:ring-white/10" />
@@ -328,10 +332,10 @@ export default function WelcomePage() {
                     ))}
                   </div>
 
-                  <div className="mt-6 flex items-center justify-between text-xs text-black/50">
+                  <div className="mt-6 flex items-center justify-between text-xs text-white/50">
                     <span>AGENT DHARA</span>
                     <span className="inline-flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#0070AD]/80" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
                       Live preview
                     </span>
                   </div>
@@ -339,7 +343,7 @@ export default function WelcomePage() {
               </div>
 
               {/* Glow */}
-              <div className="pointer-events-none absolute -inset-8 -z-10 bg-gradient-to-br from-[#0070AD]/20 via-transparent to-[#12ABDB]/20 blur-3xl" />
+              <div className="pointer-events-none absolute -inset-8 -z-10 bg-gradient-to-br from-sky-400/20 via-transparent to-white/5 blur-3xl" />
             </motion.div>
           </div>
         </div>
