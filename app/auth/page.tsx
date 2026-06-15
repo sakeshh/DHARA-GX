@@ -96,12 +96,12 @@ export default function AuthPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-transparent">
-      <AnimatedBackground />
+      <AnimatedBackground pauseTime={7} />
 
       {/* Back Button */}
       <motion.button
         onClick={() => router.push('/')}
-        className="absolute top-6 left-6 flex items-center gap-2 rounded-full border border-black/10 bg-white/70 px-4 py-2 text-black/70 backdrop-blur transition-colors hover:bg-white/90 hover:text-black"
+        className="absolute top-6 left-6 flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-white/80 backdrop-blur transition-colors hover:bg-white/20 hover:text-white"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5 }}
@@ -111,7 +111,7 @@ export default function AuthPage() {
       </motion.button>
 
       {/* Main Content */}
-      <div className="flex items-center justify-center min-h-screen px-6 py-12">
+      <div className="flex items-center justify-center md:justify-start min-h-screen px-6 py-12 md:pl-24 lg:pl-32">
         <motion.div
           className="w-full max-w-md"
           initial={{ opacity: 0, y: 30 }}
@@ -119,38 +119,38 @@ export default function AuthPage() {
           transition={{ duration: 0.6 }}
         >
           {/* Card */}
-          <div className="relative overflow-hidden rounded-3xl border border-black/10 bg-white/70 shadow-[0_30px_120px_rgba(0,0,0,0.12)] backdrop-blur-xl">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#0070AD]/10 via-transparent to-[#12ABDB]/10" />
+          <div className="relative overflow-hidden rounded-3xl border border-white/25 bg-white/20 shadow-[0_30px_120px_rgba(0,0,0,0.25)] backdrop-blur-2xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-[#12ABDB]/15 via-transparent to-white/10" />
             {/* Header */}
             <div className="relative p-8 pb-6">
               <motion.h2
-                className="text-2xl md:text-[26px] font-extrabold text-center tracking-tight text-zinc-900 [font-family:Helvetica,Arial,sans-serif] mb-2 leading-tight text-balance px-2"
+                className="text-2xl md:text-[26px] font-extrabold text-center tracking-tight text-white [font-family:Helvetica,Arial,sans-serif] mb-2 leading-tight text-balance px-2"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.2 }}
               >
                 Welcome to AGENT DHARA
               </motion.h2>
-              <p className="text-center text-black/60 text-sm">
+              <p className="text-center text-white/70 text-sm">
                 {activeTab === 'login' ? 'Sign in to continue' : 'Create your account'}
               </p>
             </div>
 
             {/* Tab Switcher */}
             <div className="relative px-8 pb-2">
-              <div className="grid grid-cols-2 rounded-2xl border border-black/10 bg-white/75 p-1">
+              <div className="grid grid-cols-2 rounded-2xl border border-zinc-200 bg-white p-1 shadow-sm">
               <button
                 onClick={() => setActiveTab('login')}
                 className={`relative rounded-xl py-3 text-center text-sm font-semibold transition-all duration-300 ${
                   activeTab === 'login'
-                    ? 'text-zinc-950'
-                    : 'text-black/60 hover:text-black'
+                    ? 'text-white'
+                    : 'text-zinc-500 hover:text-[#0070AD]'
                 }`}
               >
                 {activeTab === 'login' && (
                   <motion.div
                     layoutId="activeTab"
-                    className="absolute inset-0 rounded-xl bg-gradient-to-r from-[#12ABDB] via-[#0070AD] to-[#12ABDB] shadow-[0_18px_60px_rgba(0,112,173,0.22)]"
+                    className="absolute inset-0 rounded-xl bg-gradient-to-r from-[#12ABDB] to-[#0070AD] shadow-[0_4px_12px_rgba(0,112,173,0.15)]"
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   />
                 )}
@@ -160,14 +160,14 @@ export default function AuthPage() {
                 onClick={() => setActiveTab('signup')}
                 className={`relative rounded-xl py-3 text-center text-sm font-semibold transition-all duration-300 ${
                   activeTab === 'signup'
-                    ? 'text-zinc-950'
-                    : 'text-black/60 hover:text-black'
+                    ? 'text-white'
+                    : 'text-zinc-500 hover:text-[#0070AD]'
                 }`}
               >
                 {activeTab === 'signup' && (
                   <motion.div
                     layoutId="activeTab"
-                    className="absolute inset-0 rounded-xl bg-gradient-to-r from-[#12ABDB] via-[#0070AD] to-[#12ABDB] shadow-[0_18px_60px_rgba(0,112,173,0.22)]"
+                    className="absolute inset-0 rounded-xl bg-gradient-to-r from-[#12ABDB] to-[#0070AD] shadow-[0_4px_12px_rgba(0,112,173,0.15)]"
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   />
                 )}
@@ -188,36 +188,36 @@ export default function AuthPage() {
                     className="grid grid-cols-1 gap-4 sm:grid-cols-2"
                   >
                     <div>
-                      <label className="block text-sm font-medium text-black/70 mb-2">
+                      <label className="block text-sm font-medium text-white/80 mb-2">
                         First name
                       </label>
                       <div className="relative">
-                        <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40" />
+                        <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                         <input
                           type="text"
                           value={formData.firstName}
                           onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                           placeholder="First name"
                           autoComplete="given-name"
-                          className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 pl-12 text-zinc-900 placeholder-black/40 outline-none transition-all focus:ring-2 focus:border-[#0070AD]/40 focus:ring-[#0070AD]/20"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pl-12 text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:ring-2 focus:border-sky-500 focus:ring-sky-500/20"
                           required={activeTab === 'signup'}
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-black/70 mb-2">
+                      <label className="block text-sm font-medium text-white/80 mb-2">
                         Last name
                       </label>
                       <div className="relative">
-                        <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40" />
+                        <FaUser className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                         <input
                           type="text"
                           value={formData.lastName}
                           onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                           placeholder="Last name"
                           autoComplete="family-name"
-                          className="w-full rounded-2xl border border-black/10 bg-white/80 px-4 py-3 pl-12 text-zinc-900 placeholder-black/40 outline-none transition-all focus:ring-2 focus:border-[#0070AD]/40 focus:ring-[#0070AD]/20"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pl-12 text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:ring-2 focus:border-sky-500 focus:ring-sky-500/20"
                           required={activeTab === 'signup'}
                         />
                       </div>
@@ -231,11 +231,11 @@ export default function AuthPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.2 }}
                 >
-                  <label className="block text-sm font-medium text-black/70 mb-2">
+                  <label className="block text-sm font-medium text-white/80 mb-2">
                     Email
                   </label>
                   <div className="relative">
-                    <FaEnvelope className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40" />
+                    <FaEnvelope className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                     <input
                       type="email"
                       value={formData.email}
@@ -243,10 +243,10 @@ export default function AuthPage() {
                       placeholder="user@capgemini.com"
                       inputMode="email"
                       autoComplete="email"
-                      className={`w-full rounded-2xl border bg-white/80 px-4 py-3 pl-12 text-zinc-900 placeholder-black/40 outline-none transition-all focus:ring-2 ${
+                      className={`w-full rounded-2xl border px-4 py-3 pl-12 text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:ring-2 ${
                         emailError
-                          ? 'border-red-400/40 focus:border-red-400/50 focus:ring-red-400/20'
-                          : 'border-black/10 focus:border-[#0070AD]/40 focus:ring-[#0070AD]/20'
+                          ? 'border-red-300 bg-red-50/95 focus:border-red-500 focus:ring-red-500/20'
+                          : 'border-zinc-200 bg-white focus:border-sky-500 focus:ring-sky-500/20'
                       }`}
                       required
                     />
@@ -264,27 +264,27 @@ export default function AuthPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.3 }}
                 >
-                  <label className="block text-sm font-medium text-black/70 mb-2">
+                  <label className="block text-sm font-medium text-white/80 mb-2">
                     Password
                   </label>
                   <div className="relative">
-                    <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40" />
+                    <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                     <input
                       type={showPassword ? 'text' : 'password'}
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       placeholder="••••••••"
-                      className={`w-full rounded-2xl border bg-white/80 px-4 py-3 pl-12 pr-12 text-zinc-900 placeholder-black/40 outline-none transition-all focus:ring-2 ${
+                      className={`w-full rounded-2xl border px-4 py-3 pl-12 pr-12 text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:ring-2 ${
                         passwordError
-                          ? 'border-red-400/40 focus:border-red-400/50 focus:ring-red-400/20'
-                          : 'border-black/10 focus:border-[#0070AD]/40 focus:ring-[#0070AD]/20'
+                          ? 'border-red-300 bg-red-50/95 focus:border-red-500 focus:ring-red-500/20'
+                          : 'border-zinc-200 bg-white focus:border-sky-500 focus:ring-sky-500/20'
                       }`}
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-black/45 hover:text-black/70 transition-colors"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-650 transition-colors"
                     >
                       {showPassword ? <FaEyeSlash /> : <FaEye />}
                     </button>
@@ -304,11 +304,11 @@ export default function AuthPage() {
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.4, delay: 0.1 }}
                   >
-                    <label className="block text-sm font-medium text-black/70 mb-2">
+                    <label className="block text-sm font-medium text-white/80 mb-2">
                       Confirm Password
                     </label>
                     <div className="relative">
-                      <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-black/40" />
+                      <FaLock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" />
                       <input
                         type={showConfirmPassword ? 'text' : 'password'}
                         value={formData.confirmPassword}
@@ -316,17 +316,17 @@ export default function AuthPage() {
                           setFormData({ ...formData, confirmPassword: e.target.value })
                         }
                         placeholder="••••••••"
-                        className={`w-full rounded-2xl border bg-white/80 px-4 py-3 pl-12 pr-12 text-zinc-900 placeholder-black/40 outline-none transition-all focus:ring-2 ${
+                        className={`w-full rounded-2xl border px-4 py-3 pl-12 pr-12 text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:ring-2 ${
                           confirmPasswordError
-                            ? 'border-red-400/40 focus:border-red-400/50 focus:ring-red-400/20'
-                            : 'border-black/10 focus:border-[#0070AD]/40 focus:ring-[#0070AD]/20'
+                            ? 'border-red-300 bg-red-50/95 focus:border-red-500 focus:ring-red-500/20'
+                            : 'border-zinc-200 bg-white focus:border-sky-500 focus:ring-sky-500/20'
                         }`}
                         required={activeTab === 'signup'}
                       />
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-black/45 hover:text-black/70 transition-colors"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
                       >
                         {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
                       </button>
@@ -362,13 +362,13 @@ export default function AuthPage() {
                     !formData.password ||
                     passwordError ||
                     (activeTab === 'signup' && confirmPasswordError)
-                      ? 'cursor-not-allowed border-black/10 bg-white/70 text-black/35 shadow-none'
-                      : 'border-[#0070AD]/40 bg-white/80 text-[#0070AD] shadow-[0_18px_60px_rgba(0,112,173,0.10)] hover:border-[#0070AD]/60 hover:bg-[#0070AD] hover:text-white hover:shadow-[0_18px_80px_rgba(0,112,173,0.18)]'
+                      ? 'cursor-not-allowed border-white/5 bg-white/5 text-white/30 shadow-none'
+                      : 'border-white/20 bg-white text-[#005a9c] shadow-[0_18px_60px_rgba(255,255,255,0.05)] hover:bg-white/90 hover:text-[#005a9c] hover:shadow-[0_18px_80px_rgba(255,255,255,0.1)]'
                   }`}
                 >
                   <span className="relative z-10">{activeTab === 'login' ? 'Sign In' : 'Create Account'}</span>
                   {!emailError && !passwordError && formData.email && formData.password && (
-                    <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-[#12ABDB] via-[#0070AD] to-[#12ABDB] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                    <span className="absolute inset-0 rounded-2xl bg-gradient-to-r from-sky-400 to-[#12ABDB] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                   )}
                 </motion.button>
                 </motion.div>
@@ -377,7 +377,7 @@ export default function AuthPage() {
               {/* Forgot Password (Login only) */}
               {activeTab === 'login' && (
                 <div className="mt-4 text-center">
-                  <button className="text-sm text-black/60 hover:text-black/80 font-medium transition-colors">
+                  <button className="text-sm text-white/60 hover:text-white/80 font-medium transition-colors">
                     Forgot password?
                   </button>
                 </div>
@@ -386,7 +386,7 @@ export default function AuthPage() {
           </div>
 
           {/* Footer Text */}
-          <p className="text-center text-black/55 text-sm mt-6">
+          <p className="text-center text-white/60 text-sm mt-6">
             By continuing, you agree to our Terms of Service and Privacy Policy
           </p>
         </motion.div>

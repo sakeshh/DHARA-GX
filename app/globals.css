@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #eaf6ff;
-  --foreground: #0a0a0a;
+  --background: #005691;
+  --foreground: #ffffff;
 }
 
 html {
@@ -24,6 +24,7 @@ body {
   background: var(--background);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   overflow-x: hidden;
+  filter: sepia(0.2) saturate(1.08);
 }
 
 @layer utilities {
@@ -199,9 +200,9 @@ body {
 /* Vignette */
 .vignette-overlay {
   background: radial-gradient(
-    ellipse 80% 70% at 50% 50%,
-    transparent 50%,
-    rgba(0, 0, 0, 0.08) 100%
+    ellipse 85% 75% at 50% 50%,
+    transparent 40%,
+    rgba(0, 0, 0, 0.18) 100%
   );
   pointer-events: none;
 }

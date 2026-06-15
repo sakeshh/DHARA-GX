@@ -36,7 +36,7 @@ export default function ChatPage() {
 
   return (
     <div className="relative z-[1] flex min-h-0 w-full flex-1 flex-row overflow-hidden bg-transparent text-zinc-900">
-      <AnimatedBackground className="pointer-events-none" />
+      <AnimatedBackground className="pointer-events-none" pauseTime={0} />
 
       <Sidebar gxEnabled={gxEnabled} />
 
