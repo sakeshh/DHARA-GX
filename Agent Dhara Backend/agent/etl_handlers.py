@@ -1270,6 +1270,72 @@ def etl_execute_sql(
         ctx["last_assessment_result"] = assess
 
     if result.get("ok") and not dry_run:
+        # ── Fabric Lakehouse Mirror Hook ──
+        from connectors.fabric_lakehouse_connector import is_fabric_mirror_enabled, write_to_lakehouse
+        if is_fabric_mirror_enabled():
+            logger.info("Fabric Lakehouse Mirror is enabled. Starting mirror process...")
+            mirror_results = []
+            conn = None
+            try:
+                from agent.azure_sql_executor import get_connection
+                import pandas as pd
+                conn = get_connection(connection_string)
+                
+                for ds_name in table_names:
+                    try:
+                        from agent.etl_pipeline.sql_codegen import _get_clean_table_name
+                        clean_tbl = _get_clean_table_name(ds_name)
+                    except Exception:
+                        parts = ds_name.split(".", 1)
+                        schema = parts[0].strip("[]") if len(parts) == 2 else "dbo"
+                        tbl_name = parts[1].strip("[]") if len(parts) == 2 else ds_name.strip("[]")
+                        if tbl_name.lower().endswith("_raw"):
+                            clean_tbl = f"{schema}.{tbl_name[:-4]}_Clean"
+                        else:
+                            clean_tbl = f"{schema}.{tbl_name}_Clean"
+                            
+                    logger.info(f"Reading cleaned table {clean_tbl} from Azure SQL...")
+                    try:
+                        tbl_parts = clean_tbl.split(".", 1)
+                        if len(tbl_parts) == 2:
+                            quoted_clean_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]"
+                        else:
+                            quoted_clean_tbl = f"[{clean_tbl}]"
+                            
+                        df_clean = pd.read_sql(f"SELECT * FROM {quoted_clean_tbl}", conn)
+                        logger.info(f"Successfully read {len(df_clean)} rows from {clean_tbl}.")
+                        
+                        res = write_to_lakehouse(df_clean, clean_tbl)
+                        mirror_results.append(res)
+                    except Exception as select_err:
+                        logger.error(f"Failed to read/mirror table {clean_tbl}: {select_err}")
+                        mirror_results.append({
+                            "ok": False,
+                            "error": "READ_OR_WRITE_FAILED",
+                            "message": str(select_err),
+                            "table": clean_tbl
+                        })
+                
+                flow["fabric_mirror_result"] = {
+                    "ok": all(r.get("ok", False) for r in mirror_results),
+                    "details": mirror_results
+                }
+            except Exception as conn_err:
+                logger.error(f"Fabric mirror process failed: connection error or other error: {conn_err}")
+                flow["fabric_mirror_result"] = {
+                    "ok": False,
+                    "error": "CONNECTION_FAILED",
+                    "message": str(conn_err)
+                }
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+        else:
+            logger.info("Fabric Lakehouse Mirror is not enabled.")
+
         try:
             _transition(flow, "downloadable", by="system", reason="sql_execution_succeeded")
         except ValueError:
