@@ -1,7 +1,18 @@
 {
-    "ndta.csv": {
-        "id": "str",
-        "name": "str",
-        "email": "str"
+    "dbo.courses_raw": {
+        "course_id": "object",
+        "course_name": "object",
+        "department": "object",
+        "credits": "object",
+        "instructor": "object",
+        "fee": "object"
+    },
+    "dbo.students_raw": {
+        "student_id": "object",
+        "name": "object",
+        "email": "object",
+        "dob": "object",
+        "department": "object",
+        "phone": "object"
     }
 }
