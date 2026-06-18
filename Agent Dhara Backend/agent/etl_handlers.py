@@ -1083,6 +1083,27 @@ def etl_generate_code(
         errs = [str(exc)]
         generated_by = "error"
 
+    flow = ctx.setdefault("etl_flow", {})
+    gen_mode = str(generation_mode or "full").lower()
+    combined_code = code
+    if gen_mode == "cleanse_only":
+        flow["code_cleanse"] = code
+        if "code_transform" in flow and flow["code_transform"]:
+            if eng in ("sql", "tsql", "ansi"):
+                combined_code = code + "\nGO\n\n" + flow["code_transform"]
+            elif eng in ("python", "pyspark", "spark"):
+                combined_code = code + "\n\n# ============================================================\n# Phase 2: Transform\n# ============================================================\n\n" + flow["code_transform"]
+    elif gen_mode == "transform_only":
+        flow["code_transform"] = code
+        if "code_cleanse" in flow and flow["code_cleanse"]:
+            if eng in ("sql", "tsql", "ansi"):
+                combined_code = flow["code_cleanse"] + "\nGO\n\n" + code
+            elif eng in ("python", "pyspark", "spark"):
+                combined_code = flow["code_cleanse"] + "\n\n# ============================================================\n# Phase 2: Transform\n# ============================================================\n\n" + code
+    else:
+        flow.pop("code_cleanse", None)
+        flow.pop("code_transform", None)
+
     ext_map = {
         "python": "py",
         "sql": "sql",
@@ -1097,11 +1118,10 @@ def etl_generate_code(
 
     abs_path = os.path.join(out_dir, fname)
     with open(abs_path, "w", encoding="utf-8") as f:
-        f.write(code)
+        f.write(combined_code)
 
     rel = os.path.relpath(abs_path, root).replace("\\", "/")
 
-    flow = ctx.setdefault("etl_flow", {})
     if ok:
         _transition(flow, "validated", by="system", reason=f"validator_passed generated_by={generated_by}")
         _transition(flow, "code_ready", by="system", reason="artifact_written")
@@ -1111,9 +1131,9 @@ def etl_generate_code(
     latency_ms = (time.time() - t_gen) * 1000
     duckdb_diff: Optional[Dict[str, Any]] = None
     if eng in ("sql", "tsql", "ansi"):
-        duckdb_diff = _maybe_build_etl_duckdb_diff(eng=eng, code=code, ok=ok, ctx=ctx, assess=assess)
+        duckdb_diff = _maybe_build_etl_duckdb_diff(eng=eng, code=combined_code, ok=ok, ctx=ctx, assess=assess)
     flow_update: Dict[str, Any] = {
-        "code": code,
+        "code": combined_code,
         "target_engine": eng,
         "validation_ok": ok,
         "validation_errors": errs or [],
@@ -1283,37 +1303,55 @@ def etl_execute_sql(
                 
                 for ds_name in table_names:
                     try:
-                        from agent.etl_pipeline.sql_codegen import _get_clean_table_name
+                        from agent.etl_pipeline.sql_codegen import _get_clean_table_name, _get_transformed_table_name
                         clean_tbl = _get_clean_table_name(ds_name)
-                    except Exception:
-                        parts = ds_name.split(".", 1)
-                        schema = parts[0].strip("[]") if len(parts) == 2 else "dbo"
-                        tbl_name = parts[1].strip("[]") if len(parts) == 2 else ds_name.strip("[]")
-                        if tbl_name.lower().endswith("_raw"):
-                            clean_tbl = f"{schema}.{tbl_name[:-4]}_Clean"
+                        transformed_tbl = _get_transformed_table_name(ds_name)
+                        candidate_tables = [clean_tbl, transformed_tbl, ds_name]
+
+                        df_clean = None
+                        chosen_table = None
+                        for tbl in candidate_tables:
+                            tbl_parts = tbl.split(".", 1)
+                            quoted_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]" if len(tbl_parts) == 2 else f"[{tbl}]"
+                            try:
+                                df_temp = pd.read_sql(f"SELECT * FROM {quoted_tbl}", conn)
+                                if not df_temp.empty:
+                                    df_clean = df_temp
+                                    chosen_table = tbl
+                                    logger.info(f"Fabric mirror: found {len(df_temp)} rows in '{tbl}' for source '{ds_name}'.")
+                                    break
+                                else:
+                                    logger.info(f"Fabric mirror: '{tbl}' exists but is empty, trying next candidate.")
+                            except Exception:
+                                logger.info(f"Fabric mirror: '{tbl}' not found or not readable, trying next candidate.")
+                                continue
+
+                        if df_clean is not None:
+                            logger.info(f"Mirroring {len(df_clean)} rows from '{chosen_table}' to Fabric Lakehouse...")
+                            res = write_to_lakehouse(df_clean, chosen_table)
+                            res["source_table"] = chosen_table
+                            mirror_results.append(res)
                         else:
-                            clean_tbl = f"{schema}.{tbl_name}_Clean"
-                            
-                    logger.info(f"Reading cleaned table {clean_tbl} from Azure SQL...")
-                    try:
-                        tbl_parts = clean_tbl.split(".", 1)
-                        if len(tbl_parts) == 2:
-                            quoted_clean_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]"
-                        else:
-                            quoted_clean_tbl = f"[{clean_tbl}]"
-                            
-                        df_clean = pd.read_sql(f"SELECT * FROM {quoted_clean_tbl}", conn)
-                        logger.info(f"Successfully read {len(df_clean)} rows from {clean_tbl}.")
-                        
-                        res = write_to_lakehouse(df_clean, clean_tbl)
-                        mirror_results.append(res)
+                            msg = (
+                                f"All candidate tables are empty or missing for source '{ds_name}'. "
+                                f"Candidates tried: {candidate_tables}. "
+                                "Ensure the ETL cleanse step ran and populated at least one output table."
+                            )
+                            logger.warning(f"Fabric mirror: {msg}")
+                            mirror_results.append({
+                                "ok": False,
+                                "error": "NO_DATA_FOUND",
+                                "message": msg,
+                                "source": ds_name,
+                                "candidates_tried": candidate_tables,
+                            })
                     except Exception as select_err:
-                        logger.error(f"Failed to read/mirror table {clean_tbl}: {select_err}")
+                        logger.error(f"Failed to read/mirror table for {ds_name}: {select_err}")
                         mirror_results.append({
                             "ok": False,
                             "error": "READ_OR_WRITE_FAILED",
                             "message": str(select_err),
-                            "table": clean_tbl
+                            "table": ds_name,
                         })
                 
                 flow["fabric_mirror_result"] = {

@@ -224,6 +224,17 @@ def healthz() -> Dict[str, str]:
     return {"ok": "true"}
 
 
+@app.get("/healthz/db-env", tags=["health"])
+def healthz_db_env() -> Dict[str, Any]:
+    import os
+    return {
+        "AZURE_SQL_SERVER": os.getenv("AZURE_SQL_SERVER"),
+        "AZURE_SQL_DATABASE": os.getenv("AZURE_SQL_DATABASE"),
+        "DHARA_AZURE_SQL_CONN_STR": os.getenv("DHARA_AZURE_SQL_CONN_STR") is not None,
+    }
+
+
+
 @app.get("/readyz", tags=["health"])
 def readyz() -> Dict[str, str]:
     return {"ok": "true"}

@@ -3,9 +3,8 @@ import json
 import os
 from dotenv import load_dotenv
 
-backend_dir = r"c:\Users\ssakesh\Documents\DHARA-GX\Agent Dhara Backend"
-dotenv_path = os.path.join(backend_dir, ".env")
-load_dotenv(dotenv_path)
+# Load relative .env
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 token = os.getenv("BACKEND_AUTH_TOKEN", "change-me-dev")
 
