@@ -30,12 +30,17 @@ def _get_clean_table_name(ds_name: str) -> str:
     schema = schema.strip("[]")
     tbl_name = tbl_name.strip("[]")
     
-    if tbl_name.lower().endswith("_raw"):
+    tbl_lower = tbl_name.lower()
+    if tbl_lower.endswith("_clean"):
+        # Already a clean table — return as-is to avoid double-suffix (_Clean_Clean)
+        clean_tbl = tbl_name
+    elif tbl_lower.endswith("_raw"):
         clean_tbl = tbl_name[:-4] + "_Clean"
     else:
         clean_tbl = tbl_name + "_Clean"
         
     return f"{schema}.{clean_tbl}"
+
 
 
 def _get_transformed_table_name(ds_name: str) -> str:
@@ -357,8 +362,11 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
         lines.append("-- ============================================================")
         lines.append("-- Initialize Clean Tables if not exists")
         lines.append("-- ============================================================")
+        generation_mode = str(plan.get("generation_mode") or "full").lower()
+        is_clean_script = (generation_mode != "transform_only")
+        phase_suffix_script = "Clean" if is_clean_script else "Transformed"
         for ds_name, block in ds_plan.items():
-            tbl_clean = _get_clean_table_name(ds_name)
+            tbl_clean = _get_clean_table_name(ds_name) if is_clean_script else _get_transformed_table_name(ds_name)
             tbl_base = ds_name.split(".")[-1].strip("[]")
             clean_tbl = tsql_qualified_name(tbl_clean)
             
@@ -420,9 +428,9 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
             
             if pk_col:
                 if scd_type == "type2":
-                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}], start_date)")
+                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_{phase_suffix_script}] PRIMARY KEY ([{pk_col}], start_date)")
                 else:
-                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}])")
+                    create_cols.append(f"    CONSTRAINT [PK_{tbl_base}_{phase_suffix_script}] PRIMARY KEY ([{pk_col}])")
             
             lines.append(f"IF OBJECT_ID('{tbl_clean}', 'U') IS NULL")
             lines.append("BEGIN")
@@ -457,7 +465,7 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 index_keys.append(watermark_col)
             
             for ik in sorted(list(set(index_keys))):
-                lines.append(f"    CREATE NONCLUSTERED INDEX idx_{tbl_base}_Clean_{ik} ON {clean_tbl}([{ik}]);")
+                lines.append(f"    CREATE NONCLUSTERED INDEX idx_{tbl_base}_{phase_suffix_script}_{ik} ON {clean_tbl}([{ik}]);")
             lines.append("END;")
             lines.append("GO")
             lines.append("")
@@ -803,7 +811,7 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
 
             if dialect == "tsql":
                 proc_lines.append(f"-- Initialize Clean Table Structure")
-                proc_lines.append(f"IF OBJECT_ID('{tbl_clean}', 'U') IS NULL")
+                proc_lines.append(f"IF OBJECT_ID('{target_tbl_str}', 'U') IS NULL")
                 proc_lines.append("BEGIN")
             
                 # Explicit CREATE TABLE
@@ -832,11 +840,12 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                     create_cols.append("        is_current BIT DEFAULT 1")
             
                 # Add primary key constraint inline if pk_col exists
+                phase_suffix = "Clean" if is_clean else "Transformed"
                 if pk_col:
                     if scd_type == "type2":
-                        create_cols.append(f"        CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}], start_date)")
+                        create_cols.append(f"        CONSTRAINT [PK_{tbl_base}_{phase_suffix}] PRIMARY KEY ([{pk_col}], start_date)")
                     else:
-                        create_cols.append(f"        CONSTRAINT [PK_{tbl_base}_Clean] PRIMARY KEY ([{pk_col}])")
+                        create_cols.append(f"        CONSTRAINT [PK_{tbl_base}_{phase_suffix}] PRIMARY KEY ([{pk_col}])")
                 
                 proc_lines.append(f"    CREATE TABLE {clean_tbl} (")
                 proc_lines.append(",\n".join(create_cols))
@@ -854,7 +863,7 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                     index_keys.append(watermark_col)
                 
                 for ik in sorted(list(set(index_keys))):
-                    proc_lines.append(f"    CREATE NONCLUSTERED INDEX idx_{tbl_base}_Clean_{ik} ON {clean_tbl}([{ik}]);")
+                    proc_lines.append(f"    CREATE NONCLUSTERED INDEX idx_{tbl_base}_{phase_suffix}_{ik} ON {clean_tbl}([{ik}]);")
                 proc_lines.append("END")
                 proc_lines.append("")
             
@@ -1657,7 +1666,8 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                     raw_base = ds_name.split(".")[-1].strip("[]")
                     cl_base = _get_clean_table_name(ds_name).split(".")[-1].strip("[]")
                     new_line = new_line.replace(f"[{raw_base}]", f"[{cl_base}]")
-                    new_line = new_line.replace(raw_base, cl_base)
+                    # Prevent double-replacements by only matching raw_base as a full word boundary
+                    new_line = re.sub(rf"\b{re.escape(raw_base)}\b", cl_base, new_line)
                 clean_join_lines.append(new_line)
             join_lines = clean_join_lines
             
