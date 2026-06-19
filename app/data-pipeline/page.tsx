@@ -874,7 +874,7 @@ export default function DataPipelinePage() {
                               <div className="mt-4">
                                 <div className="text-xs font-bold text-zinc-800 mb-2">Batch Execution Breakdown</div>
                                 <div className="overflow-hidden rounded-xl border border-black/10">
-                                  <table className="w-full text-left text-xs">
+                                  <table className="w-full text-left text-xs text-zinc-800">
                                     <thead className="bg-black/[0.02]">
                                       <tr>
                                         <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Batch #</th>
@@ -909,7 +909,7 @@ export default function DataPipelinePage() {
                               <div className="mt-4">
                                 <div className="text-xs font-bold text-zinc-800 mb-2">Row Count Reconciliation</div>
                                 <div className="overflow-hidden rounded-xl border border-black/10">
-                                  <table className="w-full text-left text-xs">
+                                  <table className="w-full text-left text-xs text-zinc-800">
                                     <thead className="bg-black/[0.02]">
                                       <tr>
                                         <th className="p-2.5 font-bold uppercase tracking-wider text-black/55">Table Name</th>

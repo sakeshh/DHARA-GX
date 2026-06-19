@@ -177,7 +177,7 @@ Return a JSON object with the following keys. All keys are optional, but you sho
    - "assertion": string. E.g., "Email.str.endswith('@capgemini.com')" or "Price > 0".
    - "severity": string. "high", "medium", or "low".
    - "message": string. User-friendly error message if validation fails (e.g., "Email must end with @capgemini.com").
-9. "notes": string. General explanation or context about the business requirements that cannot be captured in the structured fields.
+9. "notes": string. A general summary or explanation of the business requirements, logic, or rules extracted. This field must always be populated to explain or summarize the guidelines or requirements defined in the input prompt.
 
 Ensure your output is a valid JSON object only. Do not include markdown formatting or extra text."""
 
@@ -216,6 +216,8 @@ def parse_requirements_to_rules(requirements_text: str, schemas: Dict[str, List[
         )
         raw = response.choices[0].message.content
         parsed = json.loads(raw)
+        if not parsed.get("notes") or not str(parsed.get("notes")).strip():
+            parsed["notes"] = f"Rules successfully extracted from requirements:\n- Extracted custom assertions: {len(parsed.get('custom_assertions', []))}\n- Extracted required columns: {len(parsed.get('required_columns', []))}"
         return normalize_business_rules(parsed)
     except Exception as e:
         logger.error(f"Error calling LLM to parse requirements: {e}")

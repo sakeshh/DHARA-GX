@@ -450,7 +450,7 @@ export default function BusinessRequirementsPanel({
                     type="number"
                     value={rules.dq_threshold}
                     onChange={(e) => handleThresholdChange(Number(e.target.value))}
-                    className="w-16 text-center border border-black/10 rounded-lg p-1 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-[#0070AD]/25"
+                    className="w-16 text-center border border-black/10 rounded-lg p-1 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-[#0070AD]/25 text-zinc-900"
                   />
                 </div>
               </div>
@@ -483,7 +483,7 @@ export default function BusinessRequirementsPanel({
                     value={newRequiredCol}
                     onChange={(e) => setNewRequiredCol(e.target.value)}
                     placeholder="Add column..."
-                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none"
+                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none text-zinc-900"
                     onKeyDown={(e) => e.key === 'Enter' && addRequiredCol()}
                   />
                   <button
@@ -523,7 +523,7 @@ export default function BusinessRequirementsPanel({
                     value={newNonNullCol}
                     onChange={(e) => setNewNonNullCol(e.target.value)}
                     placeholder="Add column..."
-                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none"
+                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none text-zinc-900"
                     onKeyDown={(e) => e.key === 'Enter' && addNonNullCol()}
                   />
                   <button
@@ -563,7 +563,7 @@ export default function BusinessRequirementsPanel({
                     value={newExcludeCol}
                     onChange={(e) => setNewExcludeCol(e.target.value)}
                     placeholder="Add column..."
-                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none"
+                    className="flex-1 border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none text-zinc-900"
                     onKeyDown={(e) => e.key === 'Enter' && addExcludeCol()}
                   />
                   <button
@@ -626,14 +626,14 @@ export default function BusinessRequirementsPanel({
                       value={newAssertion}
                       onChange={(e) => setNewAssertion(e.target.value)}
                       placeholder="Formula: E.g., Price > 0"
-                      className="border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none"
+                      className="border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none text-zinc-900"
                     />
                     <input
                       type="text"
                       value={newAssertionMsg}
                       onChange={(e) => setNewAssertionMsg(e.target.value)}
                       placeholder="Message if failed"
-                      className="border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none"
+                      className="border border-black/10 rounded-lg px-3 py-1.5 text-xs bg-white focus:outline-none text-zinc-900"
                     />
                   </div>
                   <div className="flex gap-3 items-center justify-between">
@@ -670,7 +670,7 @@ export default function BusinessRequirementsPanel({
                   value={rules.notes || ''}
                   onChange={(e) => setRules({ ...rules, notes: e.target.value })}
                   placeholder="Notes about business logic..."
-                  className="w-full h-20 border border-black/10 rounded-lg p-2.5 text-xs bg-white focus:outline-none resize-none font-medium"
+                  className="w-full h-20 border border-black/10 rounded-lg p-2.5 text-xs bg-white focus:outline-none resize-none font-medium text-zinc-900"
                 />
               </div>
 

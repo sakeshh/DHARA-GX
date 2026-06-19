@@ -50,3 +50,5 @@ Agent Dhara Backend/config/sources.yaml
 # SQLite checkpointer
 Agent Dhara Backend/agent/data/checkpointer.db
 
+# Cache directory
+Agent Dhara Backend/agent/data/cache/
