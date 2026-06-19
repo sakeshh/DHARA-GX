@@ -12,6 +12,11 @@ except Exception:
     pass
 
 import os
+# Force Azure CLI path to PATH environment variable if not already present
+for _az_dir in [r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin", r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin"]:
+    if os.path.isdir(_az_dir) and _az_dir not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + _az_dir
+
 import json
 import logging
 import time
