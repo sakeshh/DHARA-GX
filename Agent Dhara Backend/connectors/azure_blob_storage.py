@@ -100,9 +100,20 @@ class AzureBlobStorageConnector:
         if not self.container:
             raise ValueError("Missing required connection key: 'container' (or AZURE_STORAGE_CONTAINER env)")
 
+        # Configure high-performance connection pool session for parallel chunk downloads
+        try:
+            import requests
+            from requests.adapters import HTTPAdapter
+            session = requests.Session()
+            adapter = HTTPAdapter(pool_maxsize=32)
+            session.mount('https://', adapter)
+            session.mount('http://', adapter)
+        except Exception:
+            session = None
+
         try:
             if connection_string:
-                self.client = BlobServiceClient.from_connection_string(connection_string)
+                self.client = BlobServiceClient.from_connection_string(connection_string, session=session)
             elif account_name and account_key:
                 cs = (
                     f"DefaultEndpointsProtocol=https;"
@@ -110,13 +121,13 @@ class AzureBlobStorageConnector:
                     f"AccountKey={account_key};"
                     f"EndpointSuffix=core.windows.net"
                 )
-                self.client = BlobServiceClient.from_connection_string(cs)
+                self.client = BlobServiceClient.from_connection_string(cs, session=session)
             else:
                 env_account = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
                 if DefaultAzureCredential is not None and env_account:
                     account_url = f"https://{env_account}.blob.core.windows.net"
                     cred = DefaultAzureCredential()
-                    self.client = BlobServiceClient(account_url=account_url, credential=cred)
+                    self.client = BlobServiceClient(account_url=account_url, credential=cred, session=session)
                 else:
                     raise ValueError(
                         "No Azure storage credentials found; set connection_string or account_name/account_key, or enable managed identity and set AZURE_STORAGE_ACCOUNT_NAME."
@@ -142,32 +153,91 @@ class AzureBlobStorageConnector:
                 print(f"[ERROR] Failed to list blobs: {e}")
             return []
 
+    def _download_blob_bytes_cached(self, blob_name: str, max_bytes: Optional[int] = None) -> bytes:
+        """
+        Download a blob from Azure Storage with local disk caching and parallel download.
+        """
+        import hashlib
+        
+        here = os.path.dirname(os.path.abspath(__file__))
+        backend_root = os.path.dirname(here)
+        cache_dir = os.path.join(backend_root, "agent", "data", "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        
+        # Safe cache file name using hash of path
+        safe_name = hashlib.md5(blob_name.encode('utf-8')).hexdigest()
+        cache_file_path = os.path.join(cache_dir, f"{safe_name}_{os.path.basename(blob_name)}")
+        meta_file_path = cache_file_path + ".meta"
+        
+        blob_client = self.container_client.get_blob_client(blob_name)
+        
+        try:
+            properties = blob_client.get_blob_properties()
+            server_etag = properties.etag
+            server_size = properties.size
+        except Exception as e:
+            print(f"[WARNING] Failed to fetch blob properties for {blob_name}: {e}")
+            if max_bytes:
+                return blob_client.download_blob(offset=0, length=max_bytes, max_concurrency=16).readall()
+            return blob_client.download_blob(max_concurrency=16).readall()
+
+        # Validate cache
+        cache_valid = False
+        if os.path.exists(cache_file_path) and os.path.exists(meta_file_path):
+            try:
+                with open(meta_file_path, "r", encoding="utf-8") as f:
+                    meta = json.load(f)
+                if meta.get("etag") == server_etag and meta.get("size") == server_size:
+                    cache_valid = True
+            except Exception:
+                pass
+                
+        if cache_valid:
+            print(f"[CACHE HIT] Loading {blob_name} from local disk cache: {cache_file_path}")
+            with open(cache_file_path, "rb") as f:
+                if max_bytes:
+                    return f.read(max_bytes)
+                return f.read()
+                
+        # Cache miss or invalid - range request if requested segment is small compared to server file size
+        if max_bytes is not None and max_bytes < server_size:
+            print(f"[DOWNLOAD RANGE] Downloading first {max_bytes} bytes of {blob_name} (concurrency=16, no cache)...")
+            def _download_range():
+                return blob_client.download_blob(offset=0, length=max_bytes, max_concurrency=16).readall()
+            return _retry_on_transient(_download_range)
+            
+        # Full download and save to cache
+        print(f"[DOWNLOAD FULL] Downloading entire {blob_name} ({server_size} bytes) with concurrency=16...")
+        def _download_full_to_cache():
+            with open(cache_file_path, "wb") as f:
+                blob_client.download_blob(max_concurrency=16).readinto(f)
+            with open(meta_file_path, "w", encoding="utf-8") as f:
+                json.dump({"etag": server_etag, "size": server_size}, f)
+                
+        try:
+            _retry_on_transient(_download_full_to_cache)
+            print(f"[CACHE WRITE] Successfully cached {blob_name} locally.")
+            with open(cache_file_path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            if os.path.exists(cache_file_path):
+                try: os.remove(cache_file_path)
+                except: pass
+            if os.path.exists(meta_file_path):
+                try: os.remove(meta_file_path)
+                except: pass
+            raise e
+
     def _download_blob_bytes(self, blob_name: str) -> bytes:
         """Download a blob as bytes (with retry)."""
-        blob_client = self.container_client.get_blob_client(blob_name)
-
-        def _download():
-            return blob_client.download_blob().readall()
-
-        return _retry_on_transient(_download)
+        return self._download_blob_bytes_cached(blob_name)
 
     def _download_blob_bytes_limit(self, blob_name: str, *, max_bytes: int) -> bytes:
-        """
-        Download at most `max_bytes` from the start of a blob.
-
-        This is a safety valve for large blobs. Many parsers (CSV/JSONL) can still
-        produce useful previews from a prefix.
-        """
+        """Download at most `max_bytes` from the start of a blob."""
         max_bytes = int(max_bytes or 0)
         if max_bytes <= 0:
             return self._download_blob_bytes(blob_name)
-        blob_client = self.container_client.get_blob_client(blob_name)
-
-        def _download():
-            # download only a prefix to avoid loading huge blobs into memory
-            return blob_client.download_blob(offset=0, length=max_bytes).readall()
-
-        return _retry_on_transient(_download)
+        return self._download_blob_bytes_cached(blob_name, max_bytes=max_bytes)
 
     def download_blob_to_file(self, blob_name: str, output_path: str) -> str:
         """
@@ -194,26 +264,56 @@ class AzureBlobStorageConnector:
         Auto-detects format based on file extension.
         """
         try:
+            # Enforce env limits if configured
+            env_max_rows = os.environ.get("ASSESS_MAX_ROWS_PER_BLOB")
+            if env_max_rows:
+                try:
+                    env_row_limit = int(env_max_rows)
+                    if env_row_limit > 0:
+                        if max_rows is None or max_rows > env_row_limit:
+                            max_rows = env_row_limit
+                except Exception:
+                    pass
+
+            env_max_bytes = os.environ.get("ASSESS_MAX_BLOB_BYTES")
+            if env_max_bytes:
+                try:
+                    env_byte_limit = int(env_max_bytes)
+                    if env_byte_limit > 0:
+                        if max_bytes is None or max_bytes > env_byte_limit:
+                            max_bytes = env_byte_limit
+                except Exception:
+                    pass
+
             max_rows_i = int(max_rows) if max_rows is not None else None
             if max_rows_i is not None:
                 max_rows_i = max(1, min(max_rows_i, 10_000_000))
             max_bytes_i = int(max_bytes) if max_bytes is not None else None
             if max_bytes_i is not None:
                 max_bytes_i = max(1, min(max_bytes_i, 1536 * 1024 * 1024)) # 1.5GB cap
+            else:
+                max_bytes_i = 50 * 1024 * 1024 # 50MB safe default cap
 
-            blob_data = self._download_blob_bytes_limit(blob_name, max_bytes=max_bytes_i or 0)
             low = blob_name.lower()
 
+            # For text-based formats, if there is a row limit, we can download only a prefix to save time and bandwidth
+            if low.endswith((".csv", ".tsv", ".jsonl")):
+                if max_rows_i is not None and max_rows_i < 100_000:
+                    # Estimate row size of 2KB; download min 1MB, max max_bytes_i
+                    prefix_bytes = max(1024 * 1024, max_rows_i * 2048)
+                    prefix_bytes = min(prefix_bytes, max_bytes_i)
+                else:
+                    prefix_bytes = max_bytes_i
+
+                blob_data = self._download_blob_bytes_limit(blob_name, max_bytes=prefix_bytes)
+            else:
+                blob_data = self._download_blob_bytes_limit(blob_name, max_bytes=max_bytes_i)
+
             if low.endswith(".csv"):
-                # Pass the stream directly to pandas to avoid loading the entire file into memory
-                blob_client = self.container_client.get_blob_client(blob_name)
-                stream = blob_client.download_blob()
-                return pd.read_csv(stream, low_memory=False, nrows=max_rows_i)
+                return pd.read_csv(io.BytesIO(blob_data), low_memory=False, nrows=max_rows_i)
 
             if low.endswith(".tsv"):
-                blob_client = self.container_client.get_blob_client(blob_name)
-                stream = blob_client.download_blob()
-                return pd.read_csv(stream, sep="\t", low_memory=False, nrows=max_rows_i)
+                return pd.read_csv(io.BytesIO(blob_data), sep="\t", low_memory=False, nrows=max_rows_i)
 
             if low.endswith(".json"):
                 data = json.loads(blob_data.decode("utf-8"))
@@ -227,37 +327,21 @@ class AzureBlobStorageConnector:
 
             if low.endswith(".jsonl"):
                 rows = []
-                blob_client = self.container_client.get_blob_client(blob_name)
-                stream = blob_client.download_blob()
-                
-                # Use a buffer to handle partial lines across chunks
-                buffer = ""
-                for chunk in stream.chunks():
-                    text = chunk.decode("utf-8", errors="replace")
-                    lines = (buffer + text).splitlines(keepends=True)
-                    if not text.endswith(("\n", "\r")):
-                        buffer = lines.pop()
-                    else:
-                        buffer = ""
-                    
-                    for line in lines:
-                        line = line.strip()
-                        if not line: continue
-                        try:
-                            rows.append(json.loads(line))
-                        except Exception:
-                            rows.append({"value": line})
-                        if max_rows_i is not None and len(rows) >= max_rows_i:
-                            break
+                text = blob_data.decode("utf-8", errors="replace")
+                lines = text.splitlines()
+                # If truncated, drop the last line if it doesn't end with newline
+                if text and not text.endswith(("\n", "\r")) and len(lines) > 1:
+                    lines.pop()
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        rows.append({"value": line})
                     if max_rows_i is not None and len(rows) >= max_rows_i:
                         break
-                
-                if buffer.strip() and (max_rows_i is None or len(rows) < max_rows_i):
-                    try:
-                        rows.append(json.loads(buffer.strip()))
-                    except Exception:
-                        rows.append({"value": buffer.strip()})
-
                 if not rows:
                     return pd.DataFrame()
                 return pd.json_normalize(rows, max_level=1)

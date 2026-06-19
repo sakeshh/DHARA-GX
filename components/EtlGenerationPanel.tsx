@@ -1099,8 +1099,8 @@ export default function EtlGenerationPanel({
                   </div>
                 ) : null}
                 <div className={`max-h-64 overflow-auto rounded-xl border ${dm ? 'border-white/10' : 'border-black/10'}`}>
-                <table className="w-full text-left text-[11px]">
-                  <thead className={dm ? 'bg-white/10' : 'bg-black/[0.04]'}>
+                <table className={`w-full text-left text-[11px] ${dm ? 'text-zinc-100' : 'text-zinc-800'}`}>
+                  <thead className={dm ? 'bg-white/10 text-zinc-300' : 'bg-black/[0.04] text-zinc-600'}>
                     <tr>
                       <th className="p-2 font-black uppercase tracking-tighter">Ds</th>
                       <th className="p-2 font-black uppercase tracking-tighter">#</th>

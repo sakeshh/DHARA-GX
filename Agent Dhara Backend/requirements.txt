@@ -51,7 +51,8 @@ ydata-profiling>=4.0.0
 # Docs: https://github.com/fbdesignpro/sweetviz
 sweetviz>=2.3.0
 
-# Great Expectations — data quality validation (removed as per plan)
+# Great Expectations — data quality validation
+great_expectations>=0.17.0
 
 # Phone number validation (Google's libphonenumber — gold standard)
 phonenumbers>=8.13.0

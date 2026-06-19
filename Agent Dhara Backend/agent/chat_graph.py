@@ -2246,6 +2246,43 @@ def _node_route(state: ChatState) -> ChatState:
             if idxs:
                 return {"action": "select_local_files", "action_args": {"indices": idxs}}
 
+    # Deterministic list / show commands
+    if raw in ("list files", "list file", "show files", "show file"):
+        sess = state.get("session") or {}
+        ctx = sess.get("context", {}) if isinstance(sess, dict) else {}
+        sources_path = ctx.get("sources_path") or "config/sources.yaml"
+        sel_idx = ctx.get("selected_source_index")
+        sel_type = ""
+        try:
+            source_root = load_sources_config(sources_path)
+            locs = list(source_root.get("locations", []) or [])
+            if sel_idx is not None and 0 <= int(sel_idx) < len(locs):
+                sel_type = str((locs[int(sel_idx)].get("type") or "")).lower()
+        except Exception:
+            pass
+        if not sel_type:
+            sel_type = str(ctx.get("selected_source") or "").lower()
+
+        if "local" in sel_type or "filesystem" in sel_type:
+            return {"action": "list_local_files", "action_args": {}}
+        elif "database" in sel_type or "sql" in sel_type:
+            return {"action": "list_tables", "action_args": {}}
+        else:
+            return {"action": "list_blob_files", "action_args": {}}
+
+    if raw in ("list blob files", "list blob file", "show blob files", "show blob file"):
+        return {"action": "list_blob_files", "action_args": {}}
+
+    if raw in ("list local files", "list local file", "list local", "show local files", "show local file", "show local"):
+        return {"action": "list_local_files", "action_args": {}}
+
+    if raw in ("list tables", "list table", "list sql tables", "list sql table", "show tables", "show table", "show sql tables", "show sql table"):
+        return {"action": "list_tables", "action_args": {}}
+
+    if raw in ("list sources", "list source", "show sources", "show source"):
+        return {"action": "list_sources", "action_args": {}}
+
+
     # Selection meta (must run before DQ / router so "how many selected" isn't mis-read as DQ).
     if _user_asks_selection_status(raw):
         return {"action": "show_selection_status", "action_args": {}}
@@ -4728,8 +4765,12 @@ def build_chat_graph(checkpointer=None):
             checkpointer = SqliteSaver(conn)
             checkpointer.setup()
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Could not initialize SqliteSaver: {e}")
+            try:
+                from langgraph.checkpoint.memory import MemorySaver
+                checkpointer = MemorySaver()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(f"Could not initialize SqliteSaver or MemorySaver: {e}")
             
     return g.compile(checkpointer=checkpointer)
 
