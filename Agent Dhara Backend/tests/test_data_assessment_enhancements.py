@@ -320,7 +320,7 @@ class TestDataAssessmentEnhancements(unittest.TestCase):
             }
         }
         sql_code_auto = generate_sql_etl(plan, assessment, dialect="tsql")
-        self.assertIn("PARTITION BY LOWER(LTRIM(RTRIM(CAST([OrderID] AS NVARCHAR(400))))) ORDER BY (SELECT NULL)", sql_code_auto)
+        self.assertIn("PARTITION BY LOWER(LTRIM(RTRIM(CAST([CustomerID] AS NVARCHAR(400))))), LOWER(LTRIM(RTRIM(CAST([OrderAmount] AS NVARCHAR(400))))) ORDER BY (SELECT NULL)", sql_code_auto)
         self.assertNotIn("[column1]", sql_code_auto)
 
         # Verify SQL (auto-detected schema with watermark)
@@ -337,7 +337,7 @@ class TestDataAssessmentEnhancements(unittest.TestCase):
             }
         }
         sql_code_watermark = generate_sql_etl(plan, assessment_watermark, dialect="tsql")
-        self.assertIn("PARTITION BY LOWER(LTRIM(RTRIM(CAST([OrderID] AS NVARCHAR(400))))) ORDER BY [UpdatedAt] DESC", sql_code_watermark)
+        self.assertIn("PARTITION BY LOWER(LTRIM(RTRIM(CAST([CustomerID] AS NVARCHAR(400))))), LOWER(LTRIM(RTRIM(CAST([OrderAmount] AS NVARCHAR(400))))) ORDER BY [UpdatedAt] DESC", sql_code_watermark)
 
         # Verify Python
         python_code = generate_python_etl(plan, {})

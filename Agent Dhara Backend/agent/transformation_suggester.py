@@ -50,13 +50,35 @@ ISSUE_TO_ACTION = {
     "case_insensitive_column_collision": "review_manually",
     # Values differ only by casing — normalize in ETL (aligns with assessment recommendation)
     "case_inconsistency": "lowercase",
-    "punctuation_only_value": "zero_to_null",
+    "punctuation_only_value": "nullify_punctuation",
     "very_wide_table": "review_manually",
     "column_name_whitespace": "review_manually",
     "very_high_cardinality": "review_manually",
     "binary_like_column": "standardize_boolean",
     "very_wide_date_span": "review_manually",
     "duplicate_insensitive_values": "lowercase",
+    
+    # New mappings added for completeness
+    "mixed_date_formats": "parse_dates",
+    "all_caps_values": "lowercase",
+    "boolean_inconsistency": "standardize_boolean",
+    "ambiguous_boolean": "standardize_boolean",
+    "internal_whitespace": "trim",
+    "html_tags_in_text": "regex_replace",
+    "non_ascii_characters": "regex_replace",
+    "numeric_outliers_zscore": "clip_or_flag",
+    "mixed_scalar_types": "coerce_numeric",
+    "mixed_phone_formats": "normalize_phone",
+    "invalid_url": "review_manually",
+    "implausible_age": "clip_or_flag",
+    "implausible_percentage": "range_clip",
+    "string_with_only_digits_in_text_column": "cast_type",
+    "repeated_token_in_string": "review_manually",
+    "timezone_inconsistency": "parse_dates",
+    "round_number_anomaly": "review_manually",
+    "date_clumping_jan1": "nullify_dummy_dates",
+    "date_clumping_month_end": "review_manually",
+    "weekend_date_anomaly": "review_manually",
 }
 
 # Columns we should NOT coerce to numeric (semantic string columns)

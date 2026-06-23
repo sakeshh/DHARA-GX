@@ -28,6 +28,26 @@ def _bracket_balance(source: str) -> List[str]:
     return issues
 
 
+def _has_fake_default_value(sql: str) -> bool:
+    low = sql.lower()
+    banned = ["'99999'", "'10120631.5'", "'1900-01-01'", "'19000101'"]
+    for b in banned:
+        start = 0
+        while True:
+            idx = low.find(b, start)
+            if idx == -1:
+                break
+            # Check downstream text for 'then null' within 150 characters
+            downstream = low[idx + len(b):idx + len(b) + 150]
+            if "then null" in downstream:
+                then_idx = downstream.find("then null")
+                if ";" not in downstream[:then_idx]:
+                    start = idx + len(b)
+                    continue
+            return True
+    return False
+
+
 def validate_sql_basic_dict(source: str) -> dict:
     """Parse SQL and return structured validation result."""
     if not source or not source.strip():
@@ -74,7 +94,7 @@ def validate_sql_basic_dict(source: str) -> dict:
                 issues.append("etl_rejects table is defined but never inserted into (reject pipeline not used)")
         
     # 2. Fake default values
-    if "'99999'" in low or "'10120631.5'" in low or "'1900-01-01'" in low or "'19000101'" in low:
+    if _has_fake_default_value(source):
         issues.append("contains hardcoded fake default values ('99999', '10120631.5', or '1900-01-01')")
         
     # 3. Wrong deduplication ordering/columns

@@ -775,6 +775,27 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
 
     plan = enrich_plan_manual_review(_rehydrate_plan(plan, ctx))
 
+    rules = flow.get("business_rules") or plan.get("business_rules") or {}
+    if rules.get("auto_resolve_safe_defaults") or plan.get("auto_resolve_safe_defaults"):
+        pending_items = [m for m in plan.get("manual_review") or [] if str(m.get("status") or "pending").lower() == "pending"]
+        if pending_items:
+            resolutions = []
+            for item in pending_items:
+                opts = item.get("resolution_options") or []
+                rec_opt = next((o for o in opts if o.get("recommended")), None)
+                if not rec_opt and opts:
+                    rec_opt = opts[0]
+                if rec_opt:
+                    resolutions.append({
+                        "item_id": item["id"],
+                        "resolution_id": rec_opt["id"]
+                    })
+            if resolutions:
+                logger.info(f"Auto-resolving {len(resolutions)} pending manual review items due to auto_resolve_safe_defaults rule.")
+                plan, res_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules)
+                if res_errs:
+                    logger.warning(f"Errors during auto-resolving safe defaults: {res_errs}")
+
     pending_manual = count_pending_manual_review(plan)
     if pending_manual > 0:
         return {

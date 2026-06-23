@@ -1,6 +1,13 @@
 {
-    "dbo.AssetZones": {
-        "AssetID": "int64",
-        "ZoneID": "int64"
+    "dbo.Courses": {
+        "CourseID": "int64",
+        "InstructorID": "int64",
+        "CourseTitle": "object",
+        "Price": "object",
+        "CreatedDate": "object"
+    },
+    "dbo.CourseTags": {
+        "CourseID": "int64",
+        "TagID": "int64"
     }
 }

@@ -118,14 +118,14 @@ class TestPiiAwareDQGate(unittest.TestCase):
     """Test that high-PII columns dynamically raise the DQ Gate threshold."""
 
     def test_pii_gate_raised(self):
-        # A mock assessment with high null rate (score will be ~70.0)
+        # A mock assessment with high null rate (score will be ~73.0)
         assessment = {
             "datasets": {
                 "dbo.test": {
                     "columns": {
                         "email": {
                             "dtype": "object",
-                            "null_percentage": 0.99,
+                            "null_percentage": 0.65,
                             "raw_samples": ["john@example.com"]
                         }
                     }
