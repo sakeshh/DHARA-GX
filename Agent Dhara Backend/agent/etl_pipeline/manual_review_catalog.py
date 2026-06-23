@@ -107,7 +107,7 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("keep_as_is", "Keep as-is (skip)", "noop"),
     ],
     "punctuation_only_value": [
-        _opt("zero_to_null", "Nullify punctuation placeholders", "zero_to_null", recommended=True, description="Replace punctuation-only text (e.g. '###') with NULL."),
+        _opt("nullify_punctuation", "Nullify punctuation placeholders", "nullify_punctuation", recommended=True, description="Replace punctuation-only text (e.g. '###') with NULL using dynamic pattern matching."),
         _opt("keep_as_is", "Keep as-is (skip)", "noop"),
     ],
     "multivariate_outliers": [
@@ -201,6 +201,58 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
     "negative_values": [
         _opt("clip_or_flag", "Clip or flag negative values", "clip_or_flag", recommended=True, description="Handle negative values based on outlier strategy (clip to zero or flag)."),
         _opt("keep_as_is", "Keep negative values as-is", "noop"),
+    ],
+    "mixed_scalar_types": [
+        _opt("coerce_numeric", "Coerce values to numeric", "coerce_numeric", recommended=True, description="Coerce mixed data types to numeric values and nullify/flag invalid ones."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "mixed_phone_formats": [
+        _opt("normalize_phone", "Normalize mixed phone numbers", "normalize_phone", recommended=True, description="Standardize phone formats by removing non-numeric characters."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "internal_whitespace": [
+        _opt("trim", "Trim leading/trailing and clean internal whitespace", "trim", recommended=True, description="Standardize whitespace by trimming and compressing consecutive spaces."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "html_tags_in_text": [
+        _opt("regex_replace", "Strip HTML tags", "regex_replace", recommended=True, description="Strip HTML tags using regex replacement."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "non_ascii_characters": [
+        _opt("regex_replace", "Remove non-ASCII characters", "regex_replace", recommended=True, description="Strip non-ASCII characters using regex replacement."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "control_characters_in_text": [
+        _opt("regex_replace", "Remove control characters", "regex_replace", recommended=True, description="Strip control characters from text columns."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "timezone_inconsistency": [
+        _opt("parse_dates", "Standardize date-times to UTC / local", "parse_dates", recommended=True, description="Parse date-times to resolve mixed timezone representations."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "implausible_age": [
+        _opt("clip_or_flag", "Clip or flag out-of-range ages", "clip_or_flag", recommended=True, description="Clip age values to range [0, 150] or flag them."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "implausible_percentage": [
+        _opt("range_clip", "Clip percentage values to [0, 100]", "range_clip", recommended=True, description="Cap/clip values strictly to range [0, 100]."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "binary_like_column": [
+        _opt("standardize_boolean", "Cast to BOOLEAN (Y/N, 1/0, yes/no)", "standardize_boolean", recommended=True, description="Standardize boolean representations to boolean datatype."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "boolean_inconsistency": [
+        _opt("standardize_boolean", "Standardize boolean values", "standardize_boolean", recommended=True, description="Standardize boolean representations to boolean datatype."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "ambiguous_boolean": [
+        _opt("standardize_boolean", "Standardize boolean values", "standardize_boolean", recommended=True, description="Standardize boolean representations to boolean datatype."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "date_clumping_jan1": [
+        _opt("nullify_dummy_dates", "Nullify dummy Jan 1st dates", "nullify_dummy_dates", recommended=True, description="Nullify dates that clump on Jan 1st or are exactly 1900-01-01."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
     ],
 }
 

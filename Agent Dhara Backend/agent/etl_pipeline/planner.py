@@ -35,6 +35,8 @@ _ACTION_PRIORITY: Dict[str, int] = {
     "drop_column": 85,
     "exclude_column": 86,
     "nullify_future_dates": 48,
+    "nullify_dummy_dates": 48,
+    "nullify_punctuation": 32,
     "regex_replace": 60,
     "range_clip": 65,
     "clip_or_flag": 65,
@@ -574,8 +576,8 @@ def build_etl_plan(
 
     manual_review: List[Dict[str, Any]] = []
     blocked: List[Dict[str, Any]] = []
-    # (dataset, column, action) -> step record
-    step_map: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    # (dataset, column, action, issue_type) -> step record
+    step_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
 
     datasets_known = set((assessment.get("datasets") or {}).keys())
 
@@ -661,7 +663,7 @@ def build_etl_plan(
                 )
                 continue
 
-        key = (ds or "_global", (col or "*"), action2)
+        key = (ds or "_global", (col or "*"), action2, s.get("issue_type") or "")
         pri = _ACTION_PRIORITY.get(action2, 80)
         row_est = s.get("row_count_affected")
         col_stats = _col_stats_for_step(assessment, ds or "", col)
@@ -707,7 +709,7 @@ def build_etl_plan(
     for ds, col, act, note in _steps_from_business_notes(rules, assessment):
         if column_is_excluded(col, exclude):
             continue
-        key = (ds, col, act)
+        key = (ds, col, act, "business_notes")
         if key not in step_map:
             cstats = _col_stats_for_step(assessment, ds, col)
             if ds and col:
@@ -767,7 +769,7 @@ def build_etl_plan(
         if act == "validate_referential_integrity_or_stage":
             ds = rstep.get("dataset") or "_global"
             col = rstep.get("column")
-            key = (ds, (col or "*"), act)
+            key = (ds, (col or "*"), act, "relationship")
             if key not in step_map:
                 ri_ev = rstep.get("evidence") or {}
                 step_map[key] = {

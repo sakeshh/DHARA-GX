@@ -1686,7 +1686,7 @@ def build_executive_summary_items(
     """
     thresholds = thresholds or {}
     cfg = thresholds.get("executive_summary") or {}
-    max_items = int(cfg.get("max_items", 8))
+    max_items = int(cfg.get("max_items", 15))
     sev_w = {"high": 3.0, "medium": 2.0, "low": 1.0}
 
     rollup: Dict[Tuple[str, str], Dict[str, Any]] = {}
@@ -1710,6 +1710,15 @@ def build_executive_summary_items(
         r = rollup.setdefault(key, {"type": key[0], "column": "", "datasets": set(), "sev_max": "low", "rows": 0})
         if sev_w.get(str(it.get("severity") or "low"), 1) > sev_w.get(r["sev_max"], 1):
             r["sev_max"] = str(it.get("severity") or "low")
+        
+        # Populate datasets affected for cross-dataset consistency signals
+        details = it.get("details") or {}
+        if "buckets" in details:
+            for ds in details["buckets"].keys():
+                r["datasets"].add(ds)
+        elif "row_counts" in details:
+            for ds in details["row_counts"].keys():
+                r["datasets"].add(ds)
 
     ranked = []
     for r in rollup.values():

@@ -1396,6 +1396,275 @@ def run_gx_validation(
                                         "unexpected_values": collision_examples[:5]
                                     })
 
+                # 33. Mixed Scalar Types (int/str/float mixing in object columns)
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    type_dist = col_meta.get("type_distribution")
+                    if (not type_dist or not isinstance(type_dist, dict)) and _is_text_dtype(validation_df[col].dtype):
+                        from agent.intelligent_data_assessment import scalar_type_distribution
+                        try:
+                            type_dist = scalar_type_distribution(validation_df[col])
+                        except Exception:
+                            type_dist = None
+                    if type_dist and isinstance(type_dist, dict):
+                        pct = type_dist.get("pct") or {}
+                        dominant_types = [k for k, v in pct.items() if v > 0.05]
+                        if len(dominant_types) >= 2 and "str" in dominant_types:
+                            mixed_counts = {k: type_dist.get("counts", {}).get(k, 0) for k in dominant_types}
+                            results_processed.append({
+                                "expectation": "mixed_scalar_types",
+                                "column": col,
+                                "success": False,
+                                "details": f"Inconsistent scalar types detected in column: {mixed_counts}",
+                                "unexpected_count": sum(mixed_counts.values()) - max(mixed_counts.values()),
+                                "unexpected_index_list": [],
+                                "unexpected_values": dominant_types
+                            })
+
+                # 34. Name Format Inconsistency
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    if ("name" in col.lower() or semantic_type == "name") and _is_text_dtype(validation_df[col].dtype):
+                        s = validation_df[col].dropna().astype(str).str.strip()
+                        if len(s) >= 10:
+                            has_comma = int(s.str.contains(",").sum())
+                            if 0 < has_comma < len(s):
+                                results_processed.append({
+                                    "expectation": "name_format_inconsistency",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"Inconsistent name formats: {has_comma} with comma ('Last, First') vs {len(s) - has_comma} without comma ('First Last')",
+                                    "unexpected_count": min(has_comma, len(s) - has_comma),
+                                    "unexpected_index_list": s.index[s.str.contains(",")].tolist()[:50] if has_comma < len(s)/2 else s.index[~s.str.contains(",")].tolist()[:50],
+                                    "unexpected_values": list(s[s.str.contains(",")].head(3)) + list(s[~s.str.contains(",")].head(3))
+                                })
+
+                # 35. Mixed Phone Formats
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    if (semantic_type == "phone" or "phone" in col.lower()) and _is_text_dtype(validation_df[col].dtype):
+                        try:
+                            from agent.intelligent_data_assessment import _detect_phone_formats
+                            fmt_buckets = _detect_phone_formats(validation_df[col])
+                            if fmt_buckets and fmt_buckets.get("e164", 0) > 0 and fmt_buckets.get("national", 0) > 0:
+                                results_processed.append({
+                                    "expectation": "mixed_phone_formats",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"Mixed phone formats: {fmt_buckets.get('e164')} E.164 (intl) vs {fmt_buckets.get('national')} National/Local formats",
+                                    "unexpected_count": min(fmt_buckets.get("e164"), fmt_buckets.get("national")),
+                                    "unexpected_index_list": [],
+                                    "unexpected_values": [f"e164: {fmt_buckets.get('e164')}", f"national: {fmt_buckets.get('national')}"]
+                                })
+                        except Exception:
+                            pass
+
+                # 36. Systematic Placeholder Detection (pattern/frequency based)
+                for col in validation_df.columns:
+                    if _is_text_dtype(validation_df[col].dtype):
+                        s = validation_df[col].dropna().astype(str).str.strip().str.lower()
+                        if len(s) >= 20:
+                            vc = s.value_counts()
+                            for val, cnt in vc.head(5).items():
+                                if cnt > len(s) * 0.05 and any(p in val for p in ["xxx", "000", "test", "dummy", "sample"]):
+                                    results_processed.append({
+                                        "expectation": "placeholder_detected",
+                                        "column": col,
+                                        "success": False,
+                                        "details": f"Systematic pattern placeholder value '{val}' detected {cnt} times ({round(cnt/len(s)*100, 1)}%)",
+                                        "unexpected_count": int(cnt),
+                                        "unexpected_index_list": validation_df[col].index[s == val].tolist()[:50],
+                                        "unexpected_values": [val]
+                                    })
+
+                # 37. Out-of-Range Values (semantic range checking)
+                semantic_ranges = {
+                    "latitude": (-90.0, 90.0),
+                    "longitude": (-180.0, 180.0),
+                    "temperature": (-100.0, 60.0),
+                    "humidity": (0.0, 100.0),
+                    "percentage": (0.0, 100.0)
+                }
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    for key, (lo, hi) in semantic_ranges.items():
+                        if key in col.lower() or key in semantic_type:
+                            v = pd.to_numeric(validation_df[col], errors="coerce").dropna()
+                            if not v.empty:
+                                bad = (v < lo) | (v > hi)
+                                cnt = int(bad.sum())
+                                if cnt > 0:
+                                    results_processed.append({
+                                        "expectation": "custom_range",
+                                        "column": col,
+                                        "success": False,
+                                        "details": f"{cnt} out-of-range value(s) outside plausible bounds [{lo}, {hi}] for {key}",
+                                        "unexpected_count": cnt,
+                                        "unexpected_index_list": v.index[bad].tolist()[:50],
+                                        "unexpected_values": v[bad].head(5).tolist()
+                                    })
+
+                # 38. Impossible Dates
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    if semantic_type == "date" and _is_text_dtype(validation_df[col].dtype):
+                        import calendar
+                        non_null = validation_df[col].dropna().astype(str).str.strip()
+                        impossible_indices = []
+                        impossible_values = []
+                        for idx, v in non_null.head(500).items():
+                            m = re.match(r"^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$", v)
+                            if m:
+                                y, mo, d = int(m[1]), int(m[2]), int(m[3])
+                                if mo < 1 or mo > 12 or d < 1 or d > calendar.monthrange(y, mo)[1]:
+                                    impossible_indices.append(idx)
+                                    impossible_values.append(v)
+                            else:
+                                m_us = re.match(r"^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$", v)
+                                if m_us:
+                                    mo, d, y = int(m_us[1]), int(m_us[2]), int(m_us[3])
+                                    if mo >= 1 and mo <= 12:
+                                        if d < 1 or d > calendar.monthrange(y, mo)[1]:
+                                            impossible_indices.append(idx)
+                                            impossible_values.append(v)
+                        if impossible_indices:
+                            results_processed.append({
+                                "expectation": "invalid_date_format",
+                                "column": col,
+                                "success": False,
+                                "details": f"Detected {len(impossible_indices)} impossible date values (e.g. invalid calendar days/months)",
+                                "unexpected_count": len(impossible_indices),
+                                "unexpected_index_list": impossible_indices,
+                                "unexpected_values": impossible_values[:5]
+                            })
+
+                # 39. Leading Zeros on Numeric IDs
+                for col in validation_df.columns:
+                    col_lower = col.lower()
+                    if col_lower.endswith("id") or col_lower.endswith("code") or col_lower.endswith("key"):
+                        if _is_text_dtype(validation_df[col].dtype):
+                            s = validation_df[col].dropna().astype(str).str.strip()
+                            if len(s) >= 10:
+                                leading_zero_mask = s.str.match(r"^0\d+$")
+                                cnt = int(leading_zero_mask.sum())
+                                if 0 < cnt < len(s):
+                                    results_processed.append({
+                                        "expectation": "case_inconsistency",
+                                        "column": col,
+                                        "success": False,
+                                        "details": f"{cnt} numeric ID value(s) contain leading zeros",
+                                        "unexpected_count": cnt,
+                                        "unexpected_index_list": s.index[leading_zero_mask].tolist()[:50],
+                                        "unexpected_values": s[leading_zero_mask].head(5).tolist()
+                                    })
+
+                # 40. High Null Ratio in Key Columns
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    if bool(col_meta.get("candidate_primary_key")):
+                        null_pct = col_meta.get("null_percentage")
+                        if null_pct is None:
+                            null_pct = float(validation_df[col].isna().mean())
+                        if null_pct > 0.05:
+                            results_processed.append({
+                                "expectation": "high_null_percentage",
+                                "column": col,
+                                "success": False,
+                                "details": f"High null percentage ({round(null_pct*100, 1)}%) in Candidate Primary Key column",
+                                "unexpected_count": int(validation_df[col].isna().sum()),
+                                "unexpected_index_list": validation_df[col].index[validation_df[col].isna()].tolist()[:50],
+                                "unexpected_values": []
+                            })
+
+                # 41. Integer Stored as Float
+                for col in validation_df.columns:
+                    dtype = str(validation_df[col].dtype).lower()
+                    if "float" in dtype:
+                        v = validation_df[col].dropna()
+                        if len(v) >= 10:
+                            try:
+                                is_int = (v == v.round(0)).all()
+                                if is_int:
+                                    results_processed.append({
+                                        "expectation": "integer_stored_as_float",
+                                        "column": col,
+                                        "success": False,
+                                        "details": "Numeric column stored as float but contains only integer-like values",
+                                        "unexpected_count": len(v),
+                                        "unexpected_index_list": [],
+                                        "unexpected_values": list(v.head(5))
+                                    })
+                            except Exception:
+                                pass
+
+                # 42. Boolean Inconsistency Expansion
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    if (semantic_type == "categorical" or _is_text_dtype(validation_df[col].dtype)) and col not in columns_with_custom_rules:
+                        s = validation_df[col].dropna()
+                        if len(s) > 10 and s.nunique() <= 5:
+                            vals = s.astype(str).str.strip().str.lower().value_counts()
+                            true_variants = [v for v in vals.index if v in {"true", "yes", "y", "1", "t"}]
+                            false_variants = [v for v in vals.index if v in {"false", "no", "n", "0", "f"}]
+                            if len(true_variants) >= 1 and len(false_variants) >= 1 and (len(true_variants) + len(false_variants)) >= 3:
+                                results_processed.append({
+                                    "expectation": "ambiguous_boolean",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"Ambiguous boolean representation detected in categorical column: {dict(vals.head(6).to_dict())}",
+                                    "unexpected_count": len(s),
+                                    "unexpected_index_list": s.index.tolist(),
+                                    "unexpected_values": list(vals.index[:6])
+                                })
+
+                # 43. Constant / Binary-Like Columns (for text)
+                for col in validation_df.columns:
+                    if _is_text_dtype(validation_df[col].dtype):
+                        s = validation_df[col].dropna()
+                        if len(s) >= 20:
+                            un = s.nunique()
+                            if un == 1:
+                                results_processed.append({
+                                    "expectation": "constant_column",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"Constant column: all {len(s)} non-null rows contain '{s.iloc[0]}'",
+                                    "unexpected_count": len(s),
+                                    "unexpected_index_list": [],
+                                    "unexpected_values": [s.iloc[0]]
+                                })
+                            elif un == 2:
+                                results_processed.append({
+                                    "expectation": "binary_like_column",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"Binary-like column with only 2 unique values: {list(s.unique())}",
+                                    "unexpected_count": len(s),
+                                    "unexpected_index_list": [],
+                                    "unexpected_values": list(s.unique())
+                                })
+
+                # 44. Empty String Values
+                for col in validation_df.columns:
+                    if _is_text_dtype(validation_df[col].dtype):
+                        empty_mask = validation_df[col].eq("")
+                        cnt = int(empty_mask.sum())
+                        if cnt > 0:
+                            results_processed.append({
+                                "expectation": "empty_string_values",
+                                "column": col,
+                                "success": False,
+                                "details": f"{cnt} empty string value(s) ('') detected (distinct from nulls)",
+                                "unexpected_count": cnt,
+                                "unexpected_index_list": validation_df.index[empty_mask].tolist()[:50],
+                                "unexpected_values": [""]
+                            })
+
                 # Statistics rollup
                 eval_cnt = len(results_processed)
                 succ_cnt = sum(1 for r in results_processed if r["success"])
