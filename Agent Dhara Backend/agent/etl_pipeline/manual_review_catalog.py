@@ -98,6 +98,14 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
         _opt("keep_as_is", "Keep as-is (skip)", "noop"),
     ],
+    "nulls": [
+        _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
+        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
+    ],
+    "null_values": [
+        _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
+        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
+    ],
     "near_duplicate_rows": [
         _opt("deduplicate", "Deduplicate (keep first)", "deduplicate", recommended=True, description="Deduplicate rows to keep only one copy."),
         _opt("keep_as_is", "Keep as-is (allow duplicates)", "noop", description="Do not filter near-duplicates."),

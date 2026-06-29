@@ -511,12 +511,22 @@ def etl_plan_start(
         logger.debug("Rule provenance pipeline skipped: %s", ex)
     # ─────────────────────────────────────────────────────────────────
 
-    resolutions = agentic_result.get("manual_review_resolutions") or []
+    resolutions = list(agentic_result.get("manual_review_resolutions") or [])
+    user_resolutions = ctx.get("manual_review_resolutions") or []
+    res_map = {r.get("item_id") or r.get("id"): r for r in resolutions if r}
+    for ur in user_resolutions:
+        if not ur:
+            continue
+        iid = ur.get("item_id") or ur.get("id")
+        if iid:
+            res_map[iid] = ur
+    resolutions = list(res_map.values())
+
     if resolutions:
-        logger.info(f"Agentic manual review auto-resolution applied: {len(resolutions)} items")
-        plan, res_errs = apply_manual_resolutions(plan, resolutions)
+        logger.info(f"Applying {len(resolutions)} manual review resolutions to plan.")
+        plan, res_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules_merged)
         if res_errs:
-            logger.warning(f"Agentic auto-resolution errors: {res_errs}")
+            logger.warning(f"Resolutions errors: {res_errs}")
     plan["connector_manifest"] = manifest
     plan["source_context"] = src_ctx
     plan["etl_intent"] = {
@@ -685,46 +695,40 @@ def etl_apply_manual_resolutions(
     if not isinstance(plan, dict):
         return {"ok": False, "error": "NO_PLAN", "message": "Create a plan first (POST /etl/plan)."}
 
-    plan = enrich_plan_manual_review(_rehydrate_plan(plan, ctx))
+    # Store resolutions in session context
+    saved_resolutions = ctx.get("manual_review_resolutions") or []
+    res_map = {r.get("item_id") or r.get("id"): r for r in saved_resolutions if r}
+    for r in resolutions:
+        if not r:
+            continue
+        iid = r.get("item_id") or r.get("id")
+        if iid:
+            res_map[iid] = r
+    ctx["manual_review_resolutions"] = list(res_map.values())
+    
+    # We also apply manual resolutions to the current rules in flow
     rules = flow.get("business_rules") or plan.get("business_rules") or {}
     updated, apply_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules)
+    if rules:
+        flow["business_rules"] = rules
+        ctx["business_rules"] = rules
 
-    if apply_errs and not resolutions:
-        return {
-            "ok": False,
-            "error": "NO_RESOLUTIONS",
-            "message": "Provide at least one resolution.",
-            "errors": apply_errs,
-        }
-
-    struct_ok, plan_errs = validate_etl_plan(updated, assess or {}, rules)
-    pending = count_pending_manual_review(updated)
-    plan_ok = struct_ok and pending == 0
-    flow = ctx.setdefault("etl_flow", {})
-    flow["plan"] = updated
-    flow["plan_validation_ok"] = plan_ok
-    flow["plan_validation_errors"] = plan_errs
-    flow["approved_plan"] = None
     save_session(sess)
 
-    return {
-        "ok": len(apply_errs) == 0 and pending == 0,
-        "session_id": sid,
-        "plan": updated,
-        "pending_manual_review": pending,
-        "plan_validation_ok": plan_ok,
-        "plan_validation_errors": plan_errs,
-        "errors": apply_errs,
-        "message": (
-            None
-            if pending == 0 and not apply_errs
-            else (
-                f"{pending} manual review item(s) still pending."
-                if pending
-                else "Some resolutions could not be applied."
-            )
-        ),
-    }
+    # Rebuild plan with updated resolutions and rules
+    intent = flow.get("etl_intent") or {}
+    rebuilt = etl_plan_start(
+        session_id=sid,
+        business_rules=rules,
+        engine=flow.get("target_engine") or "python",
+        codegen_engine=flow.get("codegen_engine"),
+        sql_dialect=flow.get("sql_dialect") or "tsql",
+        target_destination=intent.get("target_destination") or "dataframe_only",
+        target_path=intent.get("target_path"),
+        source_context=plan.get("source_context"),
+        generation_mode=intent.get("generation_mode") or "full",
+    )
+    return rebuilt
 
 
 def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

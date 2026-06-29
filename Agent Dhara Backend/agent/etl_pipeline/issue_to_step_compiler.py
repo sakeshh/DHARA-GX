@@ -31,17 +31,6 @@ def compile_issues_to_steps(
     rules: Dict[str, Any],
     sem_schema: Dict[str, Any]
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Translates raw suggestions into:
-    - datasets_steps: Dict[ds_name, List[step_dict]]
-    - manual_review: List[item_dict]
-    - non_fixable: List[item_dict]
-    
-    Implements the 3-pass layering logic:
-    Pass 1: Default baseline mapping
-    Pass 2: Business rules overrides
-    Pass 3: Semantic refinement
-    """
     datasets_steps = {}
     manual_review = []
     non_fixable = []
@@ -157,7 +146,12 @@ def compile_issues_to_steps(
                 "params": params,
                 "note": f"{sug.get('message') or note} ({note})",
                 "source": "issue_to_step_compiler",
-                "auto_fixable": True
+                "auto_fixable": True,
+                "source_issue_type": it,
+                "severity": sug.get("severity") or "medium",
+                "estimated_affected_rows": sug.get("row_count_affected"),
+                "llm_recommendation": sug.get("llm_recommendation"),
+                "message": sug.get("message"),
             })
         else:
             # Route to manual review or non-fixable
