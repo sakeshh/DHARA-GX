@@ -1,31 +1,13 @@
-"""FastAPI MCP server for Intelligent Data Assessment (run, list_tables, stream, upload, load_path)."""
-# Reloading...
-
-# Force .NET Framework runtime for pythonnet (MUST happen before any clr/pythonnet usage)
-try:
-    import clr_loader
-    import pythonnet
-    # If set_runtime fails, it means it's already initialized, which is usually okay if it's the right one.
-    # On this specific PC, we MUST force netfx.
-    pythonnet.set_runtime(clr_loader.get_netfx())
-except Exception:
-    pass
-
+# API routes and schemas for the MCP server.
+from __future__ import annotations
 import os
-# Force Azure CLI path to PATH environment variable if not already present
-for _az_dir in [r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin", r"C:\Program Files (x86)\Microsoft SDKs\Azure\CLI2\wbin"]:
-    if os.path.isdir(_az_dir) and _az_dir not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = os.environ.get("PATH", "") + os.pathsep + _az_dir
-
 import json
 import logging
 import time
 from typing import Any, Dict, List, Optional
-
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi.responses import FileResponse, JSONResponse
 
 from agent.logging_setup import setup_logging
 from agent.security import InMemoryRateLimiter, client_ip, get_request_id, require_backend_token
@@ -41,28 +23,16 @@ from agent.mcp_interface import (
 from agent.transformation_suggester import suggest_transformations
 from agent.requirements_to_config import build_user_request_text, requirements_to_selected_sources
 
-# Load local .env automatically (developer convenience; do not rely on this in production).
-try:
-    from dotenv import load_dotenv  # type: ignore
-except Exception:
-    load_dotenv = None  # type: ignore
+logger = logging.getLogger("mcp_server")
 
-if load_dotenv is not None:
-    try:
-        _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        load_dotenv(os.path.join(_HERE, ".env"), override=False)
-    except Exception:
-        pass
+# Import report generation from service_layer and bootstrap
+from agent.service_layer import (
+    build_html_report as _build_html,
+    build_markdown_report as _build_md
+)
+from agent.bootstrap import load_config as _load_config
 
-# Report builders from main (avoid circular import by importing after main is loaded)
-try:
-    import main as _main
-    _build_html = _main.build_html_report
-    _build_md = _main.build_markdown_report
-except Exception:
-    _build_html = None
-    _build_md = None
-
+router = APIRouter()
 
 class ConfigText(BaseModel):
     config: str
@@ -186,102 +156,6 @@ class PipelineRunPayload(BaseModel):
 
 
 
-setup_logging()
-logger = logging.getLogger("mcp_server")
-
-app = FastAPI(title="Intelligent Data Assessment MCP Server")
-
-_limiter = InMemoryRateLimiter(
-    max_requests=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120")),
-    window_seconds=60,
-)
-
-_worker = JobWorker()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[o.strip() for o in (os.environ.get("CORS_ALLOW_ORIGINS") or "").split(",") if o.strip()] or [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-    ],
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Backend-Token", "X-Request-Id", "X-Correlation-Id"],
-)
-
-@app.middleware("http")
-async def auth_and_logging_middleware(request: Request, call_next):
-    rid = get_request_id(request)
-    request.state.request_id = rid
-    try:
-        _limiter.check(client_ip(request))
-        # Require auth for everything except health
-        if request.url.path not in ("/", "/healthz", "/readyz"):
-            require_backend_token(request)
-        response = await call_next(request)
-        response.headers["X-Request-Id"] = rid
-        return response
-    except HTTPException as e:
-        logger.warning("http_error", extra={"request_id": rid})
-        return JSONResponse(status_code=e.status_code, content={"detail": e.detail, "request_id": rid})
-    except Exception as e:
-        logger.exception("unhandled_error", extra={"request_id": rid})
-        return JSONResponse(status_code=500, content={"detail": str(e), "request_id": rid})
-
-
-@app.get("/", tags=["health"])
-def root() -> Dict[str, str]:
-    return {"status": "ok", "service": "mcp_server"}
-
-
-@app.get("/healthz", tags=["health"])
-def healthz() -> Dict[str, str]:
-    return {"ok": "true"}
-
-
-@app.get("/healthz/db-env", tags=["health"])
-def healthz_db_env() -> Dict[str, Any]:
-    import os
-    return {
-        "AZURE_SQL_SERVER": os.getenv("AZURE_SQL_SERVER"),
-        "AZURE_SQL_DATABASE": os.getenv("AZURE_SQL_DATABASE"),
-        "DHARA_AZURE_SQL_CONN_STR": os.getenv("DHARA_AZURE_SQL_CONN_STR") is not None,
-    }
-
-
-@app.get("/healthz/fabric-env", tags=["health"])
-def healthz_fabric_env() -> Dict[str, Any]:
-    from connectors.fabric_lakehouse_connector import is_fabric_mirror_enabled
-    import os
-    return {
-        "DHARA_FABRIC_MIRROR_ENABLED": os.getenv("DHARA_FABRIC_MIRROR_ENABLED"),
-        "is_fabric_mirror_enabled": is_fabric_mirror_enabled(),
-        "FABRIC_WORKSPACE_ID": os.getenv("FABRIC_WORKSPACE_ID"),
-        "FABRIC_LAKEHOUSE_NAME": os.getenv("FABRIC_LAKEHOUSE_NAME"),
-        "FABRIC_TENANT_ID": os.getenv("FABRIC_TENANT_ID"),
-        "has_client_secret": bool(os.getenv("FABRIC_CLIENT_SECRET")),
-    }
-
-
-
-@app.get("/readyz", tags=["health"])
-def readyz() -> Dict[str, str]:
-    return {"ok": "true"}
-
-
-@app.on_event("startup")
-async def _startup():
-    _worker.start()
-
-
-@app.exception_handler(Exception)
-def generic_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exc), "type": exc.__class__.__name__},
-    )
-
 
 def _get_config_text(body_config: str) -> str:
     """Use request body config, or fall back to MCP_DEFAULT_CONFIG_PATH file if set and body empty."""
@@ -294,14 +168,24 @@ def _get_config_text(body_config: str) -> str:
     return body_config or "{}"
 
 
-@app.post("/run")
+
+
+# We bind the JobWorker and endpoint paths to the router
+_worker = None
+
+def set_worker(w):
+    global _worker
+    _worker = w
+
+# Register all routes on the router
+@router.post("/run")
 def api_run(cfg: ConfigText, additional_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run a full assessment. Config from body, or from file at MCP_DEFAULT_CONFIG_PATH if body empty."""
     config_text = _get_config_text(cfg.config)
     return run_assessment(config_text, additional_data=additional_data, approved_semantics=cfg.approved_semantics)
 
 
-@app.post("/list_tables")
+@router.post("/list_tables")
 def api_list_tables(cfg: ConfigText) -> Dict[str, List[str]]:
     """List SQL tables. Config from body, or from MCP_DEFAULT_CONFIG_PATH if body empty."""
     config_text = _get_config_text(cfg.config)
@@ -316,7 +200,7 @@ _SCHEMA_CACHE: Dict[str, Any] = {
 }
 
 
-@app.get("/schema/tables")
+@router.get("/schema/tables")
 def api_schema_tables(ttl_seconds: int = 30) -> Dict[str, Any]:
     """
     Discover Azure SQL tables from the configured sources file.
@@ -371,7 +255,7 @@ def api_schema_tables(ttl_seconds: int = 30) -> Dict[str, Any]:
     return {"ok": True, "sources_path": sources_path, "cached": False, "tables": tables}
 
 
-@app.post("/transform_suggest")
+@router.post("/transform_suggest")
 def api_transform_suggest(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate transformation suggestions from an existing assessment result.
@@ -387,7 +271,7 @@ def api_transform_suggest(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/dq_recommend")
+@router.post("/dq_recommend")
 def api_dq_recommend(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Generate LLM-assisted cleaning recommendations from merged DQ issues.
@@ -408,19 +292,19 @@ def api_dq_recommend(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/stream")
+@router.post("/stream")
 def api_stream(payload: StreamPayload) -> Dict[str, Any]:
     return process_stream_chunk(payload.records, name=payload.name or "stream")
 
 
-@app.post("/load_path")
+@router.post("/load_path")
 def api_load_path(payload: PathPayload) -> Dict[str, Any]:
     """Load datasets from a filesystem path (returns dict of name -> dataframe; JSON serialization may omit raw data)."""
     data = load_path(payload.path)
     return {"datasets": list(data.keys()), "count": len(data)}
 
 
-@app.get("/sources")
+@router.get("/sources")
 def api_sources() -> Dict[str, Any]:
     """
     Return available source configurations from sources.yaml (no secrets redacted here; keep it internal).
@@ -446,7 +330,7 @@ def api_sources() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/assess")
+@router.post("/assess")
 def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
     """
     High-level orchestration endpoint:
@@ -505,7 +389,7 @@ def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
 
 
 
-@app.post("/chat")
+@router.post("/chat")
 def api_chat(payload: ChatPayload) -> Dict[str, Any]:
     """
     Conversational endpoint using 3-agent LangGraph chat workflow.
@@ -541,21 +425,21 @@ def api_chat(payload: ChatPayload) -> Dict[str, Any]:
     }
 
 
-@app.get("/sessions")
+@router.get("/sessions")
 def api_list_sessions(limit: int = 50) -> Dict[str, Any]:
     from agent.session_store import list_sessions
 
     return {"ok": True, "sessions": list_sessions(limit=limit)}
 
 
-@app.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}")
 def api_get_session(session_id: str) -> Dict[str, Any]:
     from agent.session_store import load_session
 
     return {"ok": True, "session": load_session(session_id)}
 
 
-@app.post("/sessions/context")
+@router.post("/sessions/context")
 def api_update_session_context(payload: SessionContextPayload) -> Dict[str, Any]:
     """
     Merge arbitrary keys into a session's context.
@@ -575,7 +459,7 @@ def api_update_session_context(payload: SessionContextPayload) -> Dict[str, Any]
     return {"ok": True, "session_id": sid, "context_keys": list(ctx.keys())}
 
 
-@app.post("/etl/infer-semantics")
+@router.post("/etl/infer-semantics")
 def api_infer_semantics(payload: SemanticInferencePayload) -> Dict[str, Any]:
     """
     Load sample data for the selected sources/tables and infer column semantics.
@@ -689,7 +573,7 @@ def api_infer_semantics(payload: SemanticInferencePayload) -> Dict[str, Any]:
     return {"ok": True, "semantics": result_semantics, "samples": samples}
 
 
-@app.post("/etl/enrich-semantics")
+@router.post("/etl/enrich-semantics")
 def api_enrich_semantics(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Enrich low-confidence columns.
@@ -700,7 +584,7 @@ def api_enrich_semantics(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "enriched": enriched}
 
 
-@app.post("/etl/plan")
+@router.post("/etl/plan")
 def api_etl_plan(payload: EtlPlanPayload) -> Dict[str, Any]:
     """Build ETL plan from assessment + business rules; stores under session.context.etl_flow."""
     from agent.etl_handlers import etl_plan_start
@@ -721,14 +605,14 @@ def api_etl_plan(payload: EtlPlanPayload) -> Dict[str, Any]:
     )
 
 
-@app.get("/etl/tenants")
+@router.get("/etl/tenants")
 def api_etl_tenants() -> Dict[str, Any]:
     from agent.etl_handlers import etl_list_tenants
 
     return etl_list_tenants()
 
 
-@app.post("/etl/apply-manual-resolutions")
+@router.post("/etl/apply-manual-resolutions")
 def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) -> Dict[str, Any]:
     """Promote user-selected manual review resolutions into plan steps."""
     from agent.etl_handlers import etl_apply_manual_resolutions
@@ -740,7 +624,7 @@ def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) 
     )
 
 
-@app.post("/etl/confirm")
+@router.post("/etl/confirm")
 def api_etl_confirm(payload: EtlConfirmPayload) -> Dict[str, Any]:
     """Confirm (optionally edited) plan and compute impact preview."""
     from agent.etl_handlers import etl_confirm_plan
@@ -748,7 +632,7 @@ def api_etl_confirm(payload: EtlConfirmPayload) -> Dict[str, Any]:
     return etl_confirm_plan(payload.session_id, plan_override=payload.plan)
 
 
-@app.post("/etl/generate")
+@router.post("/etl/generate")
 def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
     """Generate ETL from approved plan; LLM + template fallback with validation."""
     from agent.etl_handlers import etl_generate_code
@@ -765,13 +649,13 @@ def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
     return result
 
 
-@app.post("/etl/deploy")
+@router.post("/etl/deploy")
 def api_etl_deploy(payload: EtlDeployPayload) -> Dict[str, Any]:
     from agent.etl_handlers import etl_deploy
     return etl_deploy(payload.session_id)
 
 
-@app.get("/etl/dq-gate")
+@router.get("/etl/dq-gate")
 def api_etl_dq_gate(session_id: str, dataset: str, threshold: float = 70.0) -> Dict[str, Any]:
     """Check dataset against the DQ Gate threshold."""
     from agent.session_store import load_session
@@ -791,7 +675,7 @@ def api_etl_dq_gate(session_id: str, dataset: str, threshold: float = 70.0) -> D
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/etl/phases")
+@router.get("/etl/phases")
 def api_etl_phases(session_id: str) -> Dict[str, Any]:
     """Retrieve split cleanse and transform plans for visual/phase routing."""
     from agent.session_store import load_session
@@ -823,7 +707,7 @@ def _etl_safe_segment(s: str) -> str:
     return t or "default"
 
 
-@app.get("/etl/lineage")
+@router.get("/etl/lineage")
 def api_etl_lineage(session_id: str) -> Dict[str, Any]:
     """Column lineage map (source → transforms → target) after plan confirm."""
     from agent.etl_handlers import etl_get_lineage
@@ -831,7 +715,7 @@ def api_etl_lineage(session_id: str) -> Dict[str, Any]:
     return etl_get_lineage(session_id)
 
 
-@app.get("/etl/download/{plan_id}")
+@router.get("/etl/download/{plan_id}")
 def api_etl_download_by_plan_id(plan_id: str):
     """Download ETL artifact by plan_id (path-traversal safe)."""
     from agent.session_store import load_session, save_session
@@ -857,7 +741,7 @@ def api_etl_download_by_plan_id(plan_id: str):
     return FileResponse(file_path, filename=f"etl_{safe_pid}.py", media_type="application/octet-stream")
 
 
-@app.get("/etl/download")
+@router.get("/etl/download")
 def api_etl_download(session_id: str):
     """Download validated ETL artifact for a session (path-traversal safe)."""
     from agent.session_store import load_session
@@ -937,7 +821,7 @@ def _job_public_view(job: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-@app.post("/jobs")
+@router.post("/jobs")
 def api_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """
     Create an async job (assess/chat). Returns job_id immediately.
@@ -952,7 +836,7 @@ def api_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     return {"ok": True, "job_id": job_id}
 
 
-@app.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}")
 def api_get_job(job_id: str) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
@@ -960,7 +844,7 @@ def api_get_job(job_id: str) -> Dict[str, Any]:
     return {"ok": True, "job": _job_public_view(j)}
 
 
-@app.get("/etl/assessment/status/{job_id}")
+@router.get("/etl/assessment/status/{job_id}")
 def api_etl_assessment_status(job_id: str) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
@@ -978,14 +862,14 @@ def api_etl_assessment_status(job_id: str) -> Dict[str, Any]:
     }
 
 
-@app.get("/jobs/{job_id}/events")
+@router.get("/jobs/{job_id}/events")
 def api_get_job_events(job_id: str, after_id: int = 0) -> Dict[str, Any]:
     # Simple polling endpoint; SSE can be added on top.
     ev = fetch_events(job_id, after_id=int(after_id), limit=200)
     return {"ok": True, "events": ev}
 
 
-@app.post("/upload")
+@router.post("/upload")
 async def api_upload(
     file: UploadFile = File(...),
     request: Request = None,
@@ -1005,7 +889,7 @@ async def api_upload(
     return {"result": result}
 
 
-@app.post("/business-rules/parse")
+@router.post("/business-rules/parse")
 async def api_parse_business_rules(
     session_id: str = Form("default"),
     text: Optional[str] = Form(None),
@@ -1043,7 +927,7 @@ async def api_parse_business_rules(
     return {"ok": True, "rules": rules, "combined_text": combined_text}
 
 
-@app.post("/etl/execute")
+@router.post("/etl/execute")
 def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
     from agent.etl_handlers import etl_execute_sql
     res = etl_execute_sql(
@@ -1055,7 +939,7 @@ def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
     return res
 
 
-@app.post("/etl/update-code")
+@router.post("/etl/update-code")
 def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
     from agent.session_store import load_session, save_session
     sid = (payload.session_id or "default").strip() or "default"
@@ -1106,7 +990,7 @@ def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
     return {"ok": True, "session_id": sid, "message": "Code updated successfully"}
 
 
-@app.post("/etl/run-full")
+@router.post("/etl/run-full")
 def api_etl_run_full(payload: EtlPlanPayload) -> Dict[str, Any]:
     """Single-call ETL: plan → confirm → generate in one graph invocation."""
     from agent.etl_graph import run_etl_graph
@@ -1122,7 +1006,7 @@ def api_etl_run_full(payload: EtlPlanPayload) -> Dict[str, Any]:
 
 
 
-@app.get("/etl/execution-status/{session_id}")
+@router.get("/etl/execution-status/{session_id}")
 def api_etl_execution_status_route(session_id: str) -> Dict[str, Any]:
     from agent.session_store import load_session
     sid = (session_id or "default").strip() or "default"
@@ -1137,13 +1021,13 @@ def api_etl_execution_status_route(session_id: str) -> Dict[str, Any]:
     return res
 
 
-@app.post("/etl/test-connection")
+@router.post("/etl/test-connection")
 def api_etl_test_connection(payload: TestConnectionPayload) -> Dict[str, Any]:
     from agent.azure_sql_executor import test_connection
     return test_connection(payload.connection_string)
 
 
-@app.post("/etl/execution-approval")
+@router.post("/etl/execution-approval")
 def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, Any]:
     from agent.session_store import load_session, save_session
     sid = (payload.session_id or "default").strip() or "default"
@@ -1158,7 +1042,7 @@ def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, A
     }
 
 
-@app.get("/pipeline/history/{session_id}")
+@router.get("/pipeline/history/{session_id}")
 def api_pipeline_history(session_id: str) -> Dict[str, Any]:
     from agent.session_store import _connect
     import json
@@ -1198,7 +1082,7 @@ def api_pipeline_history(session_id: str) -> Dict[str, Any]:
         conn.close()
 
 
-@app.post("/pipeline/run")
+@router.post("/pipeline/run")
 def api_pipeline_run(payload: PipelineRunPayload, request: Request) -> Dict[str, Any]:
     """
     Unified entry point: assess + ETL in one graph invocation.
@@ -1223,6 +1107,3 @@ def api_pipeline_run(payload: PipelineRunPayload, request: Request) -> Dict[str,
 
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("agent.mcp_server:app", host="127.0.0.1", port=8000, log_level="info")

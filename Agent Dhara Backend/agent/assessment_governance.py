@@ -81,6 +81,18 @@ def _schema_hash(assessment: Dict[str, Any]) -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8", errors="ignore")).hexdigest()[:16]
 
 
+def _business_rules_hash() -> str:
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(root, "config", "business_rules.yaml")
+    if not os.path.isfile(path):
+        return ""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:16]
+    except Exception:
+        return ""
+
+
 def _parse_failures_estimate(ds_meta: Dict[str, Any]) -> int:
     cols = ds_meta.get("columns") or {}
     n = 0
@@ -124,6 +136,7 @@ def enrich_assessment_with_governance(
     m_hash = manifest_hash(manifest)
     gloss_hash = hashlib.sha256(json.dumps(manifest.get("datasets") or {}, sort_keys=True, default=str).encode()).hexdigest()[:16]
     schema_h = _schema_hash(assessment)
+    rules_h = _business_rules_hash()
 
     assessment.setdefault("governance", {})
     gov = assessment["governance"]
@@ -136,6 +149,7 @@ def enrich_assessment_with_governance(
             "manifest_hash": m_hash,
             "glossary_hash": gloss_hash,
             "schema_hash": schema_h,
+            "rules_hash": rules_h,
             "profile_version": "1",
             "run_timestamp": datetime.now(timezone.utc).isoformat(),
         }

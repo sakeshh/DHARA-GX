@@ -23,21 +23,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
 
 PHONE_RE = re.compile(r"^[+()\-\.\s0-9]{7,}$")
 
-URL_RE = re.compile(
-    r"^(https?://|ftp://|www\.)[^\s/$.?#][^\s]*$",
-    re.IGNORECASE,
-)
-
-INVALID_URL_RE = re.compile(
-    r"^(https?://|ftp://|www\.).*",
-    re.IGNORECASE,
-)
-
 HTML_TAG_RE = re.compile(r"<[a-zA-Z][^>]*>|</[a-zA-Z]+>")
-
-UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
 
 PUNCTUATION_ONLY_RE = re.compile(r"^[\W_]+$")
 

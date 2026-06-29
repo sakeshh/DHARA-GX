@@ -21,7 +21,7 @@ def render_governance_markdown(result: Dict[str, Any]) -> str:
         gov = result.get("governance") or {}
         if gov:
             lines.append(
-                f"- Manifest v{gov.get('manifest_version')} · schema `{gov.get('schema_hash')}` · glossary `{gov.get('glossary_hash')}`"
+                f"- Manifest v{gov.get('manifest_version')} · schema `{gov.get('schema_hash')}` · rules `{gov.get('rules_hash')}` · glossary `{gov.get('glossary_hash')}`"
             )
         lines.append("")
 
@@ -82,6 +82,23 @@ def render_governance_markdown(result: Dict[str, Any]) -> str:
             )
         lines.append("")
 
+    post_val = result.get("post_etl_validation") or result.get("governance", {}).get("sql_execution_summary", {}).get("post_etl_validation") or {}
+    if post_val:
+        lines.append("### Post-ETL validation results")
+        lines.append(f"- Status: **{'Passed' if post_val.get('ok') else 'Flagged'}**")
+        deltas = post_val.get("deltas") or {}
+        improvements = deltas.get("improvements") or []
+        regressions = deltas.get("regressions") or []
+        if improvements:
+            lines.append("- **Improvements:**")
+            for imp in improvements:
+                lines.append(f"  - {imp.get('detail')}")
+        if regressions:
+            lines.append("- **Regressions / Issues:**")
+            for reg in regressions:
+                lines.append(f"  - {reg.get('detail')}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -103,6 +120,8 @@ def render_governance_html(result: Dict[str, Any]) -> str:
                 + html_module.escape(str(gov.get("manifest_version")))
                 + " · schema "
                 + html_module.escape(str(gov.get("schema_hash")))
+                + " · rules "
+                + html_module.escape(str(gov.get("rules_hash")))
                 + "</p>"
             )
 
@@ -157,6 +176,25 @@ def render_governance_html(result: Dict[str, Any]) -> str:
         )
     elif dp.get("error") == "duckdb_not_installed":
         parts.append("<h3>DuckDB preview</h3><p class=\"muted\">Install <code>duckdb</code> to enable SQL preview.</p>")
+
+    post_val = result.get("post_etl_validation") or result.get("governance", {}).get("sql_execution_summary", {}).get("post_etl_validation") or {}
+    if post_val:
+        parts.append("<h3>Post-ETL validation</h3>")
+        status = "Passed" if post_val.get("ok") else "Flagged"
+        parts.append(f"<p>Status: <strong>{status}</strong></p>")
+        deltas = post_val.get("deltas") or {}
+        improvements = deltas.get("improvements") or []
+        regressions = deltas.get("regressions") or []
+        if improvements:
+            parts.append("<h4>Quality Improvements</h4><ul>")
+            for imp in improvements:
+                parts.append("<li>" + html_module.escape(imp.get("detail", "")) + "</li>")
+            parts.append("</ul>")
+        if regressions:
+            parts.append("<h4>Quality Regressions</h4><ul>")
+            for reg in regressions:
+                parts.append("<li>" + html_module.escape(reg.get("detail", "")) + "</li>")
+            parts.append("</ul>")
 
     parts.append("</section>")
     return "\n".join(parts)

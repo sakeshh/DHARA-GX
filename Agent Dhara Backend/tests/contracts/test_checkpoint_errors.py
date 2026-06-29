@@ -39,3 +39,41 @@ def test_agent_error_taxonomy():
     assert d["code"] == "CONNECTION_FAILED"
     assert d["message"] == "Could not connect to database"
     assert d["recoverable"] is True
+
+
+from unittest.mock import patch
+
+@patch("agent.langgraph_orchestrator.run_orchestrator")
+def test_run_job_orchestrator_checkpointing(mock_orchestrate):
+    """
+    Contract: If checkpoint is present for a stage, it must not run the stage again.
+    """
+    from agent.jobs_worker import _run_job
+    from agent.jobs_store import save_checkpoint
+    
+    job_id = "job-999"
+    job = {
+        "job_id": job_id,
+        "kind": "assess",
+        "input": {"session_id": "sess-999", "user_request": "hello"}
+    }
+    
+    # Save a fake orchestrator checkpoint
+    fake_state = {"extractions": [{"result": {"datasets": {"dbo.T1": {}}}}]}
+    save_checkpoint(job_id, "orchestrator", fake_state)
+    
+    # Also save a fake reports checkpoint
+    fake_reports = {
+        "report_markdown": "MD",
+        "report_html": "HTML",
+        "report_files": []
+    }
+    save_checkpoint(job_id, "reports", fake_reports)
+    
+    # Act
+    res = _run_job(job)
+    
+    # Assert
+    mock_orchestrate.assert_not_called()
+    assert res["report_markdown"] == "MD"
+

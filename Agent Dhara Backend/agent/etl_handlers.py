@@ -2,10 +2,53 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import os
 import re
 import time
 from typing import Any, Dict, List, Optional
+
+def _safe_bracket_quote(name: str) -> str:
+    """
+    Safely bracket-quote a table or schema name, escaping any ']' by doubling it.
+    If the name has parts separated by '.', each part is quoted and escaped.
+    """
+    if not name:
+        return ""
+    parts = name.split(".")
+    quoted_parts = []
+    for part in parts:
+        part = part.strip()
+        if part.startswith("[") and part.endswith("]"):
+            part = part[1:-1]
+        escaped = part.replace("]", "]]")
+        quoted_parts.append(f"[{escaped}]")
+    return ".".join(quoted_parts)
+
+def _read_best_candidate_table(
+    conn,
+    ds_name: str,
+    candidate_tables: List[str],
+    context_prefix: str,
+    max_rows: int = 500000
+) -> tuple[Optional[Any], Optional[str]]:
+    """
+    Tries to read the best candidate table from connection and returns (dataframe, chosen_table_name).
+    """
+    import pandas as pd
+    for tbl in candidate_tables:
+        quoted_tbl = _safe_bracket_quote(tbl)
+        try:
+            df_temp = pd.read_sql(f"SELECT TOP {max_rows} * FROM {quoted_tbl}", conn)
+            if not df_temp.empty:
+                logger.info(f"{context_prefix}: found {len(df_temp)} rows in '{tbl}' for source '{ds_name}'.")
+                return df_temp, tbl
+            else:
+                logger.info(f"{context_prefix}: '{tbl}' exists but is empty, trying next candidate.")
+        except Exception as e:
+            logger.info(f"{context_prefix}: '{tbl}' not found or not readable, trying next candidate. Error: {e}")
+            continue
+    return None, None
 
 from agent.business_rules_loader import (
     list_tenant_ids,
@@ -115,7 +158,6 @@ def _migrate_phase(flow: dict) -> None:
 
 
 def _can_transition(from_phase: str, to_phase: str) -> bool:
-    _migrate_phase({"phase": from_phase})
     from_phase = _LEGACY_PHASE_MAP.get(from_phase, from_phase)
     if from_phase == to_phase:
         return True
@@ -249,7 +291,6 @@ def _assessment_schema_signature(assess: Dict[str, Any]) -> str:
     """Compute a stable hash of the datasets, column names, and types to detect schema changes."""
     if not isinstance(assess, dict) or "datasets" not in assess:
         return ""
-    import hashlib
     parts = []
     datasets = assess.get("datasets") or {}
     for ds_name in sorted(datasets.keys()):
@@ -339,24 +380,10 @@ def etl_plan_start(
     # --- Agentic Intelligence Pass ---
     # First, build a draft plan to generate the initial manual review queue
     dq_recs = assess.get("dq_recommendations") if isinstance(assess, dict) else None
-    draft_plan = build_etl_plan(
-        assess,
-        rules_merged,
-        engine=engine,
-        source_context=src_ctx,
-        generation_mode=generation_mode,
-        dq_recommendations=dq_recs,
-        semantic_context=assess.get("semantic_context"),
-    )
-    draft_plan = enrich_plan_manual_review(draft_plan)
+    notes = str(rules_merged.get("notes") or "").strip()
     
-    agentic_result = analyze_agentic_intent(draft_plan, rules_merged)
-    
-    updated_rules = agentic_result.get("updated_business_rules") or {}
-    if updated_rules:
-        logger.info(f"Agentic rules override applied: {updated_rules}")
-        rules_merged.update(updated_rules)
-        # Re-build plan with updated structured toggles
+    if not notes:
+        # Build plan directly (only once!)
         plan = build_etl_plan(
             assess,
             rules_merged,
@@ -367,8 +394,39 @@ def etl_plan_start(
             semantic_context=assess.get("semantic_context"),
         )
         plan = enrich_plan_manual_review(plan)
+        agentic_result = {}
     else:
-        plan = draft_plan
+        # Notes exist, run the agentic intelligence pass
+        draft_plan = build_etl_plan(
+            assess,
+            rules_merged,
+            engine=engine,
+            source_context=src_ctx,
+            generation_mode=generation_mode,
+            dq_recommendations=dq_recs,
+            semantic_context=assess.get("semantic_context"),
+        )
+        draft_plan = enrich_plan_manual_review(draft_plan)
+        
+        agentic_result = analyze_agentic_intent(draft_plan, rules_merged)
+        
+        updated_rules = agentic_result.get("updated_business_rules") or {}
+        if updated_rules:
+            logger.info(f"Agentic rules override applied: {updated_rules}")
+            rules_merged.update(updated_rules)
+            # Re-build plan with updated structured toggles
+            plan = build_etl_plan(
+                assess,
+                rules_merged,
+                engine=engine,
+                source_context=src_ctx,
+                generation_mode=generation_mode,
+                dq_recommendations=dq_recs,
+                semantic_context=assess.get("semantic_context"),
+            )
+            plan = enrich_plan_manual_review(plan)
+        else:
+            plan = draft_plan
 
     # ── Rule Provenance Pipeline (Component 11) ─────────────────────
     # Collect tagged rules from all 3 layers and run conflict detection
@@ -381,6 +439,7 @@ def etl_plan_start(
 
         all_tagged: list = []
         sem_ctx = assess.get("semantic_context") or {}
+        suggestions = suggest_transformations(assess)
 
         for ds_name in ds_names:
             # Layer 1: Business rules → TaggedRules
@@ -401,7 +460,6 @@ def etl_plan_start(
                     pass
 
             # Layer 3: Auto-detected → TaggedRules (from transformation suggestions)
-            suggestions = suggest_transformations(assess)
             for s in suggestions.get("suggested_transformations") or []:
                 if s.get("dataset") == ds_name and s.get("auto_fixable"):
                     prov = s.get("provenance", RuleProvenance.AUTO_DETECTED)
@@ -449,7 +507,6 @@ def etl_plan_start(
                     }
                     existing_mr.append(enrich_manual_review_item(new_item, conflict=conflict))
             plan["manual_review"] = existing_mr
-            plan = enrich_plan_manual_review(plan)
     except Exception as ex:
         logger.debug("Rule provenance pipeline skipped: %s", ex)
     # ─────────────────────────────────────────────────────────────────
@@ -734,7 +791,6 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
             "blocked": blocked,
         }
 
-    rules = flow.get("business_rules") or plan.get("business_rules") or {}
     plan_ok, plan_errs = validate_etl_plan_for_confirm(plan, assess or {}, rules)
     if not plan_ok:
         return {
@@ -1224,6 +1280,19 @@ def etl_execute_sql(
             "message": "No generated SQL code found for this session. Generate code first."
         }
 
+    from agent.sql_preflight import lint_generated_sql
+    lint_res = lint_generated_sql(sql, dialect="tsql")
+    if not lint_res.get("ok"):
+        violations = lint_res.get("errors") or []
+        violations_str = "; ".join(f"L{v.get('line')}:C{v.get('column')} - {v.get('description')}" for v in violations)
+        return {
+            "ok": False,
+            "session_id": sid,
+            "error": "SQL_VALIDATION_FAILED",
+            "message": f"SQL preflight validation failed: {violations_str}",
+            "errors": violations
+        }
+
     plan = flow.get("approved_plan")
     table_names = []
     if plan and isinstance(plan, dict) and "datasets" in plan:
@@ -1275,23 +1344,10 @@ def etl_execute_sql(
                         transformed_tbl = _get_transformed_table_name(ds_name)
                         candidate_tables = [clean_tbl, transformed_tbl, ds_name]
 
-                        df_clean = None
-                        chosen_table = None
-                        for tbl in candidate_tables:
-                            tbl_parts = tbl.split(".", 1)
-                            quoted_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]" if len(tbl_parts) == 2 else f"[{tbl}]"
-                            try:
-                                df_temp = pd.read_sql(f"SELECT * FROM {quoted_tbl}", conn)
-                                if not df_temp.empty:
-                                    df_clean = df_temp
-                                    chosen_table = tbl
-                                    logger.info(f"Fabric mirror: found {len(df_temp)} rows in '{tbl}' for source '{ds_name}'.")
-                                    break
-                                else:
-                                    logger.info(f"Fabric mirror: '{tbl}' exists but is empty, trying next candidate.")
-                            except Exception:
-                                logger.info(f"Fabric mirror: '{tbl}' not found or not readable, trying next candidate.")
-                                continue
+                        max_rows = int(os.getenv("DHARA_MAX_MIRROR_ROWS", "500000"))
+                        df_clean, chosen_table = _read_best_candidate_table(
+                            conn, ds_name, candidate_tables, "Fabric mirror", max_rows
+                        )
 
                         if df_clean is not None:
                             logger.info(f"Mirroring {len(df_clean)} rows from '{chosen_table}' to Fabric Lakehouse...")
@@ -1343,7 +1399,6 @@ def etl_execute_sql(
 
         # ── Azure Blob Storage Cleaned File Upload Hook ──
         try:
-            import os
             account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
             container_name = os.getenv("AZURE_ASSESSMENT_CONTAINER", "agentdhararawdata")
             if account_name:
@@ -1363,20 +1418,10 @@ def etl_execute_sql(
                         transformed_tbl = _get_transformed_table_name(ds_name)
                         candidate_tables = [clean_tbl, transformed_tbl, ds_name]
                         
-                        df_clean = None
-                        chosen_table = None
-                        for tbl in candidate_tables:
-                            tbl_parts = tbl.split(".", 1)
-                            quoted_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]" if len(tbl_parts) == 2 else f"[{tbl}]"
-                            try:
-                                df_temp = pd.read_sql(f"SELECT * FROM {quoted_tbl}", conn)
-                                if not df_temp.empty:
-                                    df_clean = df_temp
-                                    chosen_table = tbl
-                                    logger.info(f"Blob upload: found {len(df_temp)} rows in '{tbl}' for source '{ds_name}'.")
-                                    break
-                            except Exception:
-                                continue
+                        max_rows = int(os.getenv("DHARA_MAX_MIRROR_ROWS", "500000"))
+                        df_clean, chosen_table = _read_best_candidate_table(
+                            conn, ds_name, candidate_tables, "Blob upload", max_rows
+                        )
                         
                         if df_clean is not None:
                             csv_data = df_clean.to_csv(index=False).encode('utf-8')

@@ -87,6 +87,7 @@ def normalize_business_rules(raw: Any) -> Dict[str, Any]:
     return {
         "never_drop_rows": _bool(raw.get("never_drop_rows") or raw.get("neverDropRows"), False),
         "auto_resolve_pending": _bool(raw.get("auto_resolve_pending") or raw.get("autoResolvePending"), False),
+        "auto_resolve_safe_defaults": _bool(raw.get("auto_resolve_safe_defaults") or raw.get("autoResolveSafeDefaults"), False),
         "required_columns": req,
         "non_nullable": nn,
         "exclude_columns": sorted(set(excl)),

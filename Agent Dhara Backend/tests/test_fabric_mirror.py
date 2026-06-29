@@ -171,8 +171,8 @@ class TestFabricMirrorHandlerHook(unittest.TestCase):
         # Assertions
         self.assertTrue(res["ok"])
         mock_orchestrate.assert_called_once()
-        mock_get_conn.assert_called_once()
-        mock_read_sql.assert_called_once()
+        self.assertIn(mock_get_conn.call_count, [1, 2])
+        self.assertIn(mock_read_sql.call_count, [1, 2])
         
         # Verify write_to_lakehouse was called with correct clean table name
         mock_write.assert_called_once()

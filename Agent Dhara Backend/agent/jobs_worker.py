@@ -4,7 +4,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from agent.jobs_store import add_event, claim_next_job, update_job_status
+from agent.jobs_store import add_event, claim_next_job, update_job_status, save_checkpoint, load_checkpoint
 
 
 def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -32,14 +32,22 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
 
-        state = run_orchestrator(
-            user_request=str(user_req or ""),
-            sources_path=str(inp.get("sources_path") or "config/sources.yaml"),
-            selected_sources=inp.get("selected_sources") or [],
-            job_id=job_id,
-            session_id=sid,
-            business_rules=business_rules,
-        )
+        # Try to load from checkpoint first
+        state = load_checkpoint(job_id, "orchestrator")
+        if state is None:
+            add_event(job_id=job_id, level="info", message="running stage: orchestrator")
+            state = run_orchestrator(
+                user_request=str(user_req or ""),
+                sources_path=str(inp.get("sources_path") or "config/sources.yaml"),
+                selected_sources=inp.get("selected_sources") or [],
+                job_id=job_id,
+                session_id=sid,
+                business_rules=business_rules,
+            )
+            save_checkpoint(job_id, "orchestrator", state)
+            add_event(job_id=job_id, level="info", message="completed stage: orchestrator")
+        else:
+            add_event(job_id=job_id, level="info", message="restored stage from checkpoint: orchestrator")
 
         extractions = state.get("extractions") or []
         merged_result = {
@@ -59,12 +67,6 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 merged_result["data_quality_issues"]["datasets"].update(dq.get("datasets") or {})
                 merged_result["data_quality_issues"]["global_issues"].update(dq.get("global_issues") or {})
 
-        from agent.chat_graph import _build_report_tables_markdown, _render_report_html, _write_report_artifacts
-
-        report_md = _build_report_tables_markdown(merged_result)
-        report_html = _render_report_html(merged_result)
-        artifacts = _write_report_artifacts(result=merged_result, report_markdown=report_md, report_html=report_html)
-
         try:
             from agent.session_store import load_session, save_session
             sid = str(inp.get("sessionId") or inp.get("session_id") or "default").strip()
@@ -75,11 +77,29 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:
             pass
 
+        reports = load_checkpoint(job_id, "reports")
+        if reports is None:
+            add_event(job_id=job_id, level="info", message="running stage: reports")
+            from agent.chat_graph import _build_report_tables_markdown, _render_report_html, _write_report_artifacts
+
+            report_md = _build_report_tables_markdown(merged_result)
+            report_html = _render_report_html(merged_result)
+            artifacts = _write_report_artifacts(result=merged_result, report_markdown=report_md, report_html=report_html)
+            reports = {
+                "report_markdown": report_md,
+                "report_html": report_html,
+                "report_files": artifacts,
+            }
+            save_checkpoint(job_id, "reports", reports)
+            add_event(job_id=job_id, level="info", message="completed stage: reports")
+        else:
+            add_event(job_id=job_id, level="info", message="restored stage from checkpoint: reports")
+
         return {
             "result": merged_result,
-            "report_markdown": report_md,
-            "report_html": report_html,
-            "report_files": artifacts,
+            "report_markdown": reports["report_markdown"],
+            "report_html": reports["report_html"],
+            "report_files": reports["report_files"],
         }
 
     if kind == "chat":

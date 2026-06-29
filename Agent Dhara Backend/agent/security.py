@@ -37,9 +37,22 @@ class InMemoryRateLimiter:
         self.max_requests = int(max_requests)
         self.window_seconds = int(window_seconds)
         self._buckets: Dict[str, Tuple[int, float]] = {}
+        self._check_count = 0
 
     def check(self, key: str) -> None:
         now = time.time()
+        
+        # Periodic cleanup of expired rate limit buckets to prevent memory leak (Gap 4)
+        self._check_count += 1
+        if self._check_count >= 1000 or len(self._buckets) > 5000:
+            self._check_count = 0
+            expired = [
+                k for k, (_, start) in self._buckets.items()
+                if now - start >= self.window_seconds
+            ]
+            for k in expired:
+                self._buckets.pop(k, None)
+
         count, start = self._buckets.get(key, (0, now))
         if now - start >= self.window_seconds:
             count, start = 0, now

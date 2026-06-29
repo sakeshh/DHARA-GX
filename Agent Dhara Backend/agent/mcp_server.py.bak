@@ -1,0 +1,89 @@
+# -*- coding: utf-8 -*-
+"""FastAPI MCP server for Intelligent Data Assessment."""
+
+# Force .NET Framework runtime for pythonnet (MUST happen before any clr/pythonnet usage)
+try:
+    import clr_loader
+    import pythonnet
+    pythonnet.set_runtime(clr_loader.get_netfx())
+except Exception:
+    pass
+
+import os
+import sys
+import logging
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+# Force PROJECT_DIR into sys.path
+_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+from agent.logging_setup import setup_logging
+from agent.security import InMemoryRateLimiter, client_ip, get_request_id, require_backend_token
+from agent.jobs_worker import JobWorker
+from agent.api_routes import router, set_worker
+
+setup_logging()
+logger = logging.getLogger("mcp_server")
+
+app = FastAPI(title="Intelligent Data Assessment MCP Server")
+
+_limiter = InMemoryRateLimiter(
+    max_requests=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120")),
+    window_seconds=60,
+)
+
+_worker = JobWorker()
+set_worker(_worker)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in (os.environ.get("CORS_ALLOW_ORIGINS") or "").split(",") if o.strip()] or [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Backend-Token", "X-Request-Id", "X-Correlation-Id"],
+)
+
+@app.middleware("http")
+async def auth_and_logging_middleware(request: Request, call_next):
+    rid = get_request_id(request)
+    request.state.request_id = rid
+    try:
+        _limiter.check(client_ip(request))
+        if request.url.path not in ("/", "/healthz", "/readyz"):
+            require_backend_token(request)
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = rid
+        return response
+    except HTTPException as e:
+        logger.warning("http_error", extra={"request_id": rid})
+        return JSONResponse(status_code=e.status_code, content={"detail": e.detail, "request_id": rid})
+    except Exception as e:
+        logger.exception("unhandled_error", extra={"request_id": rid})
+        return JSONResponse(status_code=500, content={"detail": str(e), "request_id": rid})
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("FastAPI MCP Server starting...")
+
+@app.exception_handler(Exception)
+def generic_exception_handler(request: Request, exc: Exception):
+    rid = getattr(request.state, "request_id", "unknown")
+    logger.exception("unhandled_exception", extra={"request_id": rid})
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"An unexpected error occurred: {exc}", "request_id": rid},
+    )
+
+app.include_router(router)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("agent.mcp_server:app", host="127.0.0.1", port=8000, reload=True)
