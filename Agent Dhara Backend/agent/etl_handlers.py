@@ -1039,6 +1039,16 @@ def etl_generate_code(
         from agent.etl_pipeline.manual_review_promote import promote_non_fixable_resolutions
         plan = promote_non_fixable_resolutions(plan, non_fixable)
         
+    from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+    cov_report = build_coverage_report(assess, plan)
+    if cov_report.get("uncovered"):
+        return {
+            "ok": False,
+            "error": "UNCOVERED_ISSUES",
+            "message": f"Cannot generate code: {len(cov_report['uncovered'])} issues in the assessment are not mapped to any ETL step, manual review, or non-fixable resolution.",
+            "uncovered": cov_report["uncovered"],
+        }
+        
     semantic_context = assess.get("semantic_context") or {}
     domain_rules = {}
     business_keys = {}
