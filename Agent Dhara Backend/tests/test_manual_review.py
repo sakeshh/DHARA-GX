@@ -77,6 +77,18 @@ class TestManualReviewPromote(unittest.TestCase):
         self.assertEqual(len(updated["datasets"]["data_1.xml"]["steps"]), 0)
         self.assertEqual(count_pending_manual_review(updated), 0)
 
+    def test_generic_skip_resolves_to_noop(self) -> None:
+        plan = self._base_plan()
+        item_id = plan["manual_review"][0]["id"]
+        updated, errs = apply_manual_resolutions(
+            plan,
+            [{"item_id": item_id, "resolution_id": "skip"}],
+        )
+        self.assertEqual(errs, [])
+        self.assertEqual(len(updated["datasets"]["data_1.xml"]["steps"]), 0)
+        self.assertEqual(count_pending_manual_review(updated), 0)
+        self.assertEqual(updated["resolved_manual_review"][0]["status"], "skipped")
+
     def test_codegen_includes_hash_after_promote(self) -> None:
         plan = self._base_plan()
         item_id = plan["manual_review"][0]["id"]

@@ -7,24 +7,19 @@ import logging
 
 logger = logging.getLogger("agent.etl_pipeline.issue_to_step_compiler")
 
-_ISSUE_TO_ACTION_MAP = {
+from agent.transformation_suggester import ISSUE_TO_ACTION
+_ISSUE_TO_ACTION_MAP = dict(ISSUE_TO_ACTION)
+_ISSUE_TO_ACTION_MAP.update({
     "nulls": "fill_or_drop",
     "null_values": "fill_or_drop",
     "type_mismatch": "cast_type",
     "invalid_type": "cast_type",
     "outliers": "clip_or_flag",
     "numeric_outliers": "clip_or_flag",
-    "numeric_outliers_iqr": "clip_or_flag",
-    "whitespace": "trim",
-    "case_inconsistency": "lowercase",
     "duplicate": "deduplicate",
     "duplicates": "deduplicate",
-    "future_dates": "nullify_future_dates",
-    "invalid_date_format": "parse_dates",
-    "invalid_email": "sanitize_email",
-    "invalid_phone": "normalize_phone",
-    "missing_required_column": "exclude_column",
-}
+    "near_duplicate_rows": "deduplicate",
+})
 
 def compile_issues_to_steps(
     suggestions: List[Dict[str, Any]],
@@ -47,6 +42,9 @@ def compile_issues_to_steps(
         col = sug.get("column") or "*"
         it = sug.get("issue_type") or "unknown"
         action = sug.get("suggested_action")
+        
+        # Original manual intent preservation flag
+        was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
         
         # 1. PASS 1: Issue Baseline Mapping
         if not action or action == "noop":
@@ -92,15 +90,15 @@ def compile_issues_to_steps(
         sub_type = str(sem_desc.get("sub_type") or "").lower().strip()
         pii_level = str(sem_desc.get("pii_level") or "").lower().strip()
         
-        if sem_type == "date" and action in ("cast_type", "noop"):
+        if sem_type == "date" and action in ("cast_type", "noop", "review_manually"):
             action = "parse_dates"
             note = "Semantic refinement: parse_dates for date semantic_type"
             
-        if sem_type == "email" and action in ("trim", "lowercase", "noop"):
+        if sem_type == "email" and action in ("trim", "lowercase", "noop", "review_manually"):
             action = "sanitize_email"
             note = "Semantic refinement: sanitize_email for email semantic_type"
             
-        if sem_type == "phone" and action in ("trim", "noop"):
+        if sem_type == "phone" and action in ("trim", "noop", "review_manually"):
             if pii_level == "high" or pii_level == "medium":
                 action = "hash_phone"
                 note = "Semantic refinement: hash_phone for high/medium PII phone number"
@@ -108,27 +106,37 @@ def compile_issues_to_steps(
                 action = "normalize_phone"
                 note = "Semantic refinement: normalize_phone for phone semantic_type"
                 
-        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers"):
+        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers", "review_manually"):
             action = "range_clip"
             params["lower_bound"] = 0.0
             note = "Semantic refinement: range_clip (lower_bound=0) for currency sub_type"
             
-        if sub_type == "boolean_int" and action == "coerce_numeric":
+        if sub_type == "boolean_int" and action in ("coerce_numeric", "review_manually"):
             action = "standardize_boolean"
             note = "Semantic refinement: standardize_boolean for boolean_int sub_type"
+            
+        # Enforce manual intent preservation if semantic confidence is low
+        if was_manual and action != "review_manually":
+            sem_confidence = float(sem_desc.get("confidence", 0.0))
+            if sem_confidence < 0.85:
+                action = "review_manually"
+                note = f"Preserved manual review: semantic confidence {sem_confidence} < 0.85"
             
         # Determine auto_fixable
         # Risky steps: drop_column, exclude_column, clip_outliers/cap_outliers, or review_manually
         is_risky = action in ("drop_column", "exclude_column", "clip_outliers", "cap_outliers", "review_manually")
         
-        auto_fixable = sug.get("auto_fixable", True)
+        auto_fixable = sug.get("auto_fixable", False)
         if is_risky:
             auto_fixable = False
             
-        # Special case: if user_override or confidence is high, check rules
-        confidence = sug.get("llm_confidence") or 1.0
-        if confidence < 0.65:
-            auto_fixable = False
+        # Special case: if it is an LLM-inferred suggestion, check confidence
+        from agent.etl_pipeline.rule_provenance import RuleProvenance
+        is_llm_inferred = sug.get("llm_recommendation") is not None and sug.get("provenance") != RuleProvenance.AUTO_DETECTED
+        if is_llm_inferred:
+            confidence = sug.get("llm_confidence") or 1.0
+            if confidence < 0.65:
+                auto_fixable = False
             
         # Save step or route to manual_review/non_fixable
         if auto_fixable and action != "review_manually":
@@ -156,7 +164,10 @@ def compile_issues_to_steps(
         else:
             # Route to manual review or non-fixable
             # Non-fixable items are those that the compiler cannot solve automatically, or explicitly marked
-            is_non_fixable = it in ("missing_required_column", "very_wide_table", "empty_dataset")
+            is_non_fixable = it in (
+                "missing_required_column", "very_wide_table", "empty_dataset",
+                "encoding_corruption",
+            )
             
             mr_item = {
                 "dataset": ds if ds != "global" else None,
@@ -168,11 +179,18 @@ def compile_issues_to_steps(
                 "suggested_action": action,
                 "auto_fixable": False
             }
+            if "llm_recommendation" in sug:
+                mr_item["llm_recommendation"] = sug["llm_recommendation"]
+            if "llm_confidence" in sug:
+                mr_item["llm_confidence"] = sug["llm_confidence"]
             
             if is_non_fixable:
                 non_fixable.append(mr_item)
             else:
-                manual_review.append(enrich_manual_review_item(mr_item))
+                manual_review.append(enrich_manual_review_item(
+                    mr_item,
+                    llm_recommendation=mr_item.get("llm_recommendation")
+                ))
                 
     return datasets_steps, manual_review, non_fixable
 
@@ -197,6 +215,9 @@ def preprocess_suggestions_in_place(
         col = sug.get("column") or "*"
         it = sug.get("issue_type") or "unknown"
         action = sug.get("suggested_action")
+        
+        # Original manual intent preservation flag
+        was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
         
         # 1. PASS 1: Issue Baseline Mapping
         if not action or action == "noop":
@@ -230,28 +251,34 @@ def preprocess_suggestions_in_place(
         sub_type = str(sem_desc.get("sub_type") or "").lower().strip()
         pii_level = str(sem_desc.get("pii_level") or "").lower().strip()
         
-        if sem_type == "date" and action in ("cast_type", "noop"):
+        if sem_type == "date" and action in ("cast_type", "noop", "review_manually"):
             action = "parse_dates"
             
-        if sem_type == "email" and action in ("trim", "lowercase", "noop"):
+        if sem_type == "email" and action in ("trim", "lowercase", "noop", "review_manually"):
             action = "sanitize_email"
             
-        if sem_type == "phone" and action in ("trim", "noop"):
+        if sem_type == "phone" and action in ("trim", "noop", "review_manually"):
             if pii_level == "high" or pii_level == "medium":
                 action = "hash_phone"
             else:
                 action = "normalize_phone"
                 
-        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers"):
+        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers", "review_manually"):
             action = "range_clip"
             
-        if sub_type == "boolean_int" and action == "coerce_numeric":
+        if sub_type == "boolean_int" and action in ("coerce_numeric", "review_manually"):
             action = "standardize_boolean"
+            
+        # Enforce manual intent preservation if semantic confidence is low
+        if was_manual and action != "review_manually":
+            sem_confidence = float(sem_desc.get("confidence", 0.0))
+            if sem_confidence < 0.85:
+                action = "review_manually"
             
         # Determine auto_fixable
         is_risky = action in ("drop_column", "exclude_column", "clip_outliers", "cap_outliers", "review_manually")
         
-        auto_fixable = sug.get("auto_fixable", True)
+        auto_fixable = sug.get("auto_fixable", False)
         if is_risky:
             auto_fixable = False
             
@@ -263,10 +290,13 @@ def preprocess_suggestions_in_place(
         sug["auto_fixable"] = auto_fixable
         
         # Check non_fixable
-        is_non_fixable = it in ("missing_required_column", "very_wide_table", "empty_dataset")
+        is_non_fixable = it in (
+            "missing_required_column", "very_wide_table", "empty_dataset",
+            "encoding_corruption",
+        )
         if is_non_fixable:
             sug["non_fixable"] = True
-            non_fixables.append({
+            nf_item = {
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,
@@ -275,6 +305,11 @@ def preprocess_suggestions_in_place(
                 "guidance": sug.get("manual_guidance") or f"Configure action for {col}",
                 "suggested_action": action,
                 "auto_fixable": False
-            })
+            }
+            if "llm_recommendation" in sug:
+                nf_item["llm_recommendation"] = sug["llm_recommendation"]
+            if "llm_confidence" in sug:
+                nf_item["llm_confidence"] = sug["llm_confidence"]
+            non_fixables.append(nf_item)
             
     return non_fixables

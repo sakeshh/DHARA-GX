@@ -338,4 +338,85 @@ def test_codegen_coverage_gate():
     assert res["uncovered"][0]["column"] == "col1"
 
 
+# 11. Test Compiler preserves manual review intent unless high confidence
+def test_compiler_preserves_manual_intent():
+    from agent.etl_pipeline.issue_to_step_compiler import compile_issues_to_steps
+    
+    suggestions = [
+        {
+            "dataset": "ds1",
+            "column": "col1",
+            "issue_type": "future_dates",
+            "suggested_action": "review_manually",
+            "auto_fixable": False,
+            "severity": "medium",
+            "message": "Future dates issue"
+        }
+    ]
+    rules = {}
+    
+    # 1. With low semantic confidence, action remains review_manually
+    sem_schema_low = {
+        "ds1.col1": {
+            "semantic_type": "date",
+            "confidence": 0.50
+        }
+    }
+    steps_low, manual_low, non_fixable_low = compile_issues_to_steps(suggestions, rules, sem_schema_low)
+    assert len(steps_low.get("ds1", [])) == 0
+    assert len(manual_low) == 1
+    assert manual_low[0]["suggested_action"] == "review_manually"
+    
+    # 2. With high semantic confidence, action is refined to parse_dates (though still manual)
+    sem_schema_high = {
+        "ds1.col1": {
+            "semantic_type": "date",
+            "confidence": 0.90
+        }
+    }
+    steps_high, manual_high, non_fixable_high = compile_issues_to_steps(suggestions, rules, sem_schema_high)
+    assert len(steps_high.get("ds1", [])) == 0
+    assert len(manual_high) == 1
+    assert manual_high[0]["suggested_action"] == "parse_dates"
+
+
+# 12. Test Compiler Action Map Coverage
+def test_compiler_action_map_coverage():
+    from agent.transformation_suggester import ISSUE_TO_ACTION
+    from agent.etl_pipeline.issue_to_step_compiler import _ISSUE_TO_ACTION_MAP
+    
+    for key in ISSUE_TO_ACTION.keys():
+        assert key in _ISSUE_TO_ACTION_MAP, f"Issue type '{key}' is in transformation_suggester.py but missing in _ISSUE_TO_ACTION_MAP in issue_to_step_compiler.py"
+
+
+# 13. Test Planner Coverage Report has zero uncovered items
+def test_planner_coverage_zero_uncovered():
+    from agent.etl_pipeline.planner import build_etl_plan
+    
+    assessment = {
+        "datasets": {
+            "ds1": {
+                "columns": {
+                    "col1": {"dtype": "int"}
+                }
+            }
+        },
+        "data_quality_issues": {
+            "datasets": {
+                "ds1": {
+                    "issues": [
+                        {"column": "col1", "type": "nulls", "severity": "medium", "message": "nulls"}
+                    ]
+                }
+            }
+        }
+    }
+    rules = {}
+    plan = build_etl_plan(assessment, rules)
+    
+    assert plan["coverage"]["total_issues"] == 1
+    assert plan["coverage"]["uncovered"] == 0
+    assert len(plan["coverage"]["uncovered_items"]) == 0
+
+
 

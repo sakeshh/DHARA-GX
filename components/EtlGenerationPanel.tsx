@@ -564,7 +564,7 @@ export default function EtlGenerationPanel({
   }, [manualReviewItems]);
 
   const pendingManualCount = useMemo(
-    () => manualReviewItemsState.filter((m) => !m.default_resolution).length,
+    () => manualReviewItemsState.filter((m) => (m.status || 'pending') === 'pending').length,
     [manualReviewItemsState]
   );
 

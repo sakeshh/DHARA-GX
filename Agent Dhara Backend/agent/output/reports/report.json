@@ -139,140 +139,6 @@
             "format_variants": []
           }
         },
-        "instructor": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 51,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 51
-          },
-          "null_percentage": 0.0,
-          "null_count": 0,
-          "type_confidence": 0.92,
-          "unique_count": 49,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "Dr. Rao",
-            "Dr Rao",
-            "Dr. Smith",
-            "",
-            "Dr. Cloud",
-            "Dr.Sec",
-            "Dr.Sec",
-            "Dr.Sec",
-            "Dr. Big",
-            "Inst9",
-            "Inst10",
-            "Inst11",
-            "Inst12",
-            "Inst13",
-            "Inst14",
-            "Inst15",
-            "Inst16",
-            "Inst17",
-            "Inst18",
-            "Inst19"
-          ],
-          "duplicate_value_count": 3,
-          "server_min": "",
-          "server_max": "Inst9",
-          "sql_data_type": "varchar",
-          "min": "",
-          "max": "Inst9",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "format_variants": []
-          }
-        },
-        "department": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 51,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 51
-          },
-          "null_percentage": 0.0,
-          "null_count": 0,
-          "type_confidence": 0.92,
-          "unique_count": 3,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "CSE",
-            "cse",
-            "IT",
-            "IT",
-            "CSE",
-            "ECE",
-            "ECE",
-            "ECE",
-            "CSE",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT"
-          ],
-          "duplicate_value_count": 50,
-          "server_min": "CSE",
-          "server_max": "IT",
-          "sql_data_type": "varchar",
-          "min": "CSE",
-          "max": "IT",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "format_variants": []
-          }
-        },
         "credits": {
           "dtype": "object",
           "dtype_inference": "numeric_like",
@@ -340,8 +206,8 @@
           "llm_hints": {
             "semantic_type": "numeric",
             "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "high",
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
             "outlier_action_hint": "check for negative values",
             "format_variants": [],
             "null_pattern": {
@@ -350,6 +216,139 @@
               "concentrated_in_value": "C004",
               "fill_strategy_hint": "flag_only"
             }
+          }
+        },
+        "department": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 3,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "CSE",
+            "cse",
+            "IT",
+            "IT",
+            "CSE",
+            "ECE",
+            "ECE",
+            "ECE",
+            "CSE",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT"
+          ],
+          "duplicate_value_count": 50,
+          "server_min": "CSE",
+          "server_max": "IT",
+          "sql_data_type": "varchar",
+          "min": "CSE",
+          "max": "IT",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": false,
+            "business_importance": "medium",
+            "cleaning_priority": "low",
+            "outlier_action_hint": null
+          }
+        },
+        "instructor": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 49,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Dr. Rao",
+            "Dr Rao",
+            "Dr. Smith",
+            "",
+            "Dr. Cloud",
+            "Dr.Sec",
+            "Dr.Sec",
+            "Dr.Sec",
+            "Dr. Big",
+            "Inst9",
+            "Inst10",
+            "Inst11",
+            "Inst12",
+            "Inst13",
+            "Inst14",
+            "Inst15",
+            "Inst16",
+            "Inst17",
+            "Inst18",
+            "Inst19"
+          ],
+          "duplicate_value_count": 3,
+          "server_min": "",
+          "server_max": "Inst9",
+          "sql_data_type": "varchar",
+          "min": "",
+          "max": "Inst9",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": []
           }
         },
         "fee": {
@@ -427,12 +426,12 @@
         }
       },
       "priority_columns": [
-        "fee",
-        "credits",
-        "course_id",
-        "department",
         "course_name",
-        "instructor"
+        "instructor",
+        "course_id",
+        "credits",
+        "department",
+        "fee"
       ],
       "source_root": "__database__:SQL data",
       "quality": {
@@ -1232,6 +1231,6 @@
     }
   },
   "run_metadata": {
-    "generated_at": "2026-06-29T18:11:46.911568+00:00"
+    "generated_at": "2026-06-29T19:03:38.005681+00:00"
   }
 }
