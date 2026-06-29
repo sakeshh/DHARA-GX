@@ -27,6 +27,7 @@ class DatasetSemanticContextModel(BaseModel):
     prior_report_hints: Dict[str, Any] = Field(default_factory=dict)
     sample_row_count: int = 0
     domain_hints: Dict[str, Any] = Field(default_factory=dict)
+    suggested_domain_rules: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class SemanticContextPackageModel(BaseModel):
@@ -57,6 +58,7 @@ def semantic_package_from_legacy(legacy: Dict[str, Any]) -> SemanticContextPacka
             prior_report_hints=dict(raw.get("prior_report_hints") or {}) if isinstance(raw.get("prior_report_hints"), dict) else {},
             sample_row_count=int(raw.get("sample_row_count") or 0),
             domain_hints=dict(raw.get("domain_hints") or {}) if isinstance(raw.get("domain_hints"), dict) else {},
+            suggested_domain_rules=list(raw.get("suggested_domain_rules") or []),
         )
     return SemanticContextPackageModel(
         by_dataset=out,

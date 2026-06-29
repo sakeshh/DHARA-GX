@@ -4,6 +4,23 @@ from agent.azure_sql_executor import get_connection
 
 logger = logging.getLogger("agent.post_etl_validator")
 
+def _safe_bracket_quote(name: str) -> str:
+    """
+    Safely bracket-quote a table or schema name, escaping any ']' by doubling it.
+    If the name has parts separated by '.', each part is quoted and escaped.
+    """
+    if not name:
+        return ""
+    parts = name.split(".")
+    quoted_parts = []
+    for part in parts:
+        part = part.strip()
+        if part.startswith("[") and part.endswith("]"):
+            part = part[1:-1]
+        escaped = part.replace("]", "]]")
+        quoted_parts.append(f"[{escaped}]")
+    return ".".join(quoted_parts)
+
 def run_post_etl_validation(
     target_tables: List[str],
     connection_string: Optional[str],
@@ -31,18 +48,23 @@ def run_post_etl_validation(
                         matched_dataset = ds_name
                         break
             
-            safe_table = table
-            if not (table.startswith("[") and table.endswith("]")):
-                if "." in table:
-                    parts = table.split(".")
-                    safe_table = ".".join(f"[{p}]" for p in parts)
-                else:
-                    safe_table = f"[{table}]"
+            safe_table = _safe_bracket_quote(table)
                     
             columns = []
             try:
-                table_clean_name = table.split(".")[-1].replace("[", "").replace("]", "")
-                cursor.execute(f"SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{table_clean_name}'")
+                parts = [p.replace("[", "").replace("]", "") for p in table.split(".")]
+                if len(parts) == 2:
+                    schema_clean, table_clean_name = parts
+                    cursor.execute(
+                        "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?",
+                        (schema_clean, table_clean_name)
+                    )
+                else:
+                    table_clean_name = parts[0]
+                    cursor.execute(
+                        "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ?",
+                        (table_clean_name,)
+                    )
                 for row in cursor.fetchall():
                     columns.append((row[0], row[1]))
             except Exception as e:

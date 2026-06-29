@@ -10,7 +10,7 @@ import pandas as pd
 
 from agent.profiling.constants import *
 from agent.profiling.data_loaders import load_file_datasets, load_sql_datasets
-from agent.profiling.statistical_profiling import profile_dataframe, select_top_priority_columns, _strip
+from agent.profiling.statistical_profiling import profile_dataframe, select_top_priority_columns, _strip, safe_nunique, _to_key
 from agent.profiling.database_profiler import profile_database_table_full, merge_in_db_profile
 from agent.profiling.dq_checks import (
     analyze_dataset_quality,
@@ -121,6 +121,78 @@ def _classify_cardinality(m1: int, m2: int) -> Tuple[str, str]:
         return ("many_to_one", f"Table B has at most one row per key; table A has up to {m1} rows per key (N:1 from A to B).")
     return ("many_to_many", f"Keys repeat on both sides (up to {m1} vs {m2} rows per key) - M:N or bridge-style.")
 
+def _same_dataset_representation(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    *,
+    min_id_overlap: float = 0.90,
+    max_row_diff: float = 0.10,
+) -> bool:
+    """Check if two DataFrames represent the same dataset in different formats."""
+    try:
+        cols1 = {str(c).strip().lower() for c in df1.columns}
+        cols2 = {str(c).strip().lower() for c in df2.columns}
+        if cols1 != cols2 or "id" not in cols1:
+            return False
+        c1 = next(c for c in df1.columns if str(c).lower() == "id")
+        c2 = next(c for c in df2.columns if str(c).lower() == "id")
+        
+        s1 = df1[c1].map(_to_key).dropna()
+        s2 = df2[c2].map(_to_key).dropna()
+        k1 = set(s1.tolist())
+        k2 = set(s2.tolist())
+        if not k1 or not k2:
+            return False
+        inter = k1 & k2
+        overlap_ratio = len(inter) / max(1, min(len(k1), len(k2)))
+        r1, r2 = len(df1), len(df2)
+        row_diff_ratio = abs(r1 - r2) / max(1, max(r1, r2))
+        if not (overlap_ratio >= min_id_overlap and row_diff_ratio <= max_row_diff):
+            return False
+
+        # Stronger check: do rows actually match on shared IDs?
+        # Only check a sample of 50 shared IDs for performance.
+        inter_list = list(inter)
+        if len(inter_list) > 50:
+            inter_list = inter_list[:50]
+        
+        cols = [c for c in df1.columns if str(c).lower() != "id"]
+        if not cols:
+            return True
+            
+        # Filter both dataframes to the 50 sample IDs
+        df1_sub = df1[df1[c1].map(_to_key).isin(inter_list)]
+        df2_sub = df2[df2[c2].map(_to_key).isin(inter_list)]
+        
+        # Build signatures for the small subset
+        def _row_sig(df: pd.DataFrame, id_col: str) -> Dict[Any, Tuple[Any, ...]]:
+            out = {}
+            for _, row in df.iterrows():
+                ik = _to_key(row[id_col])
+                if ik is None or ik in out:
+                    continue
+                out[ik] = tuple(_to_key(row[c]) for c in cols)
+            return out
+
+        m1 = _row_sig(df1_sub, c1)
+        m2 = _row_sig(df2_sub, c2)
+        
+        if not m1 or not m2:
+            return False
+            
+        matches = 0
+        total = 0
+        for ik in inter_list:
+            if ik in m1 and ik in m2:
+                total += 1
+                if m1[ik] == m2[ik]:
+                    matches += 1
+        if total == 0:
+            return False
+        return (matches / total) >= 0.80
+    except Exception:
+        return False
+
 def analyze_cross_dataset_relationships(
     datasets: Dict[str, pd.DataFrame],
     metadata: Dict[str, Any],
@@ -143,65 +215,9 @@ def analyze_cross_dataset_relationships(
     same_data_max_row_diff = float(rel_cfg.get("same_dataset_max_rowcount_diff_ratio", 0.10))
 
     def _is_key_like(col_lower: str) -> bool:
-        return any(x in col_lower for x in ("_id", "id", "key", "code", "sku"))
-
-    def _same_dataset_representation(df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
-        """
-        Heuristic guard: only treat datasets as join-compatible for orphan/FK checks when
-        they look like different serializations of the SAME records.
-        """
-        try:
-            cols1 = {str(c).strip().lower() for c in df1.columns}
-            cols2 = {str(c).strip().lower() for c in df2.columns}
-            if cols1 != cols2 or "id" not in cols1:
-                return False
-            c1 = next(c for c in df1.columns if str(c).lower() == "id")
-            c2 = next(c for c in df2.columns if str(c).lower() == "id")
-            k1 = set(df1[c1].map(_to_key).dropna().tolist())
-            k2 = set(df2[c2].map(_to_key).dropna().tolist())
-            if not k1 or not k2:
-                return False
-            inter = k1 & k2
-            overlap_ratio = len(inter) / max(1, min(len(k1), len(k2)))
-            r1, r2 = len(df1), len(df2)
-            row_diff_ratio = abs(r1 - r2) / max(1, max(r1, r2))
-            if not (overlap_ratio >= same_data_min_id_overlap and row_diff_ratio <= same_data_max_row_diff):
-                return False
-
-            # Stronger check: do rows actually match on shared IDs?
-            # This avoids falsely treating independent sources with same id range as identical datasets.
-            inter_list = list(inter)
-            if len(inter_list) > 50:
-                inter_list = inter_list[:50]
-            # prefer email if present, else compare full row signature excluding id
-            cols = [c for c in df1.columns if str(c).lower() != "id"]
-            if not cols:
-                return True
-            # Map id -> normalized tuple of values
-            def _row_sig(df: pd.DataFrame, id_col: str) -> Dict[Any, Tuple[Any, ...]]:
-                out = {}
-                for _, row in df.iterrows():
-                    ik = _to_key(row[id_col])
-                    if ik is None or ik in out:
-                        continue
-                    out[ik] = tuple(_to_key(row[c]) for c in cols)
-                return out
-            m1 = _row_sig(df1, c1)
-            m2 = _row_sig(df2, c2)
-            if not m1 or not m2:
-                return False
-            matches = 0
-            total = 0
-            for ik in inter_list:
-                if ik in m1 and ik in m2:
-                    total += 1
-                    if m1[ik] == m2[ik]:
-                        matches += 1
-            if total == 0:
-                return False
-            return (matches / total) >= 0.80
-        except Exception:
-            return False
+        return (col_lower.endswith("_id") or col_lower == "id" 
+                or col_lower.endswith("_key") or col_lower.endswith("_code")
+                or col_lower.endswith("_sku") or col_lower == "sku")
 
     names = list(datasets.keys())
 
@@ -283,7 +299,7 @@ def analyze_cross_dataset_relationships(
                 guess = _guess_parent_child_tables(n1, df1, c1, n2, df2, c2, meta1, meta2)
                 if guess:
                     _pn, pdf, pc, cn, cdf, cc = guess
-                    if orphan_only_if_same_data and not _same_dataset_representation(pdf, cdf):
+                    if orphan_only_if_same_data and not _same_dataset_representation(pdf, cdf, min_id_overlap=same_data_min_id_overlap, max_row_diff=same_data_max_row_diff):
                         continue
                     try:
                         parent_keys = set(_to_key(x) for x in pdf[pc].dropna())
@@ -518,59 +534,6 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
     same_data_min_id_overlap = float(rel_cfg.get("same_dataset_min_id_overlap_ratio", 0.90))
     same_data_max_row_diff = float(rel_cfg.get("same_dataset_max_rowcount_diff_ratio", 0.10))
 
-    def _same_dataset_representation(df1: pd.DataFrame, df2: pd.DataFrame) -> bool:
-        try:
-            cols1 = {str(c).strip().lower() for c in df1.columns}
-            cols2 = {str(c).strip().lower() for c in df2.columns}
-            if cols1 != cols2 or "id" not in cols1:
-                return False
-            c1 = next(c for c in df1.columns if str(c).lower() == "id")
-            c2 = next(c for c in df2.columns if str(c).lower() == "id")
-            k1 = set(df1[c1].map(_to_key).dropna().tolist())
-            k2 = set(df2[c2].map(_to_key).dropna().tolist())
-            if not k1 or not k2:
-                return False
-            inter = k1 & k2
-            overlap_ratio = len(inter) / max(1, min(len(k1), len(k2)))
-            r1, r2 = len(df1), len(df2)
-            row_diff_ratio = abs(r1 - r2) / max(1, max(r1, r2))
-            if not (overlap_ratio >= same_data_min_id_overlap and row_diff_ratio <= same_data_max_row_diff):
-                return False
-
-            # Stronger check: do rows actually match on shared IDs?
-            inter_list = list(inter)
-            if len(inter_list) > 50:
-                inter_list = inter_list[:50]
-            cols = [c for c in df1.columns if str(c).lower() != "id"]
-            if not cols:
-                return True
-
-            def _row_sig(df: pd.DataFrame, id_col: str) -> Dict[Any, Tuple[Any, ...]]:
-                out = {}
-                for _, row in df.iterrows():
-                    ik = _to_key(row[id_col])
-                    if ik is None or ik in out:
-                        continue
-                    out[ik] = tuple(_to_key(row[c]) for c in cols)
-                return out
-
-            m1 = _row_sig(df1, c1)
-            m2 = _row_sig(df2, c2)
-            if not m1 or not m2:
-                return False
-            matches = 0
-            total = 0
-            for ik in inter_list:
-                if ik in m1 and ik in m2:
-                    total += 1
-                    if m1[ik] == m2[ik]:
-                        matches += 1
-            if total == 0:
-                return False
-            return (matches / total) >= 0.80
-        except Exception:
-            return False
-
     global_issues = {
         "orphan_foreign_keys": [],
         "cross_dataset_inconsistencies": [],
@@ -582,7 +545,7 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
         df1 = datasets[names[i]]
         for j in range(i + 1, len(names)):
             df2 = datasets[names[j]]
-            same_data = _same_dataset_representation(df1, df2)
+            same_data = _same_dataset_representation(df1, df2, min_id_overlap=same_data_min_id_overlap, max_row_diff=same_data_max_row_diff)
 
             common = set(map(str.lower, df1.columns)) & set(map(str.lower, df2.columns))
             for col in common:

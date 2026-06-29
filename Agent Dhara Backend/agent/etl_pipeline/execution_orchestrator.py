@@ -180,6 +180,24 @@ def orchestrate_sql_execution(
     }
 
 
+def _safe_bracket_quote(name: str) -> str:
+    """
+    Safely bracket-quote a table or schema name, escaping any ']' by doubling it.
+    If the name has parts separated by '.', each part is quoted and escaped.
+    """
+    if not name:
+        return ""
+    parts = name.split(".")
+    quoted_parts = []
+    for part in parts:
+        part = part.strip()
+        if part.startswith("[") and part.endswith("]"):
+            part = part[1:-1]
+        escaped = part.replace("]", "]]")
+        quoted_parts.append(f"[{escaped}]")
+    return ".".join(quoted_parts)
+
+
 def build_pre_execution_counts(
     table_names: list[str],
     connection_string: str | None = None,
@@ -197,15 +215,7 @@ def build_pre_execution_counts(
         conn = get_connection(connection_string)
         cursor = conn.cursor()
         for table in table_names:
-            # Wrap table in brackets for safety
-            safe_table = table
-            if not (table.startswith("[") and table.endswith("]")):
-                if "." in table:
-                    parts = table.split(".")
-                    safe_table = ".".join(f"[{p}]" for p in parts)
-                else:
-                    safe_table = f"[{table}]"
-
+            safe_table = _safe_bracket_quote(table)
             try:
                 cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
                 row = cursor.fetchone()

@@ -29,59 +29,79 @@ def _db_path() -> str:
     return os.path.join(out_dir, "chat_sessions.sqlite3")
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(_db_path(), timeout=30)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sessions (
-          session_id TEXT PRIMARY KEY,
-          created_at REAL NOT NULL,
-          updated_at REAL NOT NULL,
-          payload_json TEXT NOT NULL
+import threading
+
+_local_conn = threading.local()
+
+
+class ConnectionProxy:
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        # Keep connection alive for thread local cache
+        pass
+
+
+def _connect() -> ConnectionProxy:
+    if not hasattr(_local_conn, "conn") or _local_conn.conn is None:
+        conn = sqlite3.connect(_db_path(), timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+              session_id TEXT PRIMARY KEY,
+              created_at REAL NOT NULL,
+              updated_at REAL NOT NULL,
+              payload_json TEXT NOT NULL
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS experiences (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          session_id TEXT NOT NULL,
-          ts REAL NOT NULL,
-          user_text TEXT,
-          action TEXT,
-          success INTEGER,
-          notes TEXT,
-          FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS experiences (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              session_id TEXT NOT NULL,
+              ts REAL NOT NULL,
+              user_text TEXT,
+              action TEXT,
+              success INTEGER,
+              notes TEXT,
+              FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+            )
+            """
         )
-        """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_session_ts ON experiences(session_id, ts DESC)")
-    
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS pipeline_runs (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id      TEXT    NOT NULL,
-            run_ts          REAL    NOT NULL,
-            dataset_names   TEXT,          -- JSON array: ["orders", "customers"]
-            schema_hash     TEXT,          -- SHA256 from _assessment_schema_signature()
-            dq_score        INTEGER,       -- 0-100 from etl_readiness_scorer
-            dq_issue_count  INTEGER,
-            etl_phase       TEXT,          -- last phase reached: planned/confirmed/generated/executed
-            etl_engine      TEXT,          -- python/sql/pyspark/adf
-            etl_outcome     TEXT,          -- succeeded/failed/skipped
-            generation_mode TEXT,
-            notes           TEXT,          -- free text for narrative
-            FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_experiences_session_ts ON experiences(session_id, ts DESC)")
+        
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT    NOT NULL,
+                run_ts          REAL    NOT NULL,
+                dataset_names   TEXT,          -- JSON array: ["orders", "customers"]
+                schema_hash     TEXT,          -- SHA256 from _assessment_schema_signature()
+                dq_score        INTEGER,       -- 0-100 from etl_readiness_scorer
+                dq_issue_count  INTEGER,
+                etl_phase       TEXT,          -- last phase reached: planned/confirmed/generated/executed
+                etl_engine      TEXT,          -- python/sql/pyspark/adf
+                etl_outcome     TEXT,          -- succeeded/failed/skipped
+                generation_mode TEXT,
+                notes           TEXT,          -- free text for narrative
+                FOREIGN KEY(session_id) REFERENCES sessions(session_id)
+            )
+            """
         )
-        """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_session ON pipeline_runs(session_id, run_ts DESC)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_datasets ON pipeline_runs(dataset_names)")
-    
-    return conn
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_session ON pipeline_runs(session_id, run_ts DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_datasets ON pipeline_runs(dataset_names)")
+        conn.commit()
+        _local_conn.conn = conn
+        
+    return ConnectionProxy(_local_conn.conn)
 
 
 
@@ -351,13 +371,22 @@ def get_pipeline_runs_for_datasets(
     dataset_names: List[str],
     limit: int = 10
 ) -> List[Dict[str, Any]]:
+    if not dataset_names:
+        return []
     conn = _connect()
     try:
-        rows = conn.execute(
+        clauses = []
+        params = []
+        for name in dataset_names:
+            clauses.append("dataset_names LIKE ?")
+            params.append(f'%"{name}"%')
+            
+        sql = (
             "SELECT id, session_id, run_ts, dataset_names, schema_hash, dq_score, "
             "dq_issue_count, etl_phase, etl_engine, etl_outcome, generation_mode, notes "
-            "FROM pipeline_runs ORDER BY run_ts DESC"
-        ).fetchall()
+            f"FROM pipeline_runs WHERE {' OR '.join(clauses)} ORDER BY run_ts DESC"
+        )
+        rows = conn.execute(sql, params).fetchall()
         
         out = []
         target_set = set(dataset_names)

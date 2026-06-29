@@ -1,0 +1,1236 @@
+{
+  "datasets": {
+    "dbo.courses_raw": {
+      "row_count": 51,
+      "column_count": 6,
+      "data_volume_bytes": 16462,
+      "sampling_info": "Full dataset has 51 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.",
+      "columns": {
+        "course_name": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 49,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Data Science",
+            "machine learning ",
+            "AI",
+            "DBMS",
+            "Cloud",
+            "Cyber Security",
+            "Cyber Security",
+            "Cyber Security",
+            " Big Data ",
+            "Course9",
+            "Course10",
+            "Course11",
+            "Course12",
+            "Course13",
+            "Course14",
+            "Course15",
+            "Course16",
+            "Course17",
+            "Course18",
+            "Course19"
+          ],
+          "duplicate_value_count": 3,
+          "server_min": " Big Data ",
+          "server_max": "machine learning ",
+          "sql_data_type": "varchar",
+          "min": " Big Data ",
+          "max": "machine learning ",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": false,
+            "business_importance": "high",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null
+          }
+        },
+        "department": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 3,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "CSE",
+            "cse",
+            "IT",
+            "IT",
+            "CSE",
+            "ECE",
+            "ECE",
+            "ECE",
+            "CSE",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT"
+          ],
+          "duplicate_value_count": 50,
+          "server_min": "CSE",
+          "server_max": "IT",
+          "sql_data_type": "varchar",
+          "min": "CSE",
+          "max": "IT",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "high",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": []
+          }
+        },
+        "course_id": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 50,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "C001",
+            "C002",
+            "C003",
+            "C004",
+            "C005",
+            "C006",
+            "C007",
+            "C007",
+            "C008",
+            "C009",
+            "C010",
+            "C011",
+            "C012",
+            "C013",
+            "C014",
+            "C015",
+            "C016",
+            "C017",
+            "C018",
+            "C019"
+          ],
+          "duplicate_value_count": 2,
+          "server_min": "C001",
+          "server_max": "C050",
+          "sql_data_type": "varchar",
+          "min": "C001",
+          "max": "C050",
+          "llm_hints": {
+            "semantic_type": "id",
+            "mixed_formats_suspected": false,
+            "business_importance": "high",
+            "cleaning_priority": "critical",
+            "outlier_action_hint": null
+          }
+        },
+        "instructor": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 49,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Dr. Rao",
+            "Dr Rao",
+            "Dr. Smith",
+            "",
+            "Dr. Cloud",
+            "Dr.Sec",
+            "Dr.Sec",
+            "Dr.Sec",
+            "Dr. Big",
+            "Inst9",
+            "Inst10",
+            "Inst11",
+            "Inst12",
+            "Inst13",
+            "Inst14",
+            "Inst15",
+            "Inst16",
+            "Inst17",
+            "Inst18",
+            "Inst19"
+          ],
+          "duplicate_value_count": 3,
+          "server_min": "",
+          "server_max": "Inst9",
+          "sql_data_type": "varchar",
+          "min": "",
+          "max": "Inst9",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "low",
+            "outlier_action_hint": null,
+            "format_variants": []
+          }
+        },
+        "credits": {
+          "dtype": "object",
+          "dtype_inference": "numeric_like",
+          "type_distribution": {
+            "counts": {
+              "str": 50,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 50
+          },
+          "null_percentage": 0.0196078431372549,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 5,
+          "semantic_type": "numeric_id",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "4",
+            "four",
+            "3",
+            "-1",
+            "3.5",
+            "3.5",
+            "3.5",
+            "4",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3"
+          ],
+          "duplicate_value_count": 48,
+          "mean": 2.989795918367347,
+          "median": 3.0,
+          "std": 0.6249149602009807,
+          "skew": -5.4336,
+          "p5": 3.0,
+          "p95": 3.5,
+          "server_min": "-1",
+          "server_max": "four",
+          "sql_data_type": "varchar",
+          "min": "-1",
+          "max": "four",
+          "llm_hints": {
+            "semantic_type": "numeric",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "high",
+            "outlier_action_hint": "check for negative values",
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "course_id",
+              "concentrated_in_value": "C004",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "fee": {
+          "dtype": "object",
+          "dtype_inference": "numeric_like",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 47,
+          "semantic_type": "numeric_id",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "50000",
+            "60000",
+            "abc",
+            "45000",
+            "70000",
+            "55000",
+            "55000",
+            "55000",
+            " 80000 ",
+            "9000",
+            "10000",
+            "11000",
+            "12000",
+            "13000",
+            "14000",
+            "15000",
+            "16000",
+            "17000",
+            "18000",
+            "19000"
+          ],
+          "duplicate_value_count": 7,
+          "mean": 34180.0,
+          "median": 33500.0,
+          "std": 16167.09937004212,
+          "skew": 0.5068,
+          "p5": 11450.0,
+          "p95": 57749.999999999985,
+          "server_min": " 80000 ",
+          "server_max": "abc",
+          "sql_data_type": "varchar",
+          "min": " 80000 ",
+          "max": "abc",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "low",
+            "cleaning_priority": "low",
+            "outlier_action_hint": null,
+            "format_variants": []
+          }
+        }
+      },
+      "priority_columns": [
+        "credits",
+        "department",
+        "instructor",
+        "course_name",
+        "course_id",
+        "fee"
+      ],
+      "source_root": "__database__:SQL data",
+      "quality": {
+        "issues": [
+          {
+            "severity": "high",
+            "type": "duplicate_primary_key",
+            "column": "[Row-level]",
+            "count": 2,
+            "row_indexes": [
+              6,
+              7
+            ],
+            "sample_values": [
+              {
+                "course_id": "C007",
+                "course_name": "Cyber Security",
+                "department": "ECE",
+                "credits": "3.5",
+                "instructor": "Dr.Sec",
+                "fee": "55000"
+              },
+              {
+                "course_id": "C007",
+                "course_name": "Cyber Security",
+                "department": "ECE",
+                "credits": "3.5",
+                "instructor": "Dr.Sec",
+                "fee": "55000"
+              }
+            ],
+            "message": "2 duplicate in candidate PK",
+            "fixability": "NOT_FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              null
+            ],
+            "message": "1 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "course_name",
+            "count": 2,
+            "row_indexes": [
+              1,
+              8
+            ],
+            "sample_values": [
+              "machine learning ",
+              " Big Data "
+            ],
+            "message": "2 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "1 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "fee",
+            "count": 1,
+            "row_indexes": [
+              8
+            ],
+            "sample_values": [
+              " 80000 "
+            ],
+            "message": "1 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "1 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "medium",
+            "type": "sentinel_numeric_value",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              4
+            ],
+            "sample_values": [
+              "-1"
+            ],
+            "message": "1 sentinel/magic number(s) detected (e.g. -999, 9999999)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source."
+          },
+          {
+            "severity": "medium",
+            "type": "near_duplicate_rows",
+            "column": "[Row-level]",
+            "count": 5,
+            "row_indexes": [
+              5,
+              5,
+              6,
+              9,
+              9
+            ],
+            "sample_values": [
+              {
+                "row_index_a": 5,
+                "row_index_b": 6,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 5,
+                "row_index_b": 7,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 6,
+                "row_index_b": 7,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 9,
+                "row_index_b": 39,
+                "similarity": 0.9538461538461537
+              },
+              {
+                "row_index_a": 9,
+                "row_index_b": 49,
+                "similarity": 0.9538461538461537
+              }
+            ],
+            "message": "Found 5 pair(s) of near-duplicate rows withsimilarity >= 0.92",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge."
+          },
+          {
+            "severity": "low",
+            "type": "all_caps_values",
+            "column": "course_name",
+            "count": 2,
+            "row_indexes": [
+              2,
+              3
+            ],
+            "sample_values": [
+              "AI",
+              "DBMS"
+            ],
+            "message": "2 ALL-CAPS value(s) mixed with 49 mixed/lower-case",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL."
+          },
+          {
+            "severity": "low",
+            "type": "string_length_outlier",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              1
+            ],
+            "sample_values": [
+              "four"
+            ],
+            "message": "1 value(s) exceed 4 chars (mean=1, σ=1)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Strings significantly longer than the column average may contain concatenated data or free-text errors."
+          },
+          {
+            "severity": "low",
+            "type": "string_length_outlier",
+            "column": "fee",
+            "count": 1,
+            "row_indexes": [
+              8
+            ],
+            "sample_values": [
+              " 80000 "
+            ],
+            "message": "1 value(s) exceed 7 chars (mean=5, σ=0)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Strings significantly longer than the column average may contain concatenated data or free-text errors."
+          },
+          {
+            "severity": "low",
+            "type": "duplicate_insensitive_values",
+            "column": "department",
+            "count": 1,
+            "row_indexes": [],
+            "sample_values": [
+              [
+                "CSE",
+                "cse"
+              ]
+            ],
+            "message": "1 value(s) that differ only by case/whitespace — false uniqueness",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "fee",
+            "count": 3,
+            "row_indexes": [
+              5,
+              6,
+              7
+            ],
+            "sample_values": [
+              "55000"
+            ],
+            "message": "3 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "medium",
+            "type": "custom_rule_violation",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "instructor: expectation failed.",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Review with domain owners; document the expected rule; add validation at ingest or in the warehouse."
+          }
+        ],
+        "summary": {
+          "issue_count": 14,
+          "high_severity": 1,
+          "medium_severity": 3,
+          "low_severity": 10,
+          "dq_score_0_100": 95.0296397628819,
+          "estimated_clean_rows_after_high": 49,
+          "estimated_clean_rows_after_high_and_medium": 45
+        }
+      },
+      "llm_hints": {
+        "table_grain": "one row per course",
+        "business_entity": "course",
+        "probable_pk_columns": [
+          "course_id"
+        ],
+        "business_key_confirmation": {
+          "confirmed": true,
+          "business_key_cols": [
+            "course_id"
+          ],
+          "business_key_duplicate_count": 1,
+          "dedup_strategy_hint": "keep_last"
+        }
+      }
+    }
+  },
+  "relationships": [],
+  "data_quality_issues": {
+    "datasets": {
+      "dbo.courses_raw": {
+        "issues": [
+          {
+            "severity": "high",
+            "type": "duplicate_primary_key",
+            "column": "[Row-level]",
+            "count": 2,
+            "row_indexes": [
+              6,
+              7
+            ],
+            "sample_values": [
+              {
+                "course_id": "C007",
+                "course_name": "Cyber Security",
+                "department": "ECE",
+                "credits": "3.5",
+                "instructor": "Dr.Sec",
+                "fee": "55000"
+              },
+              {
+                "course_id": "C007",
+                "course_name": "Cyber Security",
+                "department": "ECE",
+                "credits": "3.5",
+                "instructor": "Dr.Sec",
+                "fee": "55000"
+              }
+            ],
+            "message": "2 duplicate in candidate PK",
+            "fixability": "NOT_FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              null
+            ],
+            "message": "1 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "course_name",
+            "count": 2,
+            "row_indexes": [
+              1,
+              8
+            ],
+            "sample_values": [
+              "machine learning ",
+              " Big Data "
+            ],
+            "message": "2 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "1 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "whitespace",
+            "column": "fee",
+            "count": 1,
+            "row_indexes": [
+              8
+            ],
+            "sample_values": [
+              " 80000 "
+            ],
+            "message": "1 leading/trailing spaces",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "1 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "medium",
+            "type": "sentinel_numeric_value",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              4
+            ],
+            "sample_values": [
+              "-1"
+            ],
+            "message": "1 sentinel/magic number(s) detected (e.g. -999, 9999999)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source."
+          },
+          {
+            "severity": "medium",
+            "type": "near_duplicate_rows",
+            "column": "[Row-level]",
+            "count": 5,
+            "row_indexes": [
+              5,
+              5,
+              6,
+              9,
+              9
+            ],
+            "sample_values": [
+              {
+                "row_index_a": 5,
+                "row_index_b": 6,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 5,
+                "row_index_b": 7,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 6,
+                "row_index_b": 7,
+                "similarity": 1.0
+              },
+              {
+                "row_index_a": 9,
+                "row_index_b": 39,
+                "similarity": 0.9538461538461537
+              },
+              {
+                "row_index_a": 9,
+                "row_index_b": 49,
+                "similarity": 0.9538461538461537
+              }
+            ],
+            "message": "Found 5 pair(s) of near-duplicate rows withsimilarity >= 0.92",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge."
+          },
+          {
+            "severity": "low",
+            "type": "all_caps_values",
+            "column": "course_name",
+            "count": 2,
+            "row_indexes": [
+              2,
+              3
+            ],
+            "sample_values": [
+              "AI",
+              "DBMS"
+            ],
+            "message": "2 ALL-CAPS value(s) mixed with 49 mixed/lower-case",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL."
+          },
+          {
+            "severity": "low",
+            "type": "string_length_outlier",
+            "column": "credits",
+            "count": 1,
+            "row_indexes": [
+              1
+            ],
+            "sample_values": [
+              "four"
+            ],
+            "message": "1 value(s) exceed 4 chars (mean=1, σ=1)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Strings significantly longer than the column average may contain concatenated data or free-text errors."
+          },
+          {
+            "severity": "low",
+            "type": "string_length_outlier",
+            "column": "fee",
+            "count": 1,
+            "row_indexes": [
+              8
+            ],
+            "sample_values": [
+              " 80000 "
+            ],
+            "message": "1 value(s) exceed 7 chars (mean=5, σ=0)",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Strings significantly longer than the column average may contain concatenated data or free-text errors."
+          },
+          {
+            "severity": "low",
+            "type": "duplicate_insensitive_values",
+            "column": "department",
+            "count": 1,
+            "row_indexes": [],
+            "sample_values": [
+              [
+                "CSE",
+                "cse"
+              ]
+            ],
+            "message": "1 value(s) that differ only by case/whitespace — false uniqueness",
+            "fixability": "FIXABLE",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization."
+          },
+          {
+            "severity": "low",
+            "type": "nulls",
+            "column": "fee",
+            "count": 3,
+            "row_indexes": [
+              5,
+              6,
+              7
+            ],
+            "sample_values": [
+              "55000"
+            ],
+            "message": "3 null/placeholder",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults."
+          },
+          {
+            "severity": "medium",
+            "type": "custom_rule_violation",
+            "column": "instructor",
+            "count": 1,
+            "row_indexes": [
+              3
+            ],
+            "sample_values": [
+              ""
+            ],
+            "message": "instructor: expectation failed.",
+            "fixability": "COMPLEX",
+            "dataset": "dbo.courses_raw",
+            "recommendation": "Review with domain owners; document the expected rule; add validation at ingest or in the warehouse."
+          }
+        ],
+        "summary": {
+          "issue_count": 14,
+          "high_severity": 1,
+          "medium_severity": 3,
+          "low_severity": 10,
+          "dq_score_0_100": 95.0296397628819,
+          "estimated_clean_rows_after_high": 49,
+          "estimated_clean_rows_after_high_and_medium": 45
+        }
+      }
+    },
+    "global_issues": {
+      "orphan_foreign_keys": [],
+      "cross_dataset_inconsistencies": [],
+      "schema_drift": [],
+      "relationship_row_issues": [],
+      "relationship_warnings": [],
+      "cross_dataset_consistency": []
+    }
+  },
+  "dq_recommendations": {
+    "recommendations": [
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "[Row-level]",
+        "issue_type": "duplicate_primary_key",
+        "severity": "high",
+        "why_it_matters": "2 duplicate in candidate PK",
+        "suggested_fix": "Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL.",
+        "mapped_action": "deduplicate",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "credits",
+        "issue_type": "nulls",
+        "severity": "low",
+        "why_it_matters": "1 null/placeholder",
+        "suggested_fix": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.",
+        "mapped_action": "fill_nulls_simple",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "course_name",
+        "issue_type": "whitespace",
+        "severity": "low",
+        "why_it_matters": "2 leading/trailing spaces",
+        "suggested_fix": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.",
+        "mapped_action": "trim",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "instructor",
+        "issue_type": "whitespace",
+        "severity": "low",
+        "why_it_matters": "1 leading/trailing spaces",
+        "suggested_fix": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.",
+        "mapped_action": "trim",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "fee",
+        "issue_type": "whitespace",
+        "severity": "low",
+        "why_it_matters": "1 leading/trailing spaces",
+        "suggested_fix": "Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.",
+        "mapped_action": "trim",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "instructor",
+        "issue_type": "nulls",
+        "severity": "low",
+        "why_it_matters": "1 null/placeholder",
+        "suggested_fix": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.",
+        "mapped_action": "fill_nulls_simple",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "credits",
+        "issue_type": "sentinel_numeric_value",
+        "severity": "medium",
+        "why_it_matters": "1 sentinel/magic number(s) detected (e.g. -999, 9999999)",
+        "suggested_fix": "Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source.",
+        "mapped_action": "coerce_numeric",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "[Row-level]",
+        "issue_type": "near_duplicate_rows",
+        "severity": "medium",
+        "why_it_matters": "Found 5 pair(s) of near-duplicate rows withsimilarity >= 0.92",
+        "suggested_fix": "Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge.",
+        "mapped_action": "deduplicate",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "course_name",
+        "issue_type": "all_caps_values",
+        "severity": "low",
+        "why_it_matters": "2 ALL-CAPS value(s) mixed with 49 mixed/lower-case",
+        "suggested_fix": "Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.",
+        "mapped_action": "noop",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "credits",
+        "issue_type": "string_length_outlier",
+        "severity": "low",
+        "why_it_matters": "1 value(s) exceed 4 chars (mean=1, σ=1)",
+        "suggested_fix": "Strings significantly longer than the column average may contain concatenated data or free-text errors.",
+        "mapped_action": "flag_outliers",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "fee",
+        "issue_type": "string_length_outlier",
+        "severity": "low",
+        "why_it_matters": "1 value(s) exceed 7 chars (mean=5, σ=0)",
+        "suggested_fix": "Strings significantly longer than the column average may contain concatenated data or free-text errors.",
+        "mapped_action": "flag_outliers",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "department",
+        "issue_type": "duplicate_insensitive_values",
+        "severity": "low",
+        "why_it_matters": "1 value(s) that differ only by case/whitespace — false uniqueness",
+        "suggested_fix": "Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization.",
+        "mapped_action": "deduplicate",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "fee",
+        "issue_type": "nulls",
+        "severity": "low",
+        "why_it_matters": "3 null/placeholder",
+        "suggested_fix": "Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.",
+        "mapped_action": "fill_nulls_simple",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      },
+      {
+        "priority": 99,
+        "dataset": "dbo.courses_raw",
+        "column": "instructor",
+        "issue_type": "custom_rule_violation",
+        "severity": "medium",
+        "why_it_matters": "instructor: expectation failed.",
+        "suggested_fix": "Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.",
+        "mapped_action": "noop",
+        "example_sql": null,
+        "example_pandas": null,
+        "risk": "Fallback mode (LLM not configured). Validate before applying changes."
+      }
+    ],
+    "summary": {
+      "top_themes": [],
+      "notes": "LLM not configured; returned fallback recommendations based on existing rule hints."
+    }
+  },
+  "run_metadata": {
+    "generated_at": "2026-06-29T12:17:19.610259+00:00"
+  }
+}

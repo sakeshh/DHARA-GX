@@ -104,18 +104,26 @@ def generate_auto_cross_field_rules(
                 
         # Date order pairs
         for i in range(len(date_cols)):
-            for j in range(len(date_cols)):
-                if i != j:
-                    c1, c2 = date_cols[i], date_cols[j]
-                    if _is_start_end_pair(c1, c2):
-                        auto_rules.append({
-                            "dataset": ds_name,
-                            "type": "date_order",
-                            "start_column": c1,
-                            "end_column": c2,
-                            "severity": "medium",
-                            "source": "auto_detected"
-                        })
+            for j in range(i + 1, len(date_cols)):
+                c1, c2 = date_cols[i], date_cols[j]
+                if _is_start_end_pair(c1, c2):
+                    auto_rules.append({
+                        "dataset": ds_name,
+                        "type": "date_order",
+                        "start_column": c1,
+                        "end_column": c2,
+                        "severity": "medium",
+                        "source": "auto_detected"
+                    })
+                elif _is_start_end_pair(c2, c1):
+                    auto_rules.append({
+                        "dataset": ds_name,
+                        "type": "date_order",
+                        "start_column": c2,
+                        "end_column": c1,
+                        "severity": "medium",
+                        "source": "auto_detected"
+                    })
                         
         # Non-negative columns
         for col in metric_cols:

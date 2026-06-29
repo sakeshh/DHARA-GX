@@ -11,6 +11,20 @@ from agent.metadata_registry import (
     resolve_dataset_manifest,
 )
 
+def load_domain_rules_catalog() -> List[Dict[str, Any]]:
+    import os
+    import yaml
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    catalog_path = os.path.join(root, "config", "domain_rules_catalog.yaml")
+    if not os.path.exists(catalog_path):
+        return []
+    try:
+        with open(catalog_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return data.get("rules") or []
+    except Exception:
+        return []
+
 _ID_HINTS = re.compile(
     r"(^|_)(id|key|uuid|guid|pk|fk|ref)($|_)", re.I
 )
@@ -112,6 +126,21 @@ def build_semantic_context_for_dataset(
 
     semantic_confidence = round(sum(confidences) / max(len(confidences), 1), 3)
 
+    catalog = load_domain_rules_catalog()
+    suggested_domain_rules = []
+    for cname in cols.keys():
+        cname_lower = cname.lower()
+        for rule in catalog:
+            hints = rule.get("column_hints") or []
+            if any(hint.lower() in cname_lower for hint in hints):
+                suggested_domain_rules.append({
+                    "column": cname,
+                    "rule_name": rule.get("name"),
+                    "regex": rule.get("regex"),
+                    "severity": rule.get("severity"),
+                    "message": rule.get("message")
+                })
+
     ctx: Dict[str, Any] = {
         "dataset_name": dataset_name,
         "critical_columns": critical[:40],
@@ -126,6 +155,7 @@ def build_semantic_context_for_dataset(
             "source_root": ds_meta.get("source_root"),
             "row_count": ds_meta.get("row_count"),
         },
+        "suggested_domain_rules": suggested_domain_rules,
     }
     return ctx
 
