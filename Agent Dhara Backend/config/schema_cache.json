@@ -6,6 +6,7 @@
         "Phone": "object",
         "City": "object",
         "CreatedDate": "object"
+<<<<<<< HEAD
     },
     "dbo.Orders_Raw": {
         "OrderID": "int64",
@@ -13,5 +14,7 @@
         "OrderDate": "object",
         "OrderAmount": "object",
         "OrderStatus": "object"
+=======
+>>>>>>> 1567dc6fa8caa652d07e20a1569c6072745443f5
     }
 }
