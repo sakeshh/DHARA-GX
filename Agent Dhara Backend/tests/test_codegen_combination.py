@@ -12,14 +12,12 @@ class TestCodegenCombination(unittest.TestCase):
     @patch("agent.etl_handlers.load_session")
     @patch("agent.etl_handlers.save_session")
     @patch("agent.etl_handlers._get_assessment")
-    @patch("agent.etl_handlers._maybe_build_etl_duckdb_diff")
     @patch("agent.etl_handlers._template_fallback")
     @patch("agent.etl_handlers._generate_for_engine")
     def test_codegen_combines_cleanse_and_transform(
         self,
         mock_generate,
         mock_template_fallback,
-        mock_duckdb_diff,
         mock_get_assess,
         mock_save_session,
         mock_load_session
@@ -43,7 +41,6 @@ class TestCodegenCombination(unittest.TestCase):
         }
         mock_load_session.return_value = sess
         mock_get_assess.return_value = {}
-        mock_duckdb_diff.return_value = None
 
         # 1. Generate cleanse_only code
         mock_generate.return_value = ("-- CLEANSE CODE", True, [], "template")

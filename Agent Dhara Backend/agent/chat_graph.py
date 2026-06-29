@@ -657,16 +657,6 @@ def _build_report_tables_markdown(result: Dict[str, Any]) -> str:
                 f"`{_md_escape(it.get('related_dataset'))}`.{_md_escape(it.get('related_column'))} — count={_md_escape(it.get('count'))}"
             )
 
-    dp = result.get("duckdb_preview") if isinstance(result, dict) else None
-    if isinstance(dp, dict) and dp.get("ok"):
-        parts.append("### Preview diff (DuckDB)")
-        parts.append(
-            f"- Materialized **{_md_escape(dp.get('rowcount_sample'))}** preview rows (**{_md_escape(dp.get('rowcount_full'))}** total in result)."
-        )
-        cols = dp.get("columns") or []
-        if cols:
-            parts.append(f"- Output columns: {', '.join(_md_escape(c) for c in cols[:24])}")
-
     amb = (result.get("semantic_ambiguity") or {}) if isinstance(result, dict) else {}
     amb_cols = amb.get("columns") or []
     if amb_cols:
@@ -935,11 +925,15 @@ def _router_assessment_hints(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     top_types = sorted(type_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:12]
 
     n_orphan = 0
+    dq_root = raw.get("data_quality_issues") or {}
     gib = dq_root.get("global_issues") if isinstance(dq_root, dict) else None
     if isinstance(gib, dict):
         o = gib.get("orphan_foreign_keys")
         if isinstance(o, list):
             n_orphan = len(o)
+
+    from agent.context_compressor import compress_assessment_for_llm
+    compressed_view = compress_assessment_for_llm(raw)
 
     return {
         "has_cached_assessment": True,
@@ -948,6 +942,7 @@ def _router_assessment_hints(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "cardinality_labels_present": cards_seen,
         "top_data_quality_issue_types": [{"type": k, "occurrences_in_issue_list": v} for k, v in top_types],
         "orphan_foreign_key_hint_count": n_orphan,
+        "compressed_assessment": compressed_view,
     }
 
 

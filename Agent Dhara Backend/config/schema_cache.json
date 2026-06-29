@@ -1,13 +1,17 @@
 {
-    "dbo.Courses": {
-        "CourseID": "int64",
-        "InstructorID": "int64",
-        "CourseTitle": "object",
-        "Price": "object",
+    "dbo.Customers_Raw": {
+        "CustomerID": "int64",
+        "CustomerName": "object",
+        "Email": "object",
+        "Phone": "object",
+        "City": "object",
         "CreatedDate": "object"
     },
-    "dbo.CourseTags": {
-        "CourseID": "int64",
-        "TagID": "int64"
+    "dbo.Orders_Raw": {
+        "OrderID": "int64",
+        "CustomerID": "int64",
+        "OrderDate": "object",
+        "OrderAmount": "object",
+        "OrderStatus": "object"
     }
 }

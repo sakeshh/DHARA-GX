@@ -43,186 +43,7 @@ from agent.etl_pipeline.agentic_rules import analyze_agentic_intent
 logger = logging.getLogger("agent.etl")
 
 
-def _collect_etl_preview_datasets(ctx: Dict[str, Any], assess: Dict[str, Any]) -> tuple[Dict[str, Any], str]:
-    """Return (dataset name -> DataFrame, debug_msg) for optional DuckDB preview (session or assessment)."""
-    import pandas as pd
 
-    out: Dict[str, Any] = {}
-    raw = ctx.get("etl_preview_datasets")
-    if isinstance(raw, dict):
-        for k, v in raw.items():
-            if isinstance(v, pd.DataFrame):
-                out[str(k)] = v
-    if out:
-        return out, "loaded from ctx.etl_preview_datasets"
-    ep = assess.get("etl_preview_input") if isinstance(assess, dict) else None
-    if isinstance(ep, dict):
-        d = ep.get("datasets")
-        if isinstance(d, dict):
-            for k, v in d.items():
-                if isinstance(v, pd.DataFrame):
-                    out[str(k)] = v
-    if out:
-        return out, "loaded from assess.etl_preview_input"
-
-    debug_parts = []
-    # Dynamic loading fallback if not already in memory
-    if assess and isinstance(assess, dict) and assess.get("datasets"):
-        import os
-        import json
-        from agent.master_agent import load_sources_config
-
-        selected = list((assess.get("datasets") or {}).keys())
-        sources_path = ctx.get("sources_path") or "config/sources.yaml"
-        debug_parts.append(f"sources_path={sources_path}")
-        debug_parts.append(f"selected={selected}")
-        
-        try:
-            source_root = load_sources_config(sources_path)
-            debug_parts.append(f"locations={len(source_root.get('locations', []))}")
-        except Exception as exc:
-            source_root = {}
-            debug_parts.append(f"config_err={exc}")
-        
-        try:
-            max_rows = int(os.getenv("DHARA_DUCKDB_SAMPLE_ROWS", "5000"))
-        except ValueError:
-            max_rows = 5000
-
-        locations = source_root.get("locations") or []
-        for loc in locations:
-            typ = str(loc.get("type") or "").lower()
-            if typ == "database":
-                conn_cfg = loc.get("connection", {}) or {}
-                try:
-                    from connectors.azure_sql_pythonnet import AzureSQLPythonNetConnector
-                    conn = AzureSQLPythonNetConnector(conn_cfg)
-                    discovered = conn.discover_tables()
-                    for t in selected:
-                        try:
-                            # Database tables might have prefixes or be exact match
-                            if t in discovered:
-                                out[t] = conn.load_table(t, max_rows=max_rows)
-                                debug_parts.append(f"loaded_db_{t}")
-                            else:
-                                # Try stripping prefix
-                                matched = False
-                                for real_t in discovered:
-                                    if t.endswith(real_t):
-                                        out[t] = conn.load_table(real_t, max_rows=max_rows)
-                                        debug_parts.append(f"loaded_db_suffix_{t}")
-                                        matched = True
-                                        break
-                                if not matched:
-                                    debug_parts.append(f"db_no_match_{t}")
-                        except Exception as tbl_err:
-                            debug_parts.append(f"db_tbl_err_{t}={tbl_err}")
-                except Exception as db_err:
-                    debug_parts.append(f"db_conn_err={db_err}")
-            elif typ == "filesystem":
-                fp = loc.get("path")
-                if fp and os.path.isdir(fp):
-                    for t in selected:
-                        p = os.path.join(fp, t)
-                        if os.path.isfile(p):
-                            low = p.lower()
-                            try:
-                                if low.endswith(".csv"):
-                                    out[t] = pd.read_csv(p, nrows=max_rows, low_memory=False)
-                                elif low.endswith(".tsv"):
-                                    out[t] = pd.read_csv(p, sep="\t", nrows=max_rows, low_memory=False)
-                                elif low.endswith(".jsonl"):
-                                    rows = []
-                                    with open(p, "r", encoding="utf-8") as f:
-                                        for line in f:
-                                            line = line.strip()
-                                            if not line:
-                                                continue
-                                            try:
-                                                rows.append(json.loads(line))
-                                            except Exception:
-                                                pass
-                                            if len(rows) >= max_rows:
-                                                break
-                                    out[t] = pd.json_normalize(rows, max_level=1) if rows else pd.DataFrame()
-                                elif low.endswith((".xlsx", ".xls")):
-                                    out[t] = pd.read_excel(p, nrows=max_rows)
-                                elif low.endswith(".parquet"):
-                                    out[t] = pd.read_parquet(p).head(max_rows)
-                                debug_parts.append(f"loaded_fs_{t}")
-                            except Exception as fs_err:
-                                debug_parts.append(f"fs_err_{t}={fs_err}")
-                        else:
-                            debug_parts.append(f"fs_file_not_found_{t}")
-            elif typ == "azure_blob":
-                conn_cfg = loc.get("connection", {}) or {}
-                try:
-                    from connectors.azure_blob_storage import AzureBlobStorageConnector
-                    conn = AzureBlobStorageConnector(conn_cfg)
-                    discovered = conn.list_blobs()
-                    for t in selected:
-                        if t in discovered:
-                            try:
-                                loaded = conn.load_all_blobs(folder_prefix="", blobs=[t], max_rows=max_rows)
-                                if loaded and t in loaded:
-                                    out[t] = loaded[t]
-                                    debug_parts.append(f"loaded_blob_{t}")
-                                else:
-                                    debug_parts.append(f"blob_empty_{t}")
-                            except Exception as blob_err:
-                                debug_parts.append(f"blob_err_{t}={blob_err}")
-                        else:
-                            debug_parts.append(f"blob_not_discovered_{t}")
-                except Exception as blob_conn_err:
-                    debug_parts.append(f"blob_conn_err={blob_conn_err}")
-    else:
-        debug_parts.append("assess_datasets_missing")
-
-    return out, ", ".join(debug_parts) if debug_parts else "empty_fallback"
-
-
-def _maybe_build_etl_duckdb_diff(
-    *,
-    eng: str,
-    code: str,
-    ok: bool,
-    ctx: Dict[str, Any],
-    assess: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
-    """
-    After SQL output: optional DuckDB preview + frame diff when preview frames exist.
-
-    Enable with ``DHARA_ETL_DUCKDB_DIFF=1`` and/or ``etl_preview_input.preview_sql`` /
-    ``DHARA_ETL_DUCKDB_PREVIEW_SQL``, or ``DHARA_ETL_DUCKDB_AUTO_EXTRACT=1`` to try the first SELECT.
-    """
-    if eng not in ("sql", "tsql", "ansi"):
-        return None
-    if not ok or not (code or "").strip():
-        return None
-    dfs, debug_msg = _collect_etl_preview_datasets(ctx, assess)
-    if not dfs:
-        return {"skipped": True, "reason": f"no_preview_datasets. Debug info: {debug_msg}"}
-    env_on = os.getenv("DHARA_ETL_DUCKDB_DIFF", "").strip().lower() in ("1", "true", "yes")
-    auto_ex = os.getenv("DHARA_ETL_DUCKDB_AUTO_EXTRACT", "").strip().lower() in ("1", "true", "yes")
-    ep = assess.get("etl_preview_input") if isinstance(assess, dict) else {}
-    ep = ep if isinstance(ep, dict) else {}
-    preview_sql = str(ep.get("preview_sql") or os.getenv("DHARA_ETL_DUCKDB_PREVIEW_SQL", "") or "").strip()
-    if not (env_on or preview_sql or auto_ex):
-        return {"skipped": True, "reason": "duckdb_diff_not_enabled"}
-    from agent.etl_preview_wiring import build_duckdb_sql_preview_diff
-
-    before_ds = ep.get("before_dataset_name")
-    before_ds_s = str(before_ds).strip() if before_ds else None
-    try:
-        return build_duckdb_sql_preview_diff(
-            code,
-            dfs,
-            preview_sql=preview_sql or None,
-            before_dataset_name=before_ds_s,
-        )
-    except Exception as exc:
-        logger.warning("etl duckdb preview/diff failed: %s", exc)
-        return {"skipped": True, "reason": str(exc)[:300]}
 
 
 def _resolve_codegen_mode(
@@ -372,7 +193,19 @@ def _get_assessment(session: Dict[str, Any], override: Optional[Dict[str, Any]])
     if isinstance(override, dict) and override.get("datasets"):
         return override
     raw = (_ctx(session) or {}).get("last_assessment_result")
-    return raw if isinstance(raw, dict) and raw.get("datasets") else None
+    if isinstance(raw, dict) and raw.get("datasets"):
+        try:
+            from agent.assessment_governance import check_manifest_staleness
+            warning = check_manifest_staleness(raw)
+            if warning:
+                raw.setdefault("governance", {})["manifest_stale_warning"] = warning
+            else:
+                if "governance" in raw and "manifest_stale_warning" in raw["governance"]:
+                    raw["governance"].pop("manifest_stale_warning")
+        except Exception:
+            pass
+        return raw
+    return None
 
 
 def _safe_segment(s: str) -> str:
@@ -513,6 +346,7 @@ def etl_plan_start(
         source_context=src_ctx,
         generation_mode=generation_mode,
         dq_recommendations=dq_recs,
+        semantic_context=assess.get("semantic_context"),
     )
     draft_plan = enrich_plan_manual_review(draft_plan)
     
@@ -530,11 +364,96 @@ def etl_plan_start(
             source_context=src_ctx,
             generation_mode=generation_mode,
             dq_recommendations=dq_recs,
+            semantic_context=assess.get("semantic_context"),
         )
         plan = enrich_plan_manual_review(plan)
     else:
         plan = draft_plan
-        
+
+    # ── Rule Provenance Pipeline (Component 11) ─────────────────────
+    # Collect tagged rules from all 3 layers and run conflict detection
+    try:
+        from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
+        from agent.etl_pipeline.conflict_detector import detect_conflicts
+        from agent.etl_pipeline.business_rules import to_tagged_rules as biz_to_tagged
+        from agent.semantic_context import SemanticCleaningPlan
+        from agent.transformation_suggester import suggest_transformations
+
+        all_tagged: list = []
+        sem_ctx = assess.get("semantic_context") or {}
+
+        for ds_name in ds_names:
+            # Layer 1: Business rules → TaggedRules
+            biz_rules = biz_to_tagged(rules_merged, ds_name, assessment=assess)
+            all_tagged.extend(biz_rules)
+
+            # Layer 2: Semantic layer → TaggedRules
+            sem_model = sem_ctx.get("semantic_model")
+            if isinstance(sem_model, dict) and "entities" in sem_model:
+                try:
+                    splan = SemanticCleaningPlan(
+                        entities=sem_model.get("entities") or {},
+                        relationships=sem_model.get("relationships") or [],
+                    )
+                    sem_rules = splan.to_tagged_rules()
+                    all_tagged.extend(r for r in sem_rules if r.dataset == ds_name)
+                except Exception:
+                    pass
+
+            # Layer 3: Auto-detected → TaggedRules (from transformation suggestions)
+            suggestions = suggest_transformations(assess)
+            for s in suggestions.get("suggested_transformations") or []:
+                if s.get("dataset") == ds_name and s.get("auto_fixable"):
+                    prov = s.get("provenance", RuleProvenance.AUTO_DETECTED)
+                    all_tagged.append(TaggedRule(
+                        dataset=ds_name,
+                        column=s.get("column") or "",
+                        issue_type=s.get("issue_type") or "unknown",
+                        action=s.get("suggested_action") or "review_manually",
+                        provenance=prov,
+                        source_detail=f"Auto-detected: {s.get('message', '')[:200]}"
+                    ))
+
+        # Run conflict detection across all layers
+        resolved_rules, conflicts = detect_conflicts(all_tagged)
+        plan["rule_provenance"] = {
+            "total_rules": len(all_tagged),
+            "resolved_rules": len(resolved_rules),
+            "conflicts_detected": len(conflicts),
+            "conflicts": [c.model_dump() for c in conflicts],
+        }
+
+        # Inject conflicts into manual review items
+        if conflicts:
+            from agent.etl_pipeline.manual_review_catalog import enrich_manual_review_item
+            existing_mr = plan.get("manual_review") or []
+            for conflict in conflicts:
+                mr_key = (conflict.dataset, conflict.column, conflict.issue_type)
+                found = False
+                for i, mr_item in enumerate(existing_mr):
+                    if not isinstance(mr_item, dict):
+                        continue
+                    if (str(mr_item.get("dataset", "")).lower() == str(mr_key[0]).lower()
+                            and str(mr_item.get("column", "")).lower() == str(mr_key[1]).lower()
+                            and str(mr_item.get("issue_type", "")).lower() == str(mr_key[2]).lower()):
+                        existing_mr[i] = enrich_manual_review_item(mr_item, conflict=conflict)
+                        found = True
+                        break
+                if not found:
+                    new_item = {
+                        "dataset": conflict.dataset,
+                        "column": conflict.column,
+                        "issue_type": conflict.issue_type,
+                        "severity": "HIGH",
+                        "message": f"Rule conflict: {len(conflict.rules)} rules suggest different actions",
+                    }
+                    existing_mr.append(enrich_manual_review_item(new_item, conflict=conflict))
+            plan["manual_review"] = existing_mr
+            plan = enrich_plan_manual_review(plan)
+    except Exception as ex:
+        logger.debug("Rule provenance pipeline skipped: %s", ex)
+    # ─────────────────────────────────────────────────────────────────
+
     resolutions = agentic_result.get("manual_review_resolutions") or []
     if resolutions:
         logger.info(f"Agentic manual review auto-resolution applied: {len(resolutions)} items")
@@ -993,7 +912,7 @@ def _template_fallback(
 
 def etl_generate_code(
     session_id: str,
-    engine: str = "python",
+    engine: Optional[str] = None,
     sql_dialect: str = "tsql",
     *,
     codegen_mode: Optional[str] = None,
@@ -1042,11 +961,42 @@ def etl_generate_code(
     plan = _rehydrate_plan(plan, ctx)
     plan["generation_mode"] = generation_mode or plan.get("generation_mode") or flow.get("etl_intent", {}).get("generation_mode") or "full"
 
-    eng = (engine or flow.get("codegen_engine") or "python").lower()
+    # Resolve default codegen engine and dialect dynamically using SourceDescriptor
+    default_eng = "python"
+    default_dialect = "tsql"
+    if not engine and not flow.get("codegen_engine"):
+        try:
+            from agent.models import SourceDescriptor, PreferredEngine
+            from agent.master_agent import load_sources_config
+
+            first_dataset = None
+            if plan and isinstance(plan, dict) and plan.get("datasets"):
+                first_dataset = list(plan["datasets"].keys())[0]
+
+            if first_dataset:
+                sources_path = ctx.get("sources_path") or "config/sources.yaml"
+                source_root = load_sources_config(sources_path)
+                locations = source_root.get("locations") or []
+                for loc in locations:
+                    desc = SourceDescriptor.from_location_dict(loc, first_dataset)
+                    if desc.preferred_engine == PreferredEngine.AZURE_SQL:
+                        default_eng = "sql"
+                        default_dialect = "tsql"
+                        break
+                    elif desc.preferred_engine == PreferredEngine.FABRIC_PYSPARK:
+                        default_eng = "spark"
+                        break
+                    elif desc.preferred_engine == PreferredEngine.LOCAL_PANDAS:
+                        default_eng = "python"
+                        break
+        except Exception:
+            pass
+
+    eng = (engine or flow.get("codegen_engine") or default_eng).lower()
     intent = flow.get("etl_intent") or {}
     output_mode = intent.get("target_destination", "dataframe_only")
     output_path = intent.get("target_path")
-    sd = (sql_dialect or flow.get("sql_dialect") or "tsql").lower()
+    sd = (sql_dialect or flow.get("sql_dialect") or default_dialect).lower()
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_dir = os.path.join(root, "output", "etl_code", _safe_segment(sid))
@@ -1150,9 +1100,6 @@ def etl_generate_code(
     else:
         rollback_on_failure(flow, reason=f"validation_failed: {(errs or ['unknown'])[:3]}")
     latency_ms = (time.time() - t_gen) * 1000
-    duckdb_diff: Optional[Dict[str, Any]] = None
-    if eng in ("sql", "tsql", "ansi"):
-        duckdb_diff = _maybe_build_etl_duckdb_diff(eng=eng, code=combined_code, ok=ok, ctx=ctx, assess=assess)
     flow_update: Dict[str, Any] = {
         "code": combined_code,
         "target_engine": eng,
@@ -1164,8 +1111,6 @@ def etl_generate_code(
         "artifact_version": version,
         "last_generate_latency_ms": round(latency_ms, 1),
     }
-    if duckdb_diff is not None:
-        flow_update["duckdb_diff"] = duckdb_diff
     flow.update(flow_update)
     save_session(sess)
 
@@ -1394,6 +1339,99 @@ def etl_execute_sql(
                         pass
         else:
             logger.info("Fabric Lakehouse Mirror is not enabled.")
+
+        # ── Azure Blob Storage Cleaned File Upload Hook ──
+        try:
+            import os
+            account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
+            container_name = os.getenv("AZURE_ASSESSMENT_CONTAINER", "agentdhararawdata")
+            if account_name:
+                logger.info("Azure Blob Storage Cleaned File Upload Hook is enabled. Starting upload process...")
+                from connectors.azure_blob_storage import AzureBlobStorageConnector
+                blob_connector = AzureBlobStorageConnector({"container": container_name})
+                
+                from agent.azure_sql_executor import get_connection
+                import pandas as pd
+                conn = get_connection(connection_string)
+                
+                blob_results = []
+                for ds_name in table_names:
+                    try:
+                        from agent.etl_pipeline.sql_codegen import _get_clean_table_name, _get_transformed_table_name
+                        clean_tbl = _get_clean_table_name(ds_name)
+                        transformed_tbl = _get_transformed_table_name(ds_name)
+                        candidate_tables = [clean_tbl, transformed_tbl, ds_name]
+                        
+                        df_clean = None
+                        chosen_table = None
+                        for tbl in candidate_tables:
+                            tbl_parts = tbl.split(".", 1)
+                            quoted_tbl = f"[{tbl_parts[0]}].[{tbl_parts[1]}]" if len(tbl_parts) == 2 else f"[{tbl}]"
+                            try:
+                                df_temp = pd.read_sql(f"SELECT * FROM {quoted_tbl}", conn)
+                                if not df_temp.empty:
+                                    df_clean = df_temp
+                                    chosen_table = tbl
+                                    logger.info(f"Blob upload: found {len(df_temp)} rows in '{tbl}' for source '{ds_name}'.")
+                                    break
+                            except Exception:
+                                continue
+                        
+                        if df_clean is not None:
+                            csv_data = df_clean.to_csv(index=False).encode('utf-8')
+                            clean_blob_name = f"cleaned/{chosen_table}_cleaned.csv"
+                            logger.info(f"Uploading cleaned table data to blob: {clean_blob_name}...")
+                            success = blob_connector.upload_blob(clean_blob_name, csv_data)
+                            if success:
+                                blob_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{clean_blob_name}"
+                                blob_results.append({
+                                    "ok": True,
+                                    "table_name": chosen_table,
+                                    "blob_name": clean_blob_name,
+                                    "blob_url": blob_url
+                                })
+                            else:
+                                blob_results.append({
+                                    "ok": False,
+                                    "error": "UPLOAD_FAILED",
+                                    "table_name": chosen_table,
+                                    "blob_name": clean_blob_name
+                                })
+                        else:
+                            blob_results.append({
+                                "ok": False,
+                                "error": "NO_DATA_FOUND",
+                                "table_name": ds_name
+                            })
+                    except Exception as upload_tbl_err:
+                        logger.error(f"Failed to read/upload table {ds_name} to blob: {upload_tbl_err}")
+                        blob_results.append({
+                            "ok": False,
+                            "error": "READ_OR_WRITE_FAILED",
+                            "message": str(upload_tbl_err),
+                            "table_name": ds_name
+                        })
+                
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                flow["blob_upload_result"] = {
+                    "ok": all(r.get("ok", False) for r in blob_results),
+                    "details": blob_results
+                }
+                # Attach to execution results for frontend consumption
+                result.setdefault("execution", {}).setdefault("artifacts", {})["blobs"] = blob_results
+            else:
+                logger.info("Azure Blob Storage Cleaned File Upload Hook is not enabled (missing account name).")
+        except Exception as upload_err:
+            logger.error(f"Failed to run Azure Blob clean upload: {upload_err}")
+            flow["blob_upload_result"] = {
+                "ok": False,
+                "error": "UPLOAD_PROCESS_FAILED",
+                "message": str(upload_err)
+            }
 
         try:
             _transition(flow, "downloadable", by="system", reason="sql_execution_succeeded")

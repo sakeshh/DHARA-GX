@@ -162,7 +162,157 @@ def build_all_semantic_contexts(
         )
     agg = [v.get("semantic_confidence", 0.0) for v in out.values()]
     overall = round(sum(agg) / max(len(agg), 1), 3) if agg else 0.0
-    payload = {"by_dataset": out, "overall_semantic_confidence": overall}
+
+    # --- Component 10 enhanced semantic layer builder ---
+    from agent.semantic_context import (
+        EnrichedSemanticModel,
+        EntityDefinition,
+        RelationshipDefinition,
+        TargetModelHint,
+        ColumnCleaningContract,
+        ColumnRole,
+        DatasetSemanticContextModel,
+    )
+
+    entities = {}
+    business_rules = assessment.get("business_rules") or {}
+
+    for ds_name, ds_meta in datasets.items():
+        if not isinstance(ds_meta, dict):
+            continue
+            
+        contracts = {}
+        cols = ds_meta.get("columns") or {}
+        
+        # Identify non-nullable columns from business rules
+        non_nullable_cols = set()
+        nn = business_rules.get("non_nullable") or []
+        for col_key in nn:
+            parts = col_key.split(".")
+            if len(parts) == 1:
+                non_nullable_cols.add(parts[0].lower())
+            elif len(parts) >= 2 and parts[-2].lower() in ds_name.lower():
+                non_nullable_cols.add(parts[-1].lower())
+
+        for col_name, col_meta in cols.items():
+            if not isinstance(col_meta, dict):
+                continue
+            st = col_meta.get("semantic_type") or "unknown"
+            dtype = col_meta.get("dtype") or "object"
+
+            role = ColumnRole.FREE_TEXT
+            if st == "email":
+                role = ColumnRole.EMAIL
+            elif st == "phone":
+                role = ColumnRole.PHONE
+            elif st == "date":
+                role = ColumnRole.DATE
+            elif st == "uuid":
+                role = ColumnRole.IDENTIFIER
+            elif st == "numeric_id":
+                if col_meta.get("candidate_primary_key"):
+                    role = ColumnRole.PRIMARY_KEY
+                else:
+                    role = ColumnRole.FOREIGN_KEY if "id" in col_name.lower() else ColumnRole.IDENTIFIER
+            elif st == "boolean_like":
+                role = ColumnRole.FLAG
+            elif st == "categorical":
+                role = ColumnRole.CATEGORICAL
+            else:
+                dtype_lower = str(dtype).lower()
+                if any(x in dtype_lower for x in ("int", "float", "double", "decimal", "numeric")):
+                    role = ColumnRole.METRIC
+
+            is_nn = col_meta.get("nullable") == "NO" or col_meta.get("candidate_primary_key") is True or col_name.lower() in non_nullable_cols
+            
+            valid_vals = None
+            from agent.profiling.dq_checks import get_valid_values_for_column
+            try:
+                valid_vals = get_valid_values_for_column(business_rules, ds_name, col_name)
+            except Exception:
+                pass
+
+            contracts[col_name] = ColumnCleaningContract(
+                column_name=col_name,
+                role=role,
+                non_nullable=is_nn,
+                valid_values=valid_vals
+            )
+
+        pk_col = None
+        for col_name, contract in contracts.items():
+            if contract.role == ColumnRole.PRIMARY_KEY:
+                pk_col = col_name
+                break
+
+        entry, _ = resolve_dataset_manifest(str(ds_name), manifest)
+        subj = entry.get("subject_area") or "General"
+
+        entities[ds_name] = EntityDefinition(
+            name=ds_name,
+            source_datasets=[ds_name],
+            canonical_key=pk_col,
+            subject_area=subj,
+            column_contracts=contracts
+        )
+
+    # Convert relationships
+    relationships = []
+    for rel in assessment.get("relationships") or []:
+        if isinstance(rel, dict):
+            from_ds = rel.get("child_dataset")
+            to_ds = rel.get("parent_dataset")
+            child_col = rel.get("child_column")
+            parent_col = rel.get("parent_column")
+            card = rel.get("cardinality") or "many_to_one"
+            if from_ds and to_ds and child_col and parent_col:
+                relationships.append(RelationshipDefinition(
+                    from_entity=from_ds,
+                    to_entity=to_ds,
+                    join_keys={child_col: parent_col},
+                    relationship_type=card
+                ))
+
+    # Target model hint
+    target_hint = TargetModelHint()
+    if manifest:
+        tm = manifest.get("target_model") or {}
+        target_hint = TargetModelHint(
+            model_type=tm.get("model_type", "flat"),
+            fact_entities=tm.get("fact_entities", []),
+            dimension_entities=tm.get("dimension_entities", [])
+        )
+
+    legacy_by_dataset = {}
+    for k, v in out.items():
+        legacy_by_dataset[k] = DatasetSemanticContextModel(
+            dataset_name=v.get("dataset_name") or k,
+            critical_columns=v.get("critical_columns") or [],
+            likely_key_columns=v.get("likely_key_columns") or [],
+            business_terms=v.get("business_terms") or {},
+            column_importance=v.get("column_importance") or {},
+            semantic_confidence=v.get("semantic_confidence") or 0.0,
+            user_notes=v.get("user_notes") or "",
+            prior_report_hints=v.get("prior_report_hints") or {},
+            sample_row_count=v.get("sample_row_count") or 0,
+            domain_hints=v.get("domain_hints") or {}
+        )
+
+    enriched_model = EnrichedSemanticModel(
+        entities=entities,
+        relationships=relationships,
+        target_model_hint=target_hint,
+        by_dataset=legacy_by_dataset,
+        overall_semantic_confidence=overall
+    )
+
+    payload = {
+        "by_dataset": out,
+        "overall_semantic_confidence": overall,
+        "entities": {k: v.model_dump() for k, v in entities.items()},
+        "relationships": [r.model_dump() for r in relationships],
+        "semantic_model": enriched_model.model_dump()
+    }
     from agent.semantic_context import attach_contract_to_semantic_payload
 
     return attach_contract_to_semantic_payload(payload)

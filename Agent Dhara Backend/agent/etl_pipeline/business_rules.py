@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def normalize_business_rules(raw: Any) -> Dict[str, Any]:
@@ -107,3 +107,64 @@ def column_is_excluded(column: str | None, exclude: Any) -> bool:
     # Use lowercase set for matching but preserve original case in rules
     ex_lower = {str(c).lower() for c in (exclude if isinstance(exclude, (list, set, frozenset)) else list(exclude))}
     return column.strip().lower() in ex_lower
+
+
+def to_tagged_rules(rules: Dict[str, Any], dataset_name: str, assessment: Optional[Dict[str, Any]] = None) -> List[Any]:
+    from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
+    tagged = []
+    
+    # 1. Non-nullable columns
+    nn = rules.get("non_nullable") or []
+    for col in nn:
+        if "." in col:
+            parts = col.split(".")
+            if len(parts) >= 2 and parts[-2].lower() in dataset_name.lower():
+                col_name = parts[-1]
+            else:
+                continue
+        else:
+            col_name = col
+        
+        action = "fill_nulls_simple" if rules.get("never_drop_rows") else "fill_or_drop"
+        tagged.append(TaggedRule(
+            dataset=dataset_name,
+            column=col_name,
+            issue_type="nulls",
+            action=action,
+            provenance=RuleProvenance.BUSINESS_RULE,
+            source_detail="Business rule: non-nullable requirement"
+        ))
+        
+    # 2. Valid values
+    vv = rules.get("valid_values") or {}
+    for col, vals in vv.items():
+        col_name = col.split(".")[-1] if "." in col else col
+        if "." in col:
+            parts = col.split(".")
+            if not (len(parts) >= 2 and parts[-2].lower() in dataset_name.lower()):
+                continue
+        tagged.append(TaggedRule(
+            dataset=dataset_name,
+            column=col_name,
+            issue_type="invalid_lookup_value",
+            action="replace_values",
+            provenance=RuleProvenance.BUSINESS_RULE,
+            source_detail="Business rule: valid lookup values validation",
+            metadata={"valid_values": vals}
+        ))
+        
+    # 3. Steps from notes if assessment is provided
+    if assessment:
+        from agent.etl_pipeline.planner import _steps_from_business_notes
+        for ds, col, act, note in _steps_from_business_notes(rules, assessment):
+            if ds.lower() == dataset_name.lower():
+                tagged.append(TaggedRule(
+                    dataset=dataset_name,
+                    column=col,
+                    issue_type="business_notes",
+                    action=act,
+                    provenance=RuleProvenance.BUSINESS_RULE,
+                    source_detail=f"Business rule note: {note}"
+                ))
+                
+    return tagged

@@ -161,5 +161,28 @@
       "recommended": false,
       "description": "Exclude the OrderDate column from the output to avoid using weekend dates in analysis."
     }
+  ],
+  "metadata_manifest_mismatch": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": false,
+      "description": "No transform; document in runbook."
+    },
+    {
+      "id": "option_1",
+      "label": "Flag Missing Primary Key",
+      "action": "flag_outliers",
+      "recommended": true,
+      "description": "Add a boolean audit column to flag rows where the primary key 'customer_id' is missing, allowing for easier identification and handling of these records."
+    },
+    {
+      "id": "option_2",
+      "label": "Fill Nulls for Customer ID",
+      "action": "fill_nulls_simple",
+      "recommended": false,
+      "description": "Fill missing 'customer_id' values with a default value to maintain dataset integrity, though this may not be advisable without understanding the context."
+    }
   ]
 }

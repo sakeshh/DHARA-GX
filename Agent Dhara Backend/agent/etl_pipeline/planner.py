@@ -427,6 +427,7 @@ def build_etl_plan(
     source_context: Optional[Dict[str, Any]] = None,
     generation_mode: Optional[str] = "full",
     dq_recommendations: Optional[Dict[str, Any]] = None,
+    semantic_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build versioned ETL plan JSON from assessment + normalized business rules.
@@ -497,10 +498,61 @@ def build_etl_plan(
                 sem_schema[key]["description"] = str(term)[:500]
                 sem_schema[key]["inferred_by"] = "governance_semantic_context"
 
-    sug_pkg = suggest_transformations(assessment)
+    if semantic_context is None:
+        semantic_context = assessment.get("semantic_context") or {}
+
+    from agent.semantic_context import SemanticCleaningPlan
+    semantic_plan = None
+    if semantic_context:
+        sem_model = semantic_context.get("semantic_model")
+        if isinstance(sem_model, dict) and "entities" in sem_model:
+            try:
+                semantic_plan = SemanticCleaningPlan(
+                    entities=sem_model.get("entities") or {},
+                    relationships=sem_model.get("relationships") or [],
+                )
+            except Exception:
+                pass
+        if semantic_plan is None and "entities" in semantic_context:
+            try:
+                semantic_plan = SemanticCleaningPlan(
+                    entities=semantic_context.get("entities") or {},
+                    relationships=semantic_context.get("relationships") or [],
+                )
+            except Exception:
+                pass
+
+    sug_pkg = suggest_transformations(assessment, semantic_plan=semantic_plan)
     suggestions: List[Dict[str, Any]] = list(sug_pkg.get("suggested_transformations") or [])
     if source_context and "suggestions" in source_context:
         suggestions.extend(source_context["suggestions"])
+
+    # Load business rules as TaggedRules
+    from agent.etl_pipeline.business_rules import to_tagged_rules
+    business_tagged_rules = []
+    datasets_known = list(assessment.get("datasets") or {})
+    for ds_name in datasets_known:
+        business_tagged_rules.extend(to_tagged_rules(rules, ds_name, assessment=assessment))
+
+    # Append any business rules that aren't in suggestions already
+    for r in business_tagged_rules:
+        exists = False
+        for s in suggestions:
+            if s.get("dataset") == r.dataset and s.get("column") == r.column and s.get("suggested_action") == r.action:
+                exists = True
+                break
+        if not exists:
+            suggestions.append({
+                "dataset": r.dataset,
+                "column": r.column,
+                "issue_type": r.issue_type,
+                "severity": "medium",
+                "message": f"Business rule contract: {r.source_detail}",
+                "suggested_action": r.action,
+                "manual_guidance": "",
+                "row_count_affected": None,
+                "auto_fixable": True,
+            })
 
     # Merge LLM recommendations into suggestions
     if dq_recommendations:
@@ -574,10 +626,61 @@ def build_etl_plan(
                 new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
                 sug_map[new_key] = new_sug
 
+    # Run conflict detection on all TaggedRules (Component 11)
+    from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
+    from agent.etl_pipeline.conflict_detector import detect_conflicts
+    
+    all_tagged_rules = []
+    
+    # 1. Business rules
+    all_tagged_rules.extend(business_tagged_rules)
+    
+    # 2. Semantic rules
+    if semantic_plan:
+        try:
+            all_tagged_rules.extend(semantic_plan.to_tagged_rules())
+        except Exception:
+            pass
+            
+    # 3. Auto-detected rules from suggestions
+    existing_rule_keys = set()
+    for r in all_tagged_rules:
+        existing_rule_keys.add((r.dataset, r.column, r.issue_type, r.action))
+        
+    for s in suggestions:
+        ds = s.get("dataset") or ""
+        col = s.get("column") or ""
+        it = s.get("issue_type") or ""
+        act = s.get("suggested_action")
+        if act and act != "review_manually":
+            key = (ds, col, it, act)
+            if key not in existing_rule_keys:
+                all_tagged_rules.append(TaggedRule(
+                    dataset=ds,
+                    column=col,
+                    issue_type=it,
+                    action=act,
+                    provenance=RuleProvenance.AUTO_DETECTED,
+                    source_detail=s.get("message") or "Auto-detected DQ rule"
+                ))
+                existing_rule_keys.add(key)
+                
+    # Detect conflicts and resolve them
+    resolved_rules, conflicts = detect_conflicts(all_tagged_rules)
+    
+    resolved_map = {}
+    for r in resolved_rules:
+        resolved_map[(r.dataset, r.column, r.issue_type)] = r
+        
+    conflicts_map = {}
+    for c in conflicts:
+        conflicts_map[(c.dataset, c.column, c.issue_type)] = c
+
     manual_review: List[Dict[str, Any]] = []
     blocked: List[Dict[str, Any]] = []
     # (dataset, column, action, issue_type) -> step record
     step_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+    added_conflicts = set()
 
     datasets_known = set((assessment.get("datasets") or {}).keys())
 
@@ -611,6 +714,32 @@ def build_etl_plan(
     for s in suggestions:
         ds = s.get("dataset") or ""
         col = s.get("column")
+        issue_type = s.get("issue_type") or ""
+        
+        conflict_key = (ds, col, issue_type)
+        if conflict_key in conflicts_map:
+            if conflict_key not in added_conflicts:
+                added_conflicts.add(conflict_key)
+                conflict = conflicts_map[conflict_key]
+                conflict_item = {
+                    "dataset": ds or None,
+                    "column": col,
+                    "issue_type": issue_type,
+                    "severity": "high",
+                    "message": f"Conflict detected on '{col}' ({issue_type}): competing rules exist.",
+                    "guidance": "Please select which rule action to apply. The highest priority rule action is pre-selected.",
+                }
+                manual_review.append(
+                    enrich_manual_review_item(
+                        conflict_item,
+                        conflict=conflict
+                    )
+                )
+            continue
+            
+        if conflict_key in resolved_map:
+            s["suggested_action"] = resolved_map[conflict_key].action
+
         action = str(s.get("suggested_action") or "")
         sev = str(s.get("severity") or "medium").lower()
 

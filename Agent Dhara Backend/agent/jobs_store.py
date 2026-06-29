@@ -51,6 +51,17 @@ def _connect() -> sqlite3.Connection:
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id, id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS job_checkpoints (
+          job_id TEXT NOT NULL,
+          stage TEXT NOT NULL,
+          ts REAL NOT NULL,
+          stage_output_json TEXT NOT NULL,
+          PRIMARY KEY (job_id, stage)
+        )
+        """
+    )
     return conn
 
 
@@ -185,6 +196,40 @@ def update_job_progress(job_id: str, progress: int) -> None:
             (time.time(), int(progress), job_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_checkpoint(job_id: str, stage: str, stage_output: Dict[str, Any]) -> None:
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO job_checkpoints(job_id, stage, ts, stage_output_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                job_id,
+                stage,
+                time.time(),
+                json.dumps(stage_output, ensure_ascii=False, default=str),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_checkpoint(job_id: str, stage: str) -> Optional[Dict[str, Any]]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT stage_output_json FROM job_checkpoints WHERE job_id=? AND stage=?",
+            (job_id, stage),
+        ).fetchone()
+        if not row:
+            return None
+        return json.loads(row[0])
     finally:
         conn.close()
 
