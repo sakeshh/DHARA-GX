@@ -1103,6 +1103,7 @@ def etl_generate_code(
     flow_update: Dict[str, Any] = {
         "code": combined_code,
         "target_engine": eng,
+        "codegen_engine": eng,
         "validation_ok": ok,
         "validation_errors": errs or [],
         "generated_by": generated_by,
@@ -1437,6 +1438,9 @@ def etl_execute_sql(
             _transition(flow, "downloadable", by="system", reason="sql_execution_succeeded")
         except ValueError:
             flow["phase"] = "downloadable"
+
+    if "fabric_mirror_result" in flow:
+        result["fabric_mirror_result"] = flow["fabric_mirror_result"]
 
     save_session(sess)
     result["session_id"] = sid
