@@ -583,3 +583,17 @@ def action_for_resolution(issue_type: str, resolution_id: str, options: Optional
 
 def is_skip_action(action: str) -> bool:
     return (action or "").strip().lower() in _SKIP_ACTIONS
+
+
+def get_catalog_guidance(issue_type: str) -> str:
+    """
+    Returns the recommended resolution description from _CATALOG for a given issue type.
+    """
+    if not issue_type:
+        return ""
+    options = _CATALOG.get(issue_type) or []
+    rec_opt = next((o for o in options if o.get("recommended")), None)
+    if rec_opt:
+        return rec_opt.get("description") or rec_opt.get("label") or ""
+    return ""
+

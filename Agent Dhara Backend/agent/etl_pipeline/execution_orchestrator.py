@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from agent.etl_pipeline.validate_sql import validate_sql_basic
+from agent.sql_preflight import run_sql_preflight
 from agent.azure_sql_executor import (
     check_requires_approval,
     get_connection,
@@ -20,6 +21,44 @@ from agent.azure_sql_executor import (
 from agent.execution import execute_plan, ExecutionPlan, ExecutionEngine
 
 logger = logging.getLogger("agent.etl_pipeline.execution_orchestrator")
+
+
+def post_etl_regen_if_needed(
+    post_validation_report: dict,
+    original_plan: dict,
+    assessment: dict,
+    engine: str,
+    connection_string: str | None = None,
+) -> str | None:
+    """
+    If post-ETL validation found regressions, attempt one ETL patch.
+    Returns patched SQL or None if no regen needed.
+    """
+    if post_validation_report.get("ok", True):
+        return None
+    
+    regressions = post_validation_report.get("deltas", {}).get("regressions") or []
+    if not regressions:
+        return None
+    
+    from agent.etl_pipeline.llm_codegen import generate_etl_with_llm
+    
+    fix_hints = []
+    for reg in regressions:
+        col = reg.get("column") or "?"
+        ds = reg.get("table") or "?"
+        issue = reg.get("issue") or "quality regression"
+        fix_hints.append(f"[{ds}] column {col}: {issue} worsened after ETL — fix the transform")
+    
+    patched_code = generate_etl_with_llm(
+        original_plan, assessment, engine=engine,
+        validation_errors=fix_hints
+    )
+    
+    if patched_code.startswith("# Error") or patched_code.startswith("Error:"):
+        return None
+    
+    return patched_code
 
 
 def orchestrate_sql_execution(
@@ -61,6 +100,32 @@ def orchestrate_sql_execution(
                 "batch_count": 0,
                 "row_deltas": {},
                 "rollback_reason": "SQL basic validation failed",
+            },
+            "timestamp_utc": now_str,
+        }
+
+    # 1b. T-SQL preflight (NEW GATE)
+    preflight = run_sql_preflight(sql)
+    if not preflight.get("passed", True):
+        preflight_errors = preflight.get("errors") or []
+        return {
+            "ok": False,
+            "stage": "preflight",
+            "run_id": rid,
+            "session_id": session_id,
+            "approved": approved,
+            "dry_run": dry_run,
+            "validation_errors": preflight_errors,
+            "requires_approval": False,
+            "ops_found": [],
+            "execution": {},
+            "post_execution_summary": {
+                "transaction_committed": False,
+                "total_rows_affected": 0,
+                "total_duration_ms": 0.0,
+                "batch_count": 0,
+                "row_deltas": {},
+                "rollback_reason": "SQL preflight validation failed",
             },
             "timestamp_utc": now_str,
         }
@@ -154,6 +219,31 @@ def orchestrate_sql_execution(
         except Exception as e:
             logger.debug(f"Post-ETL validation run failed: {e}")
 
+    # Attempt regen on regressions
+    regen_patch_available = False
+    regen_patch_sql = None
+    if not post_validation_report.get("ok", True) and assessment:
+        try:
+            from agent.session_store import load_session
+            sess = load_session(session_id)
+            ctx = sess.get("context") or {}
+            flow = ctx.get("etl_flow") or {}
+            original_plan = flow.get("approved_plan")
+            engine = flow.get("codegen_engine") or "sql"
+            if original_plan:
+                patched = post_etl_regen_if_needed(
+                    post_validation_report,
+                    original_plan,
+                    assessment,
+                    engine,
+                    connection_string
+                )
+                if patched:
+                    regen_patch_available = True
+                    regen_patch_sql = patched
+        except Exception as e:
+            logger.debug(f"Regen patch attempt failed: {e}")
+
     post_execution_summary = {
         "transaction_committed": committed,
         "total_rows_affected": total_rows,
@@ -162,6 +252,8 @@ def orchestrate_sql_execution(
         "row_deltas": row_deltas,
         "rollback_reason": rollback_reason,
         "post_etl_validation": post_validation_report,
+        "regen_patch_available": regen_patch_available,
+        "regen_patch_sql": regen_patch_sql,
     }
 
     return {

@@ -111,3 +111,60 @@ def check_dq_gate(
         "details": res["details"],
         "has_high_pii": has_high_pii,
     }
+
+
+def evaluate_dq_gate(
+    assessment: Dict[str, Any],
+    rules: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Evaluates the data quality gate for all datasets in the assessment.
+    Returns:
+        Dict: {
+            "passed": bool,
+            "blocking_issues": List[Dict[str, Any]],
+            "warnings": List[Dict[str, Any]]
+        }
+    """
+    datasets = (assessment or {}).get("datasets") or {}
+    rules = rules or {}
+    threshold = float(rules.get("dq_threshold") or 70.0)
+    force_unlock_list = list(rules.get("force_unlock") or [])
+    sem_schema = rules.get("semantic_overrides") or {}
+
+    blocking_issues = []
+    warnings = []
+    all_passed = True
+
+    for ds_name in datasets.keys():
+        force = ds_name in force_unlock_list
+        res = check_dq_gate(assessment, ds_name, threshold, force, sem_schema)
+        score = res.get("score", 100.0)
+        
+        # Calculate if we passed without force_unlock
+        passed_without_force = score >= res.get("threshold", threshold)
+        
+        if not res.get("passed", True):
+            all_passed = False
+            # Find the lowest quality score details to explain why it blocked
+            blocking_issues.append({
+                "dataset": ds_name,
+                "score": score,
+                "threshold": res.get("threshold", threshold),
+                "reason": f"Data quality score ({score}%) is below the required threshold ({res.get('threshold', threshold)}%).",
+                "details": res.get("details", {})
+            })
+        elif not passed_without_force and force:
+            warnings.append({
+                "dataset": ds_name,
+                "score": score,
+                "threshold": res.get("threshold", threshold),
+                "reason": f"Dataset passed quality gate via force_unlock override. Raw score: {score}%."
+            })
+            
+    return {
+        "passed": all_passed,
+        "blocking_issues": blocking_issues,
+        "warnings": warnings,
+    }
+

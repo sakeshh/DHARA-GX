@@ -624,6 +624,10 @@ def etl_plan_start(
         }
     )
 
+    from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+    cov_report = build_coverage_report(assess, plan)
+    plan["coverage_report"] = cov_report
+
     save_session(sess)
     logger.info(
         "etl_plan_start session=%s plan_id=%s ok=%s steps=%s latency_ms=%.0f",
@@ -648,6 +652,7 @@ def etl_plan_start(
         "source_context": src_ctx,
         "recommended_codegen_engine": ce,
         "recommended_sql_dialect": sd,
+        "coverage_report": cov_report,
         "message": (
             None
             if plan_success
@@ -1015,6 +1020,29 @@ def etl_generate_code(
             "message": "Confirm the plan first (POST /etl/confirm).",
         }
     plan = _rehydrate_plan(plan, ctx)
+    non_fixable = ctx.get("non_fixable_resolutions") or []
+    if non_fixable:
+        from agent.etl_pipeline.manual_review_promote import promote_non_fixable_resolutions
+        plan = promote_non_fixable_resolutions(plan, non_fixable)
+        
+    semantic_context = assess.get("semantic_context") or {}
+    domain_rules = {}
+    business_keys = {}
+    for ds_name, v in (semantic_context.get("by_dataset") or {}).items():
+        if isinstance(v, dict):
+            rules_list = v.get("suggested_domain_rules") or []
+            keys_list = v.get("likely_key_columns") or []
+        else:
+            rules_list = getattr(v, "suggested_domain_rules", []) or []
+            keys_list = getattr(v, "likely_key_columns", []) or []
+        for r in rules_list:
+            if isinstance(r, dict) and r.get("column"):
+                domain_rules[f"{ds_name}.{r['column']}"] = r
+        if keys_list:
+            business_keys[ds_name] = keys_list
+            
+    plan["domain_rules"] = domain_rules
+    plan["business_keys"] = business_keys
     plan["generation_mode"] = generation_mode or plan.get("generation_mode") or flow.get("etl_intent", {}).get("generation_mode") or "full"
 
     # Resolve default codegen engine and dialect dynamically using SourceDescriptor
@@ -1490,3 +1518,47 @@ def etl_execute_sql(
     save_session(sess)
     result["session_id"] = sid
     return result
+
+
+def etl_save_non_fixable_resolutions(session_id: str, resolutions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    sid = (session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    ctx = _ctx(sess)
+    ctx["non_fixable_resolutions"] = resolutions
+    save_session(sess)
+    return {"ok": True, "session_id": sid, "message": "Saved non-fixable resolutions to session."}
+
+
+def etl_patch_regen_code(session_id: str, post_validation_report: Dict[str, Any]) -> Dict[str, Any]:
+    sid = (session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    ctx = _ctx(sess)
+    assess = _get_assessment(sess, None)
+    flow = ctx.setdefault("etl_flow", {})
+    original_plan = flow.get("approved_plan")
+    engine = flow.get("codegen_engine") or "sql"
+    
+    if not original_plan or not assess:
+        return {"ok": False, "message": "No active assessment or approved plan found for patch regeneration."}
+        
+    from agent.etl_pipeline.execution_orchestrator import post_etl_regen_if_needed
+    patched = post_etl_regen_if_needed(
+        post_validation_report,
+        original_plan,
+        assess,
+        engine
+    )
+    if not patched:
+        return {"ok": False, "message": "Regeneration did not produce any code changes or failed."}
+        
+    flow["code"] = patched
+    save_session(sess)
+    
+    return {
+        "ok": True,
+        "session_id": sid,
+        "patched_code": patched,
+        "message": "ETL plan successfully patched and regenerated."
+    }
+
+

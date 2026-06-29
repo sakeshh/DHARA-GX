@@ -61,3 +61,62 @@ def lint_generated_sql(sql: str, dialect: str = "tsql") -> Dict[str, Any]:
             "errors": [],
             "message": f"sqlfluff failed internally: {e}. SQL skipped."
         }
+
+
+def run_sql_preflight(sql: str) -> Dict[str, Any]:
+    """
+    Run SQL preflight syntax linting (sqlfluff) plus custom pattern/compatibility checks.
+    Returns:
+        Dict: {
+            "passed": bool,
+            "errors": List[str],
+            "warnings": List[str]
+        }
+    """
+    errors: List[str] = []
+    warnings: List[str] = []
+
+    if not sql or not sql.strip():
+        return {"passed": True, "errors": [], "warnings": []}
+
+    # Custom Dialect compatibility check (Regex patterns)
+    import re
+    upper_sql = sql.upper()
+
+    # Look for common non-T-SQL syntax
+    # 1. CREATE TABLE IF NOT EXISTS
+    if "CREATE TABLE IF NOT EXISTS" in upper_sql:
+        errors.append("Invalid T-SQL: 'CREATE TABLE IF NOT EXISTS' is not supported in T-SQL. Use sys.tables check instead.")
+
+    # 2. CREATE OR REPLACE
+    if "CREATE OR REPLACE" in upper_sql:
+        errors.append("Invalid T-SQL: 'CREATE OR REPLACE' is not supported in T-SQL (typically MySQL/PostgreSQL syntax).")
+
+    # 3. AUTO_INCREMENT
+    if "AUTO_INCREMENT" in upper_sql:
+        errors.append("Invalid T-SQL: 'AUTO_INCREMENT' is MySQL syntax. Use 'IDENTITY(1,1)' in T-SQL.")
+
+    # 4. ON CONFLICT
+    if "ON CONFLICT" in upper_sql:
+        errors.append("Invalid T-SQL: 'ON CONFLICT' is PostgreSQL syntax. Use MERGE or IF NOT EXISTS check.")
+
+    # 5. SERIAL (must be word boundaries to not flag words like SERIALIZE/SERIALIZER)
+    if re.search(r"\bSERIAL\b", upper_sql):
+        errors.append("Invalid T-SQL: 'SERIAL' is PostgreSQL syntax. Use 'IDENTITY(1,1)' in T-SQL.")
+
+    # Run sqlfluff if available
+    lint_res = lint_generated_sql(sql)
+    if not lint_res.get("ok", True):
+        # Translate lint errors
+        for err in lint_res.get("errors") or []:
+            desc = err.get("description") or "SQL lint violation"
+            line = err.get("line")
+            col = err.get("column")
+            errors.append(f"Lint violation (line {line}, col {col}): {desc}")
+
+    return {
+        "passed": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+    }
+

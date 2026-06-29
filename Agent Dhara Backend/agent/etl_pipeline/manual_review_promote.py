@@ -199,3 +199,68 @@ def enrich_plan_manual_review(plan: Dict[str, Any]) -> Dict[str, Any]:
     plan = dict(plan)
     plan["manual_review"] = enriched
     return plan
+
+
+def promote_non_fixable_resolutions(
+    plan: Dict[str, Any],
+    non_fixable_resolutions: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    Merge user-decided resolutions for non-fixable issues into the ETL plan steps.
+    Each resolution becomes a real step in plan.datasets[ds].steps.
+    """
+    resolution_step_map = {
+        "quarantine":         {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
+        "flag":               {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
+        "fill_null":          {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
+        "accept_risk":        None,  # No step — just document in blocked[]
+        "custom":             None,  # Custom step built from user_note via LLM
+    }
+    
+    updated_plan = dict(plan)
+    datasets = dict(plan.get("datasets") or {})
+    blocked = list(plan.get("blocked") or [])
+    
+    for res in (non_fixable_resolutions or []):
+        ds = res.get("dataset")
+        col = res.get("column")
+        strategy = res.get("strategy") or "accept_risk"
+        
+        if not ds or ds not in datasets:
+            continue
+        
+        step_template = resolution_step_map.get(strategy)
+        if step_template is None:
+            # accept_risk → add to blocked (documented)
+            blocked.append({
+                "dataset": ds,
+                "column": col,
+                "reason": "non_fixable_accepted_risk",
+                "user_note": res.get("user_note", ""),
+                "acknowledged_at": res.get("timestamp"),
+            })
+            continue
+        
+        # Build step and append to dataset steps
+        ds_block = dict(datasets[ds])
+        steps = list(ds_block.get("steps") or [])
+        max_order = max((s.get("order", 0) for s in steps), default=0)
+        new_step = {
+            "order": max_order + 1,
+            "column": col,
+            "action": step_template["action"],
+            "bucket": "cleanse",
+            "phase": "cleanse",
+            "priority": 80,
+            "params": dict(step_template["params"]),
+            "note": f"User resolution: {strategy}. {res.get('user_note', '')}",
+            "source": "non_fixable_user_resolution",
+        }
+        steps.append(new_step)
+        ds_block["steps"] = steps
+        datasets[ds] = ds_block
+    
+    updated_plan["datasets"] = datasets
+    updated_plan["blocked"] = blocked
+    return updated_plan
+

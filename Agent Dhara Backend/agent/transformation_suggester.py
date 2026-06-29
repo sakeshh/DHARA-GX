@@ -489,6 +489,36 @@ def suggest_transformations(
             }
         )
 
+    for inc in global_issues.get("cross_dataset_inconsistencies", []) or []:
+        col = inc.get("column")
+        if not col:
+            continue
+        # Find all datasets containing this column
+        for ds_name, ds_meta in datasets_meta.items():
+            if not isinstance(ds_meta, dict):
+                continue
+            cols = ds_meta.get("columns") or {}
+            if col in cols:
+                # Deduplicate check
+                exists = False
+                for s in suggested:
+                    if s["dataset"] == ds_name and s["column"] == col and s["suggested_action"] in ("cast_type", "parse_dates"):
+                        exists = True
+                        break
+                if not exists:
+                    suggested.append({
+                        "dataset": ds_name,
+                        "column": col,
+                        "issue_type": inc.get("type") or "cross_dataset_mixed_type",
+                        "severity": inc.get("severity") or "high",
+                        "message": inc.get("message") or f"Column '{col}' has conflicting types across datasets.",
+                        "suggested_action": "cast_type",
+                        "manual_guidance": "",
+                        "row_count_affected": None,
+                        "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
+                    })
+
     # Summary
     by_action: Dict[str, int] = {}
     by_dataset_count: Dict[str, int] = {}
