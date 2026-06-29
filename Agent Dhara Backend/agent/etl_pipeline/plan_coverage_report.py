@@ -41,6 +41,14 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
         col = item.get("column")
         if col:
             planned_cols.add((ds.lower(), col.lower()))
+
+    # 3b. Collect columns in non_fixable
+    non_fixable = (plan or {}).get("non_fixable") or []
+    for item in non_fixable:
+        ds = item.get("dataset") or "global"
+        col = item.get("column")
+        if col:
+            planned_cols.add((ds.lower(), col.lower()))
             
     # 4. Iterate over quality issues in the assessment
     ass_datasets = (assessment or {}).get("datasets") or {}

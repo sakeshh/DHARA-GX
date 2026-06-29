@@ -284,3 +284,58 @@ def test_manual_review_resolution_rebuild():
     assert any(s["column"] == "critical_col" and s["action"] == "fill_nulls_simple" for s in steps)
 
 
+# 10. Test Code Generation Coverage Gate
+def test_codegen_coverage_gate():
+    from agent.etl_handlers import etl_generate_code
+    from agent.session_store import save_session, load_session, reset_session
+    from agent.etl_handlers import _ctx
+
+    sid = "test_coverage_gate_session"
+    reset_session(sid)
+    sess = load_session(sid)
+    ctx = _ctx(sess)
+
+    assess = {
+        "datasets": {
+            "ds1": {
+                "columns": {
+                    "col1": {"dtype": "int"}
+                }
+            }
+        },
+        "data_quality_issues": {
+            "datasets": {
+                "ds1": {
+                    "issues": [
+                        {"column": "col1", "type": "nulls", "severity": "medium", "message": "nulls"}
+                    ]
+                }
+            }
+        }
+    }
+    ctx["last_assessment_result"] = assess
+    
+    flow = {
+        "phase": "approved",
+        "approved_plan": {
+            "plan_id": "test_plan",
+            "datasets": {
+                "ds1": {
+                    "steps": []
+                }
+            },
+            "manual_review": [],
+            "non_fixable": [],
+        }
+    }
+    ctx["etl_flow"] = flow
+    save_session(sess)
+
+    res = etl_generate_code(sid, engine="python")
+    assert res["ok"] is False
+    assert res["error"] == "UNCOVERED_ISSUES"
+    assert len(res["uncovered"]) == 1
+    assert res["uncovered"][0]["column"] == "col1"
+
+
+

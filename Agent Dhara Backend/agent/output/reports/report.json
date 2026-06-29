@@ -6,73 +6,6 @@
       "data_volume_bytes": 16462,
       "sampling_info": "Full dataset has 51 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.",
       "columns": {
-        "department": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 51,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 51
-          },
-          "null_percentage": 0.0,
-          "null_count": 0,
-          "type_confidence": 0.92,
-          "unique_count": 3,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "CSE",
-            "cse",
-            "IT",
-            "IT",
-            "CSE",
-            "ECE",
-            "ECE",
-            "ECE",
-            "CSE",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT",
-            "IT"
-          ],
-          "duplicate_value_count": 50,
-          "server_min": "CSE",
-          "server_max": "IT",
-          "sql_data_type": "varchar",
-          "min": "CSE",
-          "max": "IT",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "low",
-            "outlier_action_hint": null,
-            "format_variants": []
-          }
-        },
         "course_id": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -201,7 +134,7 @@
             "semantic_type": "text",
             "mixed_formats_suspected": true,
             "business_importance": "high",
-            "cleaning_priority": "medium",
+            "cleaning_priority": "high",
             "outlier_action_hint": null,
             "format_variants": []
           }
@@ -264,6 +197,73 @@
           "sql_data_type": "varchar",
           "min": "",
           "max": "Inst9",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": []
+          }
+        },
+        "department": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 3,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "CSE",
+            "cse",
+            "IT",
+            "IT",
+            "CSE",
+            "ECE",
+            "ECE",
+            "ECE",
+            "CSE",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT",
+            "IT"
+          ],
+          "duplicate_value_count": 50,
+          "server_min": "CSE",
+          "server_max": "IT",
+          "sql_data_type": "varchar",
+          "min": "CSE",
+          "max": "IT",
           "llm_hints": {
             "semantic_type": "text",
             "mixed_formats_suspected": true,
@@ -341,7 +341,7 @@
             "semantic_type": "numeric",
             "mixed_formats_suspected": true,
             "business_importance": "high",
-            "cleaning_priority": "critical",
+            "cleaning_priority": "high",
             "outlier_action_hint": "check for negative values",
             "format_variants": [],
             "null_pattern": {
@@ -427,12 +427,12 @@
         }
       },
       "priority_columns": [
-        "instructor",
-        "credits",
         "fee",
+        "credits",
         "course_id",
+        "department",
         "course_name",
-        "department"
+        "instructor"
       ],
       "source_root": "__database__:SQL data",
       "quality": {
@@ -1232,6 +1232,6 @@
     }
   },
   "run_metadata": {
-    "generated_at": "2026-06-29T18:03:25.583390+00:00"
+    "generated_at": "2026-06-29T18:11:46.911568+00:00"
   }
 }
