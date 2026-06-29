@@ -541,16 +541,26 @@ def etl_plan_start(
     assess["etl_readiness"] = readiness
     if readiness["blockers"]:
         existing = plan.get("manual_review") or []
+        resolved = plan.get("resolved_manual_review") or []
         for blocker in readiness["blockers"]:
             b_ds = blocker.get("dataset")
             b_col = blocker.get("column")
             b_it = blocker.get("issue_type") or "unknown"
-            if not any(
+            
+            in_pending = any(
                 str(m.get("dataset")).lower() == str(b_ds).lower() and
                 str(m.get("column")).lower() == str(b_col).lower() and
                 str(m.get("issue_type")).lower() == str(b_it).lower()
                 for m in existing if isinstance(m, dict)
-            ):
+            )
+            in_resolved = any(
+                str(m.get("dataset")).lower() == str(b_ds).lower() and
+                str(m.get("column")).lower() == str(b_col).lower() and
+                str(m.get("issue_type")).lower() == str(b_it).lower()
+                for m in resolved if isinstance(m, dict)
+            )
+            
+            if not in_pending and not in_resolved:
                 plan.setdefault("manual_review", []).append({
                     "dataset": b_ds,
                     "column": b_col,
