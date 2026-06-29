@@ -6,85 +6,6 @@
       "data_volume_bytes": 16462,
       "sampling_info": "Full dataset has 51 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.",
       "columns": {
-        "credits": {
-          "dtype": "object",
-          "dtype_inference": "numeric_like",
-          "type_distribution": {
-            "counts": {
-              "str": 50,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 50
-          },
-          "null_percentage": 0.0196078431372549,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 5,
-          "semantic_type": "numeric_id",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "4",
-            "four",
-            "3",
-            "-1",
-            "3.5",
-            "3.5",
-            "3.5",
-            "4",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3",
-            "3"
-          ],
-          "duplicate_value_count": 48,
-          "mean": 2.989795918367347,
-          "median": 3.0,
-          "std": 0.6249149602009807,
-          "skew": -5.4336,
-          "p5": 3.0,
-          "p95": 3.5,
-          "server_min": "-1",
-          "server_max": "four",
-          "sql_data_type": "varchar",
-          "min": "-1",
-          "max": "four",
-          "llm_hints": {
-            "semantic_type": "numeric",
-            "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "high",
-            "outlier_action_hint": "consider standardizing to numeric values",
-            "format_variants": [],
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "course_id",
-              "concentrated_in_value": "C004",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
         "department": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -146,75 +67,8 @@
           "llm_hints": {
             "semantic_type": "text",
             "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "format_variants": []
-          }
-        },
-        "course_name": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 51,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 51
-          },
-          "null_percentage": 0.0,
-          "null_count": 0,
-          "type_confidence": 0.92,
-          "unique_count": 49,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "Data Science",
-            "machine learning ",
-            "AI",
-            "DBMS",
-            "Cloud",
-            "Cyber Security",
-            "Cyber Security",
-            "Cyber Security",
-            " Big Data ",
-            "Course9",
-            "Course10",
-            "Course11",
-            "Course12",
-            "Course13",
-            "Course14",
-            "Course15",
-            "Course16",
-            "Course17",
-            "Course18",
-            "Course19"
-          ],
-          "duplicate_value_count": 3,
-          "server_min": " Big Data ",
-          "server_max": "machine learning ",
-          "sql_data_type": "varchar",
-          "min": " Big Data ",
-          "max": "machine learning ",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "medium",
+            "business_importance": "medium",
+            "cleaning_priority": "low",
             "outlier_action_hint": null,
             "format_variants": []
           }
@@ -285,6 +139,73 @@
             "outlier_action_hint": null
           }
         },
+        "course_name": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 51,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 51
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 49,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Data Science",
+            "machine learning ",
+            "AI",
+            "DBMS",
+            "Cloud",
+            "Cyber Security",
+            "Cyber Security",
+            "Cyber Security",
+            " Big Data ",
+            "Course9",
+            "Course10",
+            "Course11",
+            "Course12",
+            "Course13",
+            "Course14",
+            "Course15",
+            "Course16",
+            "Course17",
+            "Course18",
+            "Course19"
+          ],
+          "duplicate_value_count": 3,
+          "server_min": " Big Data ",
+          "server_max": "machine learning ",
+          "sql_data_type": "varchar",
+          "min": " Big Data ",
+          "max": "machine learning ",
+          "llm_hints": {
+            "semantic_type": "text",
+            "mixed_formats_suspected": true,
+            "business_importance": "high",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": []
+          }
+        },
         "instructor": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -350,6 +271,85 @@
             "cleaning_priority": "medium",
             "outlier_action_hint": null,
             "format_variants": []
+          }
+        },
+        "credits": {
+          "dtype": "object",
+          "dtype_inference": "numeric_like",
+          "type_distribution": {
+            "counts": {
+              "str": 50,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 50
+          },
+          "null_percentage": 0.0196078431372549,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 5,
+          "semantic_type": "numeric_id",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "4",
+            "four",
+            "3",
+            "-1",
+            "3.5",
+            "3.5",
+            "3.5",
+            "4",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3",
+            "3"
+          ],
+          "duplicate_value_count": 48,
+          "mean": 2.989795918367347,
+          "median": 3.0,
+          "std": 0.6249149602009807,
+          "skew": -5.4336,
+          "p5": 3.0,
+          "p95": 3.5,
+          "server_min": "-1",
+          "server_max": "four",
+          "sql_data_type": "varchar",
+          "min": "-1",
+          "max": "four",
+          "llm_hints": {
+            "semantic_type": "numeric",
+            "mixed_formats_suspected": true,
+            "business_importance": "high",
+            "cleaning_priority": "critical",
+            "outlier_action_hint": "check for negative values",
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "course_id",
+              "concentrated_in_value": "C004",
+              "fill_strategy_hint": "flag_only"
+            }
           }
         },
         "fee": {
@@ -421,18 +421,18 @@
             "mixed_formats_suspected": true,
             "business_importance": "low",
             "cleaning_priority": "low",
-            "outlier_action_hint": "consider validating against expected fee formats",
+            "outlier_action_hint": null,
             "format_variants": []
           }
         }
       },
       "priority_columns": [
-        "department",
-        "course_id",
-        "fee",
         "instructor",
+        "credits",
+        "fee",
+        "course_id",
         "course_name",
-        "credits"
+        "department"
       ],
       "source_root": "__database__:SQL data",
       "quality": {
@@ -1232,6 +1232,6 @@
     }
   },
   "run_metadata": {
-    "generated_at": "2026-06-29T14:22:36.225156+00:00"
+    "generated_at": "2026-06-29T18:03:25.583390+00:00"
   }
 }

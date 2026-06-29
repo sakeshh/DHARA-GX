@@ -211,10 +211,11 @@ def test_cross_dataset_inconsistency_mapping():
 # 9. Test Manual Review Resolution Rebuild
 def test_manual_review_resolution_rebuild():
     from agent.etl_handlers import etl_apply_manual_resolutions, etl_plan_start
-    from agent.session_store import save_session, load_session
+    from agent.session_store import save_session, load_session, reset_session
     from agent.etl_handlers import _ctx
     
     sid = "test_resolution_rebuild_session"
+    reset_session(sid)
     sess = load_session(sid)
     ctx = _ctx(sess)
     
