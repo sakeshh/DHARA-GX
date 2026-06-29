@@ -66,20 +66,11 @@
 
 | Priority | Dataset | Column | Severity | Suggested Fix | Risk |
 |---|---|---|---|---|---|
-| 99 | `dbo.courses_raw` | `[Row-level]` | high | Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `credits` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `course_name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `instructor` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `fee` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `instructor` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `credits` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `[Row-level]` | medium | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `course_name` | low | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `credits` | low | Strings significantly longer than the column average may contain concatenated data or free-text errors. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `fee` | low | Strings significantly longer than the column average may contain concatenated data or free-text errors. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `department` | low | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `fee` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.courses_raw` | `instructor` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 1 | `dbo.courses_raw` | `[Row-level]` | high | Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL. | High risk of data corruption and integrity loss. |
+| 2 | `dbo.courses_raw` | `credits` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Medium risk of misleading data analysis. |
+| 3 | `dbo.courses_raw` | `instructor` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Medium risk of data quality issues affecting reporting. |
+| 4 | `dbo.courses_raw` | `credits` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Low risk of data analysis errors. |
+| 5 | `dbo.courses_raw` | `course_name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Low risk of data inconsistency. |
 
 ### What might still be missed
 

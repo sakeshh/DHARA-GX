@@ -1135,7 +1135,7 @@ button.dataset-toggle:active {
 <header class="masthead">
   <div class="tagline">Intelligent data assessment</div>
   <h1>Assessment report</h1>
-  <div class="sub">Generated 2026-06-30 00:33:38</div>
+  <div class="sub">Generated 2026-06-30 01:11:27</div>
 </header>
 </div>
 <section id="dq-scorecard" class="dq-scorecard-section"><div class="scorecard-banner scorecard-ready"><div class="scorecard-verdict-row"><span class="v-ico">✅</span> <span class="v-text">Data quality verdict: <strong>READY</strong></span></div><div class="scorecard-metrics">Overall DQ score: <strong>95.0</strong> / 100 · High severity issues: <strong>1</strong> · Rows affected by HIGH: <strong>2</strong> · <span title="Based on summed HIGH issue counts; same row may be counted multiple times — value is clamped 0–100%.">Approx. row share unaffected by HIGH (UI estimate): <strong>96.1%</strong></span></div><div class="scorecard-bar-list"><div class="ds-score-row"><span class="ds-name">dbo.courses_raw</span><div class="score-bar"><div class="score-fill score-fill-high" style="width:95.0%"></div></div><span class="score-value">95.0/100</span><span class="badge badge-ready">✅ READY</span></div></div></div><div class="manifest-callout"><strong>Machine-readable manifest</strong> — export run writes <code>cleaning_manifest.json</code> next to <code>report.html</code>. Use it when implementing ETL: issues, row indexes, samples, and recommended actions.</div></section>
@@ -1162,225 +1162,81 @@ button.dataset-toggle:active {
             
             <div class="rec-card border-sev-high">
               <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
+                <span class="pill-priority">Priority 1</span>
                 <span class="pill-dataset">dbo.courses_raw.[Row-level]</span>
                 <span class="pill-sev badge sev-high">HIGH</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>duplicate_primary_key</code></h4>
                 <p class="rec-fix-text"><strong>Suggested Fix:</strong> Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 2 duplicate in candidate PK</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> Duplicate primary keys can lead to data integrity issues and incorrect query results.</p>
                 
                 
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.credits</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 null/placeholder</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.course_name</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>whitespace</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 2 leading/trailing spaces</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.instructor</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>whitespace</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 leading/trailing spaces</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.fee</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>whitespace</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 leading/trailing spaces</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.instructor</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 null/placeholder</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ High risk of data corruption and integrity loss.</p>
               </div>
             </div>
             
             <div class="rec-card border-sev-medium">
               <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
+                <span class="pill-priority">Priority 2</span>
                 <span class="pill-dataset">dbo.courses_raw.credits</span>
                 <span class="pill-sev badge sev-medium">MEDIUM</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>sentinel_numeric_value</code></h4>
                 <p class="rec-fix-text"><strong>Suggested Fix:</strong> Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 sentinel/magic number(s) detected (e.g. -999, 9999999)</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> Sentinel values can mislead analyses and indicate data entry errors.</p>
                 
                 
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Medium risk of misleading data analysis.</p>
               </div>
             </div>
             
             <div class="rec-card border-sev-medium">
               <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.[Row-level]</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>near_duplicate_rows</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Found 5 pair(s) of near-duplicate rows withsimilarity &gt;= 0.92</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.course_name</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>all_caps_values</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 2 ALL-CAPS value(s) mixed with 49 mixed/lower-case</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.credits</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>string_length_outlier</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Strings significantly longer than the column average may contain concatenated data or free-text errors.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 value(s) exceed 4 chars (mean=1, σ=1)</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.fee</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>string_length_outlier</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Strings significantly longer than the column average may contain concatenated data or free-text errors.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 value(s) exceed 7 chars (mean=5, σ=0)</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.department</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>duplicate_insensitive_values</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 1 value(s) that differ only by case/whitespace — false uniqueness</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-low">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.courses_raw.fee</span>
-                <span class="pill-sev badge sev-low">LOW</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 3 null/placeholder</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
+                <span class="pill-priority">Priority 3</span>
                 <span class="pill-dataset">dbo.courses_raw.instructor</span>
                 <span class="pill-sev badge sev-medium">MEDIUM</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
                 <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> instructor: expectation failed.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> Failure to meet expected rules can lead to incomplete or inaccurate data.</p>
                 
                 
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Medium risk of data quality issues affecting reporting.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 4</span>
+                <span class="pill-dataset">dbo.courses_raw.credits</span>
+                <span class="pill-sev badge sev-low">LOW</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> Null values can lead to incomplete analyses and misinterpretation of data.</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Low risk of data analysis errors.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 5</span>
+                <span class="pill-dataset">dbo.courses_raw.course_name</span>
+                <span class="pill-sev badge sev-low">LOW</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>whitespace</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> Leading/trailing spaces can cause issues in data matching and analysis.</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Low risk of data inconsistency.</p>
               </div>
             </div>
             
@@ -1420,7 +1276,7 @@ button.dataset-toggle:active {
             <div class='path-inset disk'><span class='path-inset-label'>Filesystem path</span><span class='path-inset-value'>__database__:SQL data</span><button type='button' class='btn-mini btn-copy-path' data-path="__database__:SQL data">Copy</button></div>
             <aside class="dataset-clean-summary" aria-label="Remediation row estimates"><p class="clean-summary-intro">These counts are computed from overlapping HIGH/MEDIUM rows in this scan (see <a href="#dq-scorecard">DQ verdict</a> for context).</p><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH</strong>-severity finding</span><span class="clean-est-value">49</span><span class="clean-est-tail"> <span class="muted">(of 51 sampled rows)</span> <span class="muted">≈ 96.1% unaffected by HIGH severity</span></span></div><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH nor MEDIUM</strong> finding</span><span class="clean-est-value">45</span><span class="clean-est-tail"> <span class="muted">(of 51 sampled rows)</span> <span class="muted">≈ 88.2% unaffected after HIGH+MEDIUM remediation</span></span></div></aside>
             <h4 class="block-title">Profile</h4>
-            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>course_id</strong></td><td>object (string)</td><td>0.0%</td><td>50</td><td>categorical</td><td>false</td></tr><tr><td><strong>course_name</strong></td><td>object (string)</td><td>0.0%</td><td>49</td><td>categorical</td><td>false</td></tr><tr><td><strong>credits</strong></td><td>object (numeric_like)</td><td>1.96%</td><td>5</td><td>numeric_id</td><td>false</td></tr><tr><td><strong>department</strong></td><td>object (string)</td><td>0.0%</td><td>3</td><td>categorical</td><td>false</td></tr><tr><td><strong>instructor</strong></td><td>object (string)</td><td>0.0%</td><td>49</td><td>categorical</td><td>false</td></tr><tr><td><strong>fee</strong></td><td>object (numeric_like)</td><td>0.0%</td><td>47</td><td>numeric_id</td><td>false</td></tr></tbody></table></div>
+            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>course_name</strong></td><td>object (string)</td><td>0.0%</td><td>49</td><td>categorical</td><td>false</td></tr><tr><td><strong>course_id</strong></td><td>object (string)</td><td>0.0%</td><td>50</td><td>categorical</td><td>false</td></tr><tr><td><strong>instructor</strong></td><td>object (string)</td><td>0.0%</td><td>49</td><td>categorical</td><td>false</td></tr><tr><td><strong>department</strong></td><td>object (string)</td><td>0.0%</td><td>3</td><td>categorical</td><td>false</td></tr><tr><td><strong>fee</strong></td><td>object (numeric_like)</td><td>0.0%</td><td>47</td><td>numeric_id</td><td>false</td></tr><tr><td><strong>credits</strong></td><td>object (numeric_like)</td><td>1.96%</td><td>5</td><td>numeric_id</td><td>false</td></tr></tbody></table></div>
             <h4 class="block-title">Data quality</h4>
             <details class="dq-issue-details" open>
               <summary class="dq-issue-summary">dbo.courses_raw — 14 issues (1 HIGH · 3 MEDIUM · 10 LOW)</summary>

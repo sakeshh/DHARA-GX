@@ -510,6 +510,33 @@ def etl_plan_start(
     except Exception as ex:
         logger.debug("Rule provenance pipeline skipped: %s", ex)
     # ─────────────────────────────────────────────────────────────────
+    # Compute ETL readiness and map blockers to manual review BEFORE applying resolutions
+    from agent.etl_readiness_scorer import compute_etl_readiness
+    readiness = compute_etl_readiness(assess)
+    
+    if readiness.get("blockers"):
+        existing = plan.get("manual_review") or []
+        for blocker in readiness["blockers"]:
+            b_ds = blocker.get("dataset")
+            b_col = blocker.get("column")
+            b_it = blocker.get("issue_type") or "unknown"
+            
+            in_pending = any(
+                str(m.get("dataset")).lower() == str(b_ds).lower() and
+                str(m.get("column")).lower() == str(b_col).lower() and
+                str(m.get("issue_type")).lower() == str(b_it).lower()
+                for m in existing if isinstance(m, dict)
+            )
+            if not in_pending:
+                plan.setdefault("manual_review", []).append({
+                    "dataset": b_ds,
+                    "column": b_col,
+                    "issue_type": b_it,
+                    "severity": blocker.get("severity") or "HIGH",
+                    "message": blocker.get("issue"),
+                    "guidance": blocker.get("fix") or "",
+                })
+        plan = enrich_plan_manual_review(plan)
 
     resolutions = list(agentic_result.get("manual_review_resolutions") or [])
     user_resolutions = ctx.get("manual_review_resolutions") or []
@@ -527,6 +554,7 @@ def etl_plan_start(
         plan, res_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules_merged)
         if res_errs:
             logger.warning(f"Resolutions errors: {res_errs}")
+            
     plan["connector_manifest"] = manifest
     plan["source_context"] = src_ctx
     plan["etl_intent"] = {
@@ -535,41 +563,61 @@ def etl_plan_start(
         "target_path": target_path,
     }
 
-    # Compute ETL readiness and map blockers to manual review
-    from agent.etl_readiness_scorer import compute_etl_readiness
-    readiness = compute_etl_readiness(assess)
+    # Adjust readiness based on resolved manual reviews in the plan
+    resolved = plan.get("resolved_manual_review") or []
+    resolved_keys = set(
+        f"{str(r.get('dataset') or '').lower()}|{str(r.get('column') or '').lower()}|{str(r.get('issue_type') or '').lower()}"
+        for r in resolved if isinstance(r, dict)
+    )
+    if resolved_keys:
+        active_blockers = []
+        score_improvement = 0
+        for b in readiness.get("blockers") or []:
+            b_ds = str(b.get("dataset") or "").lower()
+            if b_ds == "global":
+                b_ds = ""
+            b_col = str(b.get("column") or "").lower()
+            b_it = str(b.get("issue_type") or "").lower()
+            key = f"{b_ds}|{b_col}|{b_it}"
+            if key in resolved_keys:
+                if b_it == "business_key_duplicate":
+                    score_improvement += 15
+                elif b_it == "high_null_percentage":
+                    score_improvement += 20
+                elif b.get("severity") == "HIGH":
+                    score_improvement += 15
+                elif b_it == "orphan_foreign_keys":
+                    score_improvement += 15
+                elif b_it == "reconciliation_imbalance":
+                    score_improvement += 12
+                else:
+                    score_improvement += 15
+            else:
+                active_blockers.append(b)
+                
+        active_warnings = []
+        for w in readiness.get("warnings") or []:
+            w_ds = str(w.get("dataset") or "").lower()
+            if w_ds == "global":
+                w_ds = ""
+            w_col = str(w.get("column") or "").lower()
+            w_it = str(w.get("issue_type") or "").lower()
+            key = f"{w_ds}|{w_col}|{w_it}"
+            if key in resolved_keys:
+                score_improvement += 8
+            else:
+                active_warnings.append(w)
+                
+        readiness["score"] = min(100.0, float(readiness["score"]) + score_improvement)
+        readiness["blockers"] = active_blockers
+        readiness["warnings"] = active_warnings
+        readiness["grade"] = "A" if readiness["score"] >= 90 else "B" if readiness["score"] >= 75 else "C" if readiness["score"] >= 50 else "F"
+        readiness["etl_recommendation"] = (
+            "Ready for ETL generation" if not active_blockers
+            else f"Fix {len(active_blockers)} blocker(s) before generating ETL"
+        )
+
     assess["etl_readiness"] = readiness
-    if readiness["blockers"]:
-        existing = plan.get("manual_review") or []
-        resolved = plan.get("resolved_manual_review") or []
-        for blocker in readiness["blockers"]:
-            b_ds = blocker.get("dataset")
-            b_col = blocker.get("column")
-            b_it = blocker.get("issue_type") or "unknown"
-            
-            in_pending = any(
-                str(m.get("dataset")).lower() == str(b_ds).lower() and
-                str(m.get("column")).lower() == str(b_col).lower() and
-                str(m.get("issue_type")).lower() == str(b_it).lower()
-                for m in existing if isinstance(m, dict)
-            )
-            in_resolved = any(
-                str(m.get("dataset")).lower() == str(b_ds).lower() and
-                str(m.get("column")).lower() == str(b_col).lower() and
-                str(m.get("issue_type")).lower() == str(b_it).lower()
-                for m in resolved if isinstance(m, dict)
-            )
-            
-            if not in_pending and not in_resolved:
-                plan.setdefault("manual_review", []).append({
-                    "dataset": b_ds,
-                    "column": b_col,
-                    "issue_type": b_it,
-                    "severity": blocker.get("severity") or "HIGH",
-                    "message": blocker.get("issue"),
-                    "guidance": blocker.get("fix") or "",
-                })
-        plan = enrich_plan_manual_review(plan)
     plan["blocked"] = []
 
     flow = ctx.setdefault("etl_flow", {})

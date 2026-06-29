@@ -685,7 +685,6 @@ def build_etl_plan(
     blocked: List[Dict[str, Any]] = []
     # (dataset, column, action, issue_type) -> step record
     step_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
-    added_conflicts = set()
 
     datasets_known = set((assessment.get("datasets") or {}).keys())
 
@@ -970,14 +969,16 @@ def build_etl_plan(
         for ds_name in datasets_known:
             gate_res = check_dq_gate(assessment, ds_name, threshold=threshold, force_unlock=ds_name in rules.get("force_unlock", []), sem_schema=sem_schema)
             if not gate_res["passed"]:
-                manual_review.append({
-                    "dataset": ds_name,
-                    "column": None,
-                    "issue_type": "dq_gate_warning",
-                    "severity": "high",
-                    "message": f"Data quality score ({gate_res['score']}) is below threshold ({threshold}). Phase 2 transformations are blocked for dataset '{ds_name}'. Please resolve errors in Phase 1 (cleanse) first.",
-                    "guidance": "Resolve data quality issues or lower/override the threshold in business rules.",
-                })
+                manual_review.append(
+                    enrich_manual_review_item({
+                        "dataset": ds_name,
+                        "column": None,
+                        "issue_type": "dq_gate_warning",
+                        "severity": "high",
+                        "message": f"Data quality score ({gate_res['score']}) is below threshold ({threshold}). Phase 2 transformations are blocked for dataset '{ds_name}'. Please resolve errors in Phase 1 (cleanse) first.",
+                        "guidance": "Resolve data quality issues or lower/override the threshold in business rules.",
+                    })
+                )
 
     # Build coverage report
     def _clean(val: Any, default: str = "") -> str:
@@ -1053,7 +1054,7 @@ def build_etl_plan(
         "engine_recommendation": engine_rec,
         "source_context": source_context or {},
         "relationships": rel_plan,
-        "semantic_schema": sem_schema,
+        "semantic_schema": {k: dict(v) for k, v in sem_schema.items()},
     }
 
     if rules.get("auto_resolve_pending") and plan.get("manual_review"):

@@ -79,36 +79,94 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
             description="Whitespace in column names must be fixed at ingest/schema mapping.",
         ),
     ],
+    "duplicate_primary_key": [
+        _opt("deduplicate", "Deduplicate on primary key", "deduplicate", recommended=True, description="Remove duplicate rows keeping first occurrence per primary key."),
+        _opt("keep_as_is", "Keep as-is (allow duplicates)", "noop"),
+    ],
+    "numeric_outliers_iqr": [
+        _opt("flag_outliers", "Flag IQR outliers", "flag_outliers", recommended=True, description="Add audit column flagging statistical IQR outliers."),
+        _opt("clip_outliers", "Clip to IQR bounds", "clip_outliers", description="Cap values at IQR statistical boundaries."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "suspicious_zero": [
+        _opt("zero_to_null", "Nullify suspicious zeros", "zero_to_null", recommended=True, description="Replace suspicious zero values with NULL."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
     "dominant_value_skew": [
-        _opt("flag_outliers", "Flag for audit column", "flag_outliers", recommended=True),
-        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
+        _opt("flag_outliers", "Flag dominant value rows", "flag_outliers", recommended=True, description="Add audit column flagging rows with dominant/fill values."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
     ],
     "skewed_distribution": [
-        _opt("flag_outliers", "Flag extreme values", "flag_outliers", recommended=True),
-        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
+        _opt("flag_outliers", "Flag extreme values", "flag_outliers", recommended=True, description="Add audit column for extreme distribution values."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_gstin": [
+        _opt("regex_replace", "Flag/nullify invalid GSTIN", "regex_replace", recommended=True, description="Nullify values that fail GSTIN format validation (15-char alphanumeric)."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_pan": [
+        _opt("regex_replace", "Flag/nullify invalid PAN", "regex_replace", recommended=True, description="Nullify values that fail PAN format validation (AAAAA0000A)."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_aadhaar": [
+        _opt("regex_replace", "Flag/nullify invalid Aadhaar", "regex_replace", recommended=True, description="Nullify values that fail 12-digit Aadhaar validation."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_ifsc": [
+        _opt("regex_replace", "Flag/nullify invalid IFSC", "regex_replace", recommended=True, description="Nullify values that fail IFSC format validation (AAAA0000000)."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_cin": [
+        _opt("regex_replace", "Flag/nullify invalid CIN", "regex_replace", recommended=True, description="Nullify values that fail CIN format validation."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "invalid_url": [
+        _opt("regex_replace", "Nullify malformed URLs", "regex_replace", recommended=True, description="Replace malformed URL strings with NULL."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "round_number_anomaly": [
+        _opt("flag_outliers", "Flag round-number anomalies", "flag_outliers", recommended=True, description="Add audit column flagging suspiciously round numbers."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "weekend_date_anomaly": [
+        _opt("flag_outliers", "Flag weekend date anomalies", "flag_outliers", recommended=True, description="Add audit column flagging business dates on weekends."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "date_clumping_month_end": [
+        _opt("flag_outliers", "Flag month-end date clumping", "flag_outliers", recommended=True, description="Add audit column flagging suspicious month-end date clumping."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "repeated_token_in_string": [
+        _opt("regex_replace", "Clean repeated tokens", "regex_replace", recommended=True, description="Remove repeated words/tokens in text strings."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "encoding_corruption": [
+        _opt("regex_replace", "Strip encoding artifacts", "regex_replace", recommended=True, description="Remove mojibake/encoding corruption from text columns."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "disposable_email": [
+        _opt("sanitize_email", "Flag/nullify disposable emails", "sanitize_email", recommended=True, description="Nullify known disposable email domain addresses."),
+        _opt("keep_as_is", "Keep as-is", "noop"),
+    ],
+    "near_duplicate_rows": [
+        _opt("deduplicate", "Deduplicate (keep first)", "deduplicate", recommended=True, description="Remove near-duplicate rows keeping first occurrence."),
+        _opt("keep_as_is", "Keep as-is (allow duplicates)", "noop"),
+    ],
+    "very_wide_date_span": [
+        _opt("parse_dates", "Parse dates consistently", "parse_dates", recommended=True, description="Normalise mixed date formats across a wide date span."),
+        _opt("flag_outliers", "Flag date span outliers", "flag_outliers"),
+        _opt("keep_as_is", "Keep as-is", "noop"),
     ],
     "empty_dataset": [
         _opt("keep_as_is", "Abort pipeline in orchestration (manual)", "noop", recommended=True),
     ],
-    "very_wide_date_span": [
-        _opt("parse_dates", "Parse dates consistently", "parse_dates", recommended=True),
-        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
-    ],
     "non_nullable_fill": [
-        _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
-        _opt("keep_as_is", "Keep as-is (skip)", "noop"),
-    ],
-    "nulls": [
         _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
         _opt("keep_as_is", "Keep as-is (skip)", "noop"),
     ],
     "null_values": [
         _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
         _opt("keep_as_is", "Keep as-is (skip)", "noop"),
-    ],
-    "near_duplicate_rows": [
-        _opt("deduplicate", "Deduplicate (keep first)", "deduplicate", recommended=True, description="Deduplicate rows to keep only one copy."),
-        _opt("keep_as_is", "Keep as-is (allow duplicates)", "noop", description="Do not filter near-duplicates."),
     ],
     "sentinel_numeric_value": [
         _opt("zero_to_null", "Nullify sentinel values", "zero_to_null", recommended=True, description="Replace numeric sentinel values (e.g. -999, 999999) with NULL."),
