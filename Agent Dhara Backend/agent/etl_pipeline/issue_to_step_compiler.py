@@ -19,6 +19,16 @@ _ISSUE_TO_ACTION_MAP.update({
     "duplicate": "deduplicate",
     "duplicates": "deduplicate",
     "near_duplicate_rows": "deduplicate",
+    "numeric_outliers_iqr": "clip_or_flag",
+    "duplicate_primary_key": "deduplicate",
+    "invalid_gstin": "regex_replace",
+    "invalid_pan": "regex_replace",
+    "invalid_aadhaar": "regex_replace",
+    "invalid_ifsc": "regex_replace",
+    "invalid_cin": "regex_replace",
+    "invalid_url": "regex_replace",
+    "repeated_token_in_string": "regex_replace",
+    "encoding_corruption": "regex_replace",
 })
 
 def compile_issues_to_steps(
@@ -34,7 +44,7 @@ def compile_issues_to_steps(
     outlier_strategy = str(rules.get("outlier_strategy") or "flag").lower().strip()
     non_nullable_cols = [str(x).lower().strip() for x in (rules.get("non_nullable") or [])]
     
-    from agent.etl_pipeline.manual_review_catalog import enrich_manual_review_item
+    from agent.etl_pipeline.manual_review_catalog import enrich_manual_review_item, manual_review_item_id
     
     # Process suggestions
     for sug in suggestions:
@@ -166,10 +176,10 @@ def compile_issues_to_steps(
             # Non-fixable items are those that the compiler cannot solve automatically, or explicitly marked
             is_non_fixable = it in (
                 "missing_required_column", "very_wide_table", "empty_dataset",
-                "encoding_corruption",
             )
             
             mr_item = {
+                "id": manual_review_item_id(ds if ds != "global" else None, col, it),
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,
@@ -292,11 +302,12 @@ def preprocess_suggestions_in_place(
         # Check non_fixable
         is_non_fixable = it in (
             "missing_required_column", "very_wide_table", "empty_dataset",
-            "encoding_corruption",
         )
         if is_non_fixable:
             sug["non_fixable"] = True
+            from agent.etl_pipeline.manual_review_catalog import manual_review_item_id
             nf_item = {
+                "id": manual_review_item_id(ds if ds != "global" else None, col, it),
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,

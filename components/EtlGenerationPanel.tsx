@@ -142,6 +142,7 @@ export interface EtlGenerationPanelProps {
   // Sprint 7 extensions
   gateResult?: DQGateResult | null;
   semanticOverrides?: Record<string, any>;
+  onPlanChange?: (plan: Record<string, unknown> | null) => void;
 }
 
 export default function EtlGenerationPanel({
@@ -156,6 +157,7 @@ export default function EtlGenerationPanel({
   onContinueAfterCode,
   gateResult = null,
   semanticOverrides = {},
+  onPlanChange,
 }: EtlGenerationPanelProps) {
   const dm = darkMode && variant === 'chat';
   const shell = dm
@@ -282,7 +284,8 @@ export default function EtlGenerationPanel({
       setPlanJson(JSON.stringify(plan, null, 2));
       setPlanRows(planToRows(plan));
     }
-  }, [plan]);
+    onPlanChange?.(plan);
+  }, [plan, onPlanChange]);
 
   useEffect(() => {
     let cancelled = false;

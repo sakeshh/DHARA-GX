@@ -70,6 +70,7 @@ export default function DataPipelinePage() {
   const [dqThreshold, setDqThreshold] = useState<number>(70);
   const [forceUnlock, setForceUnlock] = useState<boolean>(false);
   const [semanticOverrides, setSemanticOverrides] = useState<Record<string, any>>({});
+  const [plan, setPlan] = useState<any>(null);
 
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
   const [execLoading, setExecLoading] = useState(false);
@@ -129,6 +130,12 @@ export default function DataPipelinePage() {
     let overallScoreSum = 0;
     let hasHighPiiOverall = false;
 
+    const resolvedKeys = new Set(
+      (plan?.resolved_manual_review || [])
+        .filter((r: any) => r.status === 'resolved' || r.status === 'skipped')
+        .map((r: any) => `${r.dataset || ''}|${r.column || ''}|${r.issue_type || ''}`)
+    );
+
     for (const dsName of datasetNames) {
       const dsInfo = datasets[dsName] || {};
       const columns = dsInfo.columns || {};
@@ -140,7 +147,13 @@ export default function DataPipelinePage() {
         let nullPctSum = 0;
         for (const colName of colNames) {
           const col = columns[colName] || {};
-          const nullPct = col.null_percentage ?? col.null_pct ?? 0.0;
+          let nullPct = col.null_percentage ?? col.null_pct ?? 0.0;
+          const isNullsResolved = resolvedKeys.has(`${dsName}|${colName}|nulls`) || 
+                                  resolvedKeys.has(`${dsName}|${colName}|null_values`) ||
+                                  resolvedKeys.has(`${dsName}|${colName}|high_null_percentage`);
+          if (isNullsResolved) {
+            nullPct = 0.0;
+          }
           nullPctSum += nullPct;
         }
         const avgNull = nullPctSum / colNames.length;
@@ -154,6 +167,10 @@ export default function DataPipelinePage() {
 
       let typeMismatches = 0;
       for (const issue of dqIssues) {
+        const issueKey = `${dsName}|${issue.column || ''}|${issue.type || ''}`;
+        if (resolvedKeys.has(issueKey)) {
+          continue;
+        }
         const issueType = String(issue.type || '').trim().toLowerCase();
         if (['type_mismatch', 'invalid_date_format', 'invalid_email', 'invalid_phone'].includes(issueType)) {
           typeMismatches += 1;
@@ -165,7 +182,15 @@ export default function DataPipelinePage() {
       const llmDsHints = dsInfo.llm_hints || {};
       const dupInfo = llmDsHints.business_key_confirmation || {};
       let dupCount = typeof dupInfo === 'object' && dupInfo !== null ? (dupInfo.business_key_duplicate_count || 0) : 0;
+      const isBkResolved = resolvedKeys.has(`${dsName}|${dupInfo.business_key_cols?.join(', ') || ''}|business_key_duplicate`);
+      if (isBkResolved) {
+        dupCount = 0;
+      }
       for (const issue of dqIssues) {
+        const issueKey = `${dsName}|${issue.column || ''}|${issue.type || ''}`;
+        if (resolvedKeys.has(issueKey)) {
+          continue;
+        }
         const issueType = String(issue.type || '').trim().toLowerCase();
         if (issueType.includes('duplicate') || issueType.includes('dup')) {
           dupCount += 1;
@@ -176,6 +201,10 @@ export default function DataPipelinePage() {
       // 4. Outlier Score (20%)
       let outliersCount = 0;
       for (const issue of dqIssues) {
+        const issueKey = `${dsName}|${issue.column || ''}|${issue.type || ''}`;
+        if (resolvedKeys.has(issueKey)) {
+          continue;
+        }
         const issueType = String(issue.type || '').trim().toLowerCase();
         if (issueType.includes('outlier')) {
           outliersCount += 1;
@@ -189,7 +218,9 @@ export default function DataPipelinePage() {
       // Prefer backend-calculated score, fall back to estimated if not present
       const dqDsBlock = (resultData.data_quality_issues || {}).datasets?.[dsName] || {};
       const dsSummary = dqDsBlock.summary || {};
-      const dqScore = dsSummary.dq_score_0_100 !== undefined ? Number(dsSummary.dq_score_0_100) : estimatedDqScore;
+      const dqScore = resolvedKeys.size > 0 
+        ? estimatedDqScore 
+        : (dsSummary.dq_score_0_100 !== undefined ? Number(dsSummary.dq_score_0_100) : estimatedDqScore);
 
       // Check high PII
       let hasHighPii = false;
@@ -245,7 +276,7 @@ export default function DataPipelinePage() {
       },
       datasets: datasetGateDetails,
     };
-  }, [assessmentData, dqThreshold, forceUnlock, semanticOverrides]);
+  }, [assessmentData, dqThreshold, forceUnlock, semanticOverrides, plan]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -700,6 +731,7 @@ export default function DataPipelinePage() {
                       setDirection('forward');
                       setCurrentStep('etl');
                     }}
+                    onPlanChange={setPlan}
                   />
                 )}
               </div>
@@ -726,6 +758,7 @@ export default function DataPipelinePage() {
                       }}
                       onCodeGenerated={handleETLGenerated}
                       onContinueAfterCode={handleStartCleaning}
+                      onPlanChange={setPlan}
                     />
 
                     {/* SQL direct execution section */}
