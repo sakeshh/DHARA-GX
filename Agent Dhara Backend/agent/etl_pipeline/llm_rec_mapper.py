@@ -80,3 +80,22 @@ def compute_llm_confidence(rec: Dict[str, Any]) -> float:
         boost = 0.0
 
     return min(1.0, base_conf + boost)
+
+
+def enrich_with_catalog(manual_review: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Attaches catalog_guidance to each manual_review item.
+    """
+    from agent.etl_pipeline.manual_review_catalog import get_catalog_guidance
+    enriched = []
+    for item in (manual_review or []):
+        if not isinstance(item, dict):
+            continue
+        new_item = dict(item)
+        it = item.get("issue_type")
+        guidance = get_catalog_guidance(it)
+        if guidance:
+            new_item["catalog_guidance"] = guidance
+        enriched.append(new_item)
+    return enriched
+

@@ -531,6 +531,20 @@ def _build_codegen_payload(
     raw_datasets = plan.get("datasets") or {}
     cleaned_datasets = _consolidate_and_filter_datasets(raw_datasets, source_metadata, plan.get("semantic_schema"))
     
+    from agent.etl_pipeline.dq_gate import evaluate_dq_gate
+    try:
+        gate_res = evaluate_dq_gate(assessment, plan.get("business_rules"))
+        dq_gate_summary = {
+            "passed": gate_res.get("passed"),
+            "blocking_issues": gate_res.get("blocking_issues") or [],
+            "warnings": gate_res.get("warnings") or [],
+        }
+    except Exception:
+        dq_gate_summary = {"passed": True, "blocking_issues": [], "warnings": []}
+
+    from agent.etl_pipeline.llm_rec_mapper import enrich_with_catalog
+    manual_review_enriched = enrich_with_catalog(plan.get("manual_review") or [])
+
     base = {
         "plan_id": plan.get("plan_id"),
         "engine": plan.get("engine"),
@@ -539,7 +553,7 @@ def _build_codegen_payload(
         "business_rules": plan.get("business_rules"),
         "datasets": cleaned_datasets,
         "global_steps": plan.get("global_steps"),
-        "manual_review": plan.get("manual_review"),
+        "manual_review": manual_review_enriched,
         "blocked": plan.get("blocked"),
         "source_metadata": source_metadata,
         "source_context": plan.get("source_context") or {},
@@ -547,6 +561,9 @@ def _build_codegen_payload(
         "engine_recommendation": plan.get("engine_recommendation") or {},
         "relationships": plan.get("relationships") or {},
         "etl_intent": plan.get("etl_intent") or {},
+        "dq_gate_summary": dq_gate_summary,
+        "domain_rules": plan.get("domain_rules") or {},
+        "business_keys": plan.get("business_keys") or {},
     }
     base.update(llm_codegen_extra_context(plan))
     return base
@@ -597,6 +614,50 @@ def _read_hint_for_payload(engine_key: str, payload: Dict[str, Any]) -> str:
     else:
         tmpl = _READ_TEMPLATES.get(src_type, _READ_TEMPLATES["unknown"])
     return tmpl.format(loc=loc)
+
+
+def _trim_payload_for_window(payload: dict, engine_key: str) -> dict:
+    """
+    Trim payload to keep total input under 10,000 tokens,
+    preserving steps but summarising source_metadata columns.
+    """
+    payload_json = json.dumps(payload, default=str)
+    if _estimate_tokens(payload_json) <= 10000:
+        return payload  # no trimming needed
+    
+    trimmed = dict(payload)
+    
+    # Strategy 1: summarise source_metadata — keep dtype + semantic_type only
+    sm = trimmed.get("source_metadata") or {}
+    slim_sm = {}
+    for ds, meta in sm.items():
+        if not isinstance(meta, dict):
+            continue
+        slim_sm[ds] = {
+            "row_count": meta.get("row_count"),
+            "columns": {
+                col: {
+                    "dtype": cm.get("dtype") if isinstance(cm, dict) else None,
+                    "semantic_type": cm.get("semantic_type") if isinstance(cm, dict) else None,
+                    "sub_type": cm.get("sub_type") if isinstance(cm, dict) else None,
+                }
+                for col, cm in (meta.get("columns") or {}).items()
+            }
+        }
+    trimmed["source_metadata"] = slim_sm
+    
+    # Strategy 2: cap manual_review to 8 items
+    mr = trimmed.get("manual_review") or []
+    if len(mr) > 8:
+        trimmed["manual_review"] = mr[:8]
+        trimmed["manual_review_truncated"] = f"...{len(mr)-8} more items omitted to fit context"
+    
+    # Strategy 3: cap blocked items to 5
+    blocked = trimmed.get("blocked") or []
+    if len(blocked) > 5:
+        trimmed["blocked"] = blocked[:5]
+    
+    return trimmed
 
 
 def _call_llm(
@@ -679,11 +740,43 @@ def _call_llm(
             ds = item.get("dataset") or "?"
             col = item.get("column") or "?"
             msg = item.get("message") or item.get("guidance") or ""
+            cat_guidance = item.get("catalog_guidance") or ""
+            if cat_guidance:
+                msg = f"{msg} (Catalog guidance: {cat_guidance})"
             mr_lines.append(f"- [{ds}] {col}: {msg}")
         user_parts.append(
             "MANUAL REVIEW (implement in code when business notes require it, especially phone hash/mask):\n"
             + "\n".join(mr_lines)
         )
+    gate = payload.get("dq_gate_summary") or {}
+    blocking = gate.get("blocking_issues") or []
+    if blocking:
+        block_lines = [f"- [{b.get('dataset')}] {b.get('reason')}" for b in blocking[:10]]
+        user_parts.append(
+            "DQ GATE BLOCKING ISSUES (these columns/datasets must be cleaned — do NOT skip these steps):\n"
+            + "\n".join(block_lines)
+        )
+
+    dr = payload.get("domain_rules") or {}
+    if dr:
+        dr_lines = []
+        for col_name, rule in dr.items():
+            dr_lines.append(f"- {col_name}: rule_name={rule.get('rule_name')}, regex={rule.get('regex')}, msg={rule.get('message')}")
+        user_parts.append(
+            "DOMAIN RULES (enforce these: domain rules take priority over default heuristic cleaning):\n"
+            + "\n".join(dr_lines)
+        )
+        
+    bk = payload.get("business_keys") or {}
+    if bk:
+        bk_lines = []
+        for ds_name, keys in bk.items():
+            bk_lines.append(f"- {ds_name}: keys={keys}")
+        user_parts.append(
+            "BUSINESS KEYS / DEDUPLICATION KEYS (use these columns in ROW_NUMBER PARTITION BY for deduplication):\n"
+            + "\n".join(bk_lines)
+        )
+
     if br.get("never_drop_rows"):
         user_parts.append(
             "NEVER_DROP_ROWS (mandatory): preserve every input row. "
@@ -737,6 +830,7 @@ def _call_llm(
         if previous_output:
             user_parts.append(f"Previous output (truncated):\n{previous_output[:12000]}")
 
+    payload = _trim_payload_for_window(payload, engine_key)
     payload_json = json.dumps(payload, indent=2, default=str)
     max_tokens = _safe_max_tokens(payload_json, engine_key)
 
@@ -780,6 +874,15 @@ def parse_adf_json_from_llm(text: str) -> Tuple[Optional[Dict[str, Any]], List[s
     return None, errs or ["invalid ADF JSON"]
 
 
+_RETRY_BUDGET: Dict[str, int] = {
+    "python": 1,
+    "sql-tsql": 3,
+    "sql-ansi": 2,
+    "pyspark": 2,
+    "adf": 2,
+}
+
+
 def generate_etl_with_llm(
     plan: Dict[str, Any],
     assessment: Dict[str, Any],
@@ -803,18 +906,52 @@ def generate_etl_with_llm(
         plan, assessment, output_mode=output_mode, output_path=output_path
     )
     prev: Optional[str] = None
-    if validation_errors:
-        prev = "(retry — see validation errors in user message)"
-    code = _call_llm(
-        engine_key,
-        payload,
-        fix_errors=validation_errors,
-        previous_output=prev,
-    )
-    if is_llm_generation_error(code):
-        return code
+    fix_errors = list(validation_errors or [])
+    
+    from agent.etl_pipeline.codegen_validator import get_validator
+    validator = get_validator(engine_key)
+    
+    max_retries = _RETRY_BUDGET.get(engine_key, 2)
+    
+    code = ""
+    for attempt in range(max_retries + 1):
+        if fix_errors and attempt > 0:
+            prev = code
+        elif validation_errors:
+            prev = "(retry — see validation errors in user message)"
+        else:
+            prev = None
 
-    # Single LLM call per generate request; outer handler falls back to template on failure.
+        code = _call_llm(
+            engine_key,
+            payload,
+            fix_errors=fix_errors or None,
+            previous_output=prev,
+        )
+        if is_llm_generation_error(code):
+            return code
+        
+        # Run local validation loop
+        if validator:
+            ok, errs = validator(code)
+            if ok:
+                return code
+            if attempt < max_retries:
+                fix_errors = errs
+                continue
+            # After max retries, return with validation warnings prepended
+            warning = "\n".join(f"# VALIDATION WARNING: {e}" for e in errs)
+            return f"{warning}\n\n{code}"
+        else:
+            if validate_fn:
+                ok, errs = validate_fn(code)
+                if ok:
+                    return code
+                if attempt < max_retries:
+                    fix_errors = errs
+                    continue
+            return code
+
     return code
 
 

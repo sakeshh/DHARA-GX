@@ -110,6 +110,20 @@ class EtlApplyManualResolutionsPayload(BaseModel):
     resolutions: List[Dict[str, Any]] = []
 
 
+class EtlNonFixableResolutionsPayload(BaseModel):
+    session_id: str = "default"
+    resolutions: List[Dict[str, Any]] = []
+
+
+class EtlPatchRegenPayload(BaseModel):
+    session_id: str = "default"
+    post_validation_report: Dict[str, Any] = {}
+
+
+class EtlPreflightPayload(BaseModel):
+    sql: str
+
+
 class EtlGeneratePayload(BaseModel):
     session_id: str = "default"
     engine: Optional[str] = "python"
@@ -624,6 +638,38 @@ def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) 
     )
 
 
+@router.post("/etl/non-fixable-resolutions")
+def api_etl_non_fixable_resolutions(payload: EtlNonFixableResolutionsPayload) -> Dict[str, Any]:
+    """Accept user triage decisions for non-fixable issues."""
+    from agent.etl_handlers import etl_save_non_fixable_resolutions
+
+    return etl_save_non_fixable_resolutions(
+        payload.session_id,
+        payload.resolutions or [],
+    )
+
+
+@router.post("/etl/patch-regen")
+def api_etl_patch_regen(payload: EtlPatchRegenPayload) -> Dict[str, Any]:
+    """Trigger ETL regen from post-ETL regression report."""
+    from agent.etl_handlers import etl_patch_regen_code
+
+    return etl_patch_regen_code(
+        payload.session_id,
+        payload.post_validation_report or {},
+    )
+
+
+@router.post("/etl/preflight")
+def api_etl_preflight(payload: EtlPreflightPayload) -> Dict[str, Any]:
+    """Run SQL preflight validation checks without executing."""
+    from agent.sql_preflight import run_sql_preflight
+
+    res = run_sql_preflight(payload.sql)
+    return {"ok": res.get("passed", True), "preflight": res}
+
+
+
 @router.post("/etl/confirm")
 def api_etl_confirm(payload: EtlConfirmPayload) -> Dict[str, Any]:
     """Confirm (optionally edited) plan and compute impact preview."""
@@ -698,6 +744,30 @@ def api_etl_phases(session_id: str) -> Dict[str, Any]:
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/etl/plan-coverage")
+def api_etl_plan_coverage(session_id: str) -> Dict[str, Any]:
+    """Retrieve coverage report for the session's ETL plan."""
+    from agent.session_store import load_session
+    from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+
+    sid = (session_id or "default").strip() or "default"
+    sess = load_session(sid)
+    ctx = sess.setdefault("context", {})
+    assess = ctx.get("last_assessment_result")
+    flow = ctx.get("etl_flow") or {}
+    plan = flow.get("plan")
+    
+    if not plan or not assess:
+        raise HTTPException(status_code=400, detail="Plan or assessment result not found for session")
+
+    try:
+        report = build_coverage_report(assess, plan)
+        return {"ok": True, "coverage_report": report}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 def _etl_safe_segment(s: str) -> str:

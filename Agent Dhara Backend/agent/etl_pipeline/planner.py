@@ -626,6 +626,9 @@ def build_etl_plan(
                 new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
                 sug_map[new_key] = new_sug
 
+    from agent.etl_pipeline.issue_to_step_compiler import preprocess_suggestions_in_place
+    non_fixable_issues = preprocess_suggestions_in_place(suggestions, rules, sem_schema)
+
     # Run conflict detection on all TaggedRules (Component 11)
     from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
     from agent.etl_pipeline.conflict_detector import detect_conflicts
@@ -712,6 +715,8 @@ def build_etl_plan(
             )
 
     for s in suggestions:
+        if s.get("non_fixable"):
+            continue
         ds = s.get("dataset") or ""
         col = s.get("column")
         issue_type = s.get("issue_type") or ""
@@ -985,6 +990,7 @@ def build_etl_plan(
         "global_steps": global_steps,
         "manual_review": manual_review,
         "blocked": blocked,
+        "non_fixable": non_fixable_issues,
         "invariants": build_plan_invariants(rules),
         "suggestions_summary": sug_pkg.get("summary") or {},
         "engine_recommendation": engine_rec,
