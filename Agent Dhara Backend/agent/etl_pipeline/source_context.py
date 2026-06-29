@@ -158,7 +158,7 @@ def build_source_context(
         primary = sources[0]
         types = {s["type"] for s in sources}
         mix = "mixed" if len(types) > 1 else (primary["type"] if primary else "unknown")
-        return {
+        res = {
             "type": primary["type"],
             "location": primary["location"],
             "size_mb": size_mb,
@@ -169,8 +169,10 @@ def build_source_context(
             "is_multi_source": len(sources) > 1,
             "source_mix": mix,
         }
+        res.update(ovr)
+        return res
 
-    return {
+    res = {
         "type": "unknown",
         "location": "unknown",
         "size_mb": size_mb,
@@ -180,3 +182,5 @@ def build_source_context(
         "source_count": 0,
         "is_multi_source": False,
     }
+    res.update(ovr)
+    return res

@@ -714,13 +714,43 @@ def build_etl_plan(
                 )
             )
 
+    # Map conflict detector resolutions back to suggestions
     for s in suggestions:
-        if s.get("non_fixable"):
-            continue
         ds = s.get("dataset") or ""
         col = s.get("column")
         issue_type = s.get("issue_type") or ""
-        
+        conflict_key = (ds, col, issue_type)
+        if conflict_key in resolved_map:
+            s["suggested_action"] = resolved_map[conflict_key].action
+
+    # Call the compiler to process suggestions into safe steps, manual review, and non-fixables
+    from agent.etl_pipeline.issue_to_step_compiler import compile_issues_to_steps
+    compiled_steps, compiled_mr, compiled_non_fixable = compile_issues_to_steps(
+        suggestions, rules, sem_schema
+    )
+
+    # 1. Store non-fixables
+    non_fixable_issues = compiled_non_fixable
+
+    # 2. Add manual review items
+    for mr in compiled_mr:
+        manual_review.append(
+            enrich_manual_review_item({
+                "dataset": mr.get("dataset") or None,
+                "column": mr.get("column"),
+                "issue_type": mr.get("issue_type"),
+                "severity": mr.get("severity") or "medium",
+                "message": mr.get("message"),
+                "guidance": mr.get("guidance") or "",
+            })
+        )
+
+    # Append any conflict warnings to manual review
+    added_conflicts = set()
+    for s in suggestions:
+        ds = s.get("dataset") or ""
+        col = s.get("column")
+        issue_type = s.get("issue_type") or ""
         conflict_key = (ds, col, issue_type)
         if conflict_key in conflicts_map:
             if conflict_key not in added_conflicts:
@@ -740,105 +770,75 @@ def build_etl_plan(
                         conflict=conflict
                     )
                 )
-            continue
-            
-        if conflict_key in resolved_map:
-            s["suggested_action"] = resolved_map[conflict_key].action
 
-        action = str(s.get("suggested_action") or "")
-        sev = str(s.get("severity") or "medium").lower()
+    # 3. Populate step_map from compiled steps
+    for ds_name, steps in compiled_steps.items():
+        for st in steps:
+            col = st["column"]
+            action = st["action"]
+            it = st["source_issue_type"]
+            sev = st["severity"]
+            row_est = st["estimated_affected_rows"]
+            pri = st["priority"]
 
-        if ds and ds != "_global" and column_is_excluded(col, exclude):
-            continue
-
-        llm_rec = s.get("llm_recommendation")
-
-        if action == "review_manually" or not s.get("auto_fixable", False):
-            manual_review.append(
-                enrich_manual_review_item(
-                    {
-                        "dataset": ds or None,
-                        "column": col,
-                        "issue_type": s.get("issue_type"),
-                        "severity": sev,
-                        "message": s.get("message"),
-                        "guidance": s.get("manual_guidance") or "",
-                    },
-                    llm_recommendation=llm_rec,
-                )
-            )
-            continue
-
-        action2, override_note = _apply_rules_to_action(action, col, rules)
-
-        # Route outlier strategy
-        if action2 == "clip_or_flag":
-            strategy = rules.get("outlier_strategy", "flag")
-            if strategy == "clip":
-                action2 = "clip_outliers"
-            elif strategy == "cap":
-                action2 = "cap_outliers"
-            else:
-                action2 = "flag_outliers"
-
-        if col and rules.get("non_nullable") and col.strip().lower() in (rules.get("non_nullable") or []):
-            if action2 in ("fill_or_drop", "fill_nulls_simple") and not rules.get("never_drop_rows"):
-                manual_review.append(
-                    enrich_manual_review_item(
-                        {
-                            "dataset": ds,
-                            "column": col,
-                            "issue_type": s.get("issue_type") or "non_nullable_fill",
-                            "severity": "medium",
-                            "message": f"Column {col} is non-nullable; review fill/drop behavior manually.",
-                            "guidance": override_note or "",
-                        }
-                    )
-                )
+            if ds_name and ds_name != "_global" and column_is_excluded(col, exclude):
                 continue
 
-        key = (ds or "_global", (col or "*"), action2, s.get("issue_type") or "")
-        pri = _ACTION_PRIORITY.get(action2, 80)
-        row_est = s.get("row_count_affected")
-        col_stats = _col_stats_for_step(assessment, ds or "", col)
-        if ds and col:
-            col_key = f"{ds}.{col}"
-            desc = sem_schema.get(col_key)
-            if desc:
-                col_stats = dict(col_stats)
-                col_stats["semantic_type"] = desc.get("semantic_type")
-                col_stats["sub_type"] = desc.get("sub_type")
-                col_stats["pii_level"] = desc.get("pii_level")
-                col_stats["fill_strategy"] = desc.get("fill_strategy")
-        evidence = _build_evidence(s, col_stats, action2, rules)
-        if s.get("llm_recommendation"):
-            evidence["llm_recommendation"] = s["llm_recommendation"]
-        params = build_step_params(
-            action2,
-            column=col,
-            col_stats=col_stats,
-            evidence=evidence,
-            rules=rules,
-            issue_type=str(s.get("issue_type") or ""),
-        )
-        entry = {
-            "dataset": ds or "_global",
-            "column": col,
-            "action": action2,
-            "source_issue_type": s.get("issue_type"),
-            "severity": sev,
-            "estimated_affected_rows": row_est,
-            "priority": pri,
-            "note": override_note,
-            "params": params,
-            "evidence": evidence,
-            "message": s.get("message"),
-        }
-        if s.get("llm_recommendation"):
-            entry["llm_recommendation"] = s["llm_recommendation"]
-        prev = step_map.get(key)
-        if not prev or (row_est and (prev.get("estimated_affected_rows") or 0) < (row_est or 0)):
-            step_map[key] = entry
+            key = (ds_name or "_global", (col or "*"), action, it or "")
+            col_stats = _col_stats_for_step(assessment, ds_name or "", col)
+            if ds_name and col:
+                col_key = f"{ds_name}.{col}"
+                desc = sem_schema.get(col_key)
+                if desc:
+                    col_stats = dict(col_stats)
+                    col_stats["semantic_type"] = desc.get("semantic_type")
+                    col_stats["sub_type"] = desc.get("sub_type")
+                    col_stats["pii_level"] = desc.get("pii_level")
+                    col_stats["fill_strategy"] = desc.get("fill_strategy")
+
+            sug_dict = {
+                "dataset": ds_name,
+                "column": col,
+                "issue_type": it,
+                "message": st.get("message"),
+                "llm_recommendation": st.get("llm_recommendation"),
+            }
+            evidence = _build_evidence(sug_dict, col_stats, action, rules)
+            if st.get("llm_recommendation"):
+                evidence["llm_recommendation"] = st["llm_recommendation"]
+
+            params = build_step_params(
+                action,
+                column=col,
+                col_stats=col_stats,
+                evidence=evidence,
+                rules=rules,
+                issue_type=it,
+            )
+
+            # Merge any params supplied by the compiler (e.g. fill value, clip bounds)
+            if st.get("params"):
+                params.update(st["params"])
+
+            entry = {
+                "dataset": ds_name or "_global",
+                "column": col,
+                "action": action,
+                "source_issue_type": it,
+                "severity": sev,
+                "estimated_affected_rows": row_est,
+                "priority": pri,
+                "note": st.get("note"),
+                "params": params,
+                "evidence": evidence,
+                "message": st.get("message"),
+            }
+            if st.get("llm_recommendation"):
+                entry["llm_recommendation"] = st["llm_recommendation"]
+
+            prev = step_map.get(key)
+            if not prev or (row_est and (prev.get("estimated_affected_rows") or 0) < (row_est or 0)):
+                step_map[key] = entry
 
     for ds, col, act, note in _steps_from_business_notes(rules, assessment):
         if column_is_excluded(col, exclude):

@@ -207,3 +207,79 @@ def test_cross_dataset_inconsistency_mapping():
     assert ds1_sugs[0]["suggested_action"] == "cast_type"
     assert ds2_sugs[0]["suggested_action"] == "cast_type"
 
+
+# 9. Test Manual Review Resolution Rebuild
+def test_manual_review_resolution_rebuild():
+    from agent.etl_handlers import etl_apply_manual_resolutions, etl_plan_start
+    from agent.session_store import save_session, load_session
+    from agent.etl_handlers import _ctx
+    
+    sid = "test_resolution_rebuild_session"
+    sess = load_session(sid)
+    ctx = _ctx(sess)
+    
+    # Setup mock assessment & intent
+    assess = {
+        "datasets": {
+            "ds1": {
+                "columns": {
+                    "critical_col": {"dtype": "int"}
+                }
+            }
+        },
+        "data_quality_issues": {
+            "datasets": {
+                "ds1": {
+                    "issues": [
+                        {"column": "critical_col", "type": "nulls", "severity": "medium", "message": "nulls"}
+                    ]
+                }
+            }
+        }
+    }
+    ctx["assessment"] = assess
+    ctx["etl_flow"] = {
+        "target_engine": "python",
+        "sql_dialect": "tsql",
+        "etl_intent": {
+            "target_destination": "dataframe_only",
+            "generation_mode": "full"
+        }
+    }
+    save_session(sess)
+    
+    # Generate initial plan
+    rules = {"auto_resolve_safe_defaults": False}
+    source_context = {
+        "suggestions": [
+            {
+                "dataset": "ds1",
+                "column": "critical_col",
+                "issue_type": "nulls",
+                "suggested_action": "fill_or_drop",
+                "auto_fixable": False,
+                "severity": "medium",
+                "message": "nulls requiring review"
+            }
+        ]
+    }
+    plan_res = etl_plan_start(sid, business_rules=rules, assessment_result=assess, source_context=source_context)
+    assert plan_res["ok"] is True
+    
+    # Get a pending manual review item ID
+    manual_review = plan_res["plan"]["manual_review"]
+    assert len(manual_review) > 0
+    item_id = manual_review[0]["id"]
+    
+    # Apply resolutions - should rebuild and apply successfully
+    resolutions = [{"item_id": item_id, "resolution_id": "fill_nulls"}]
+    applied_res = etl_apply_manual_resolutions(sid, resolutions)
+    
+    assert applied_res["ok"] is True
+    rebuilt_plan = applied_res["plan"]
+    
+    # The step should now be promoted into rebuilt_plan.datasets.ds1.steps
+    steps = rebuilt_plan["datasets"]["ds1"]["steps"]
+    assert any(s["column"] == "critical_col" and s["action"] == "fill_nulls_simple" for s in steps)
+
+
