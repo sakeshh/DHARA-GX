@@ -275,11 +275,13 @@ def get_resolution_options(issue_type: Optional[str]) -> List[ResolutionOption]:
 def enrich_manual_review_item(
     item: Dict[str, Any],
     llm_recommendation: Optional[Dict[str, Any]] = None,
+    conflict: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Attach id, resolution_options, default_resolution, status, and optional LLM recommendation."""
+    """Attach id, resolution_options, default_resolution, status, and optional LLM recommendation or conflict information."""
     if item.get("id") and item.get("resolution_options"):
         if not llm_recommendation or any(o.get("id") == "llm_suggested" for o in item.get("resolution_options", [])):
-            return item
+            if not conflict:
+                return item
 
     out = dict(item)
     iid = out.get("id") or manual_review_item_id(
@@ -287,35 +289,122 @@ def enrich_manual_review_item(
     )
     out["id"] = iid
     issue_type = str(out.get("issue_type") or "")
-    if issue_type.strip().lower() in _CATALOG:
-        opts = get_resolution_options(issue_type)
+
+    if conflict:
+        # Build options from the conflict rules
+        if hasattr(conflict, "rules"):
+            rules_list = conflict.rules
+        elif isinstance(conflict, dict):
+            rules_list = conflict.get("rules") or []
+        else:
+            rules_list = []
+
+        # Sort the rules by priority (provenance)
+        def get_prov_val(r):
+            if hasattr(r, "provenance"):
+                val = r.provenance
+            elif isinstance(r, dict):
+                val = r.get("provenance")
+            else:
+                val = 3
+            if isinstance(val, int):
+                return val
+            if hasattr(val, "value"):
+                return val.value
+            return 3
+
+        sorted_rules = sorted(rules_list, key=get_prov_val)
+        
+        opts = []
+        seen_actions = set()
+        
+        best_action = None
+        if sorted_rules:
+            best_rule = sorted_rules[0]
+            if hasattr(best_rule, "action"):
+                best_action = best_rule.action
+            elif isinstance(best_rule, dict):
+                best_action = best_rule.get("action")
+
+        for idx, r in enumerate(sorted_rules):
+            prov = None
+            action = None
+            detail = ""
+            if hasattr(r, "provenance"):
+                prov = r.provenance
+                action = r.action
+                detail = r.source_detail or ""
+            elif isinstance(r, dict):
+                prov = r.get("provenance")
+                action = r.get("action")
+                detail = r.get("source_detail") or ""
+            
+            prov_val = get_prov_val(r)
+            if prov_val == 1:
+                prov_label = "📋 Business"
+            elif prov_val == 2:
+                prov_label = "🧠 Semantic"
+            else:
+                prov_label = "🔍 Auto"
+                
+            action_name = str(action or "noop")
+            opt_id = f"conflict_opt_{prov_val}_{action_name}"
+            
+            if action_name in seen_actions:
+                continue
+            seen_actions.add(action_name)
+            
+            is_recommended = (action_name == best_action)
+            opts.append({
+                "id": opt_id,
+                "label": f"{prov_label}: {action_name}",
+                "action": action_name,
+                "recommended": is_recommended,
+                "description": f"Conflict resolution option. Source detail: {detail}"
+            })
+            
+        if "noop" not in seen_actions:
+            opts.append({
+                "id": "keep_as_is",
+                "label": "Keep as-is",
+                "action": "noop",
+                "recommended": not opts,
+                "description": "Keep column as-is (skip transformation)."
+            })
+            
+        out["resolution_options"] = opts
+        out["conflict_info"] = conflict.model_dump() if hasattr(conflict, "model_dump") else conflict
     else:
-        opts = get_dynamic_resolution_options(issue_type, out)
+        if issue_type.strip().lower() in _CATALOG:
+            opts = get_resolution_options(issue_type)
+        else:
+            opts = get_dynamic_resolution_options(issue_type, out)
 
-    if llm_recommendation:
-        out["llm_recommendation"] = llm_recommendation
-        from agent.etl_pipeline.llm_rec_mapper import map_llm_recommendation_to_action, compute_llm_confidence
-        llm_action = map_llm_recommendation_to_action(llm_recommendation)
-        confidence = compute_llm_confidence(llm_recommendation)
+        if llm_recommendation:
+            out["llm_recommendation"] = llm_recommendation
+            from agent.etl_pipeline.llm_rec_mapper import map_llm_recommendation_to_action, compute_llm_confidence
+            llm_action = map_llm_recommendation_to_action(llm_recommendation)
+            confidence = compute_llm_confidence(llm_recommendation)
 
-        for opt in opts:
-            opt["recommended"] = False
+            for opt in opts:
+                opt["recommended"] = False
 
-        llm_opt = {
-            "id": "llm_suggested",
-            "label": f"AI Recommended: {llm_recommendation.get('suggested_fix')}",
-            "action": llm_action or "noop",
-            "recommended": True,
-            "description": f"Why it matters: {llm_recommendation.get('why_it_matters')}. Risk: {llm_recommendation.get('risk')}",
-            "llm_metadata": {
-                "example_sql": llm_recommendation.get("example_sql"),
-                "example_pandas": llm_recommendation.get("example_pandas"),
-                "confidence": confidence,
+            llm_opt = {
+                "id": "llm_suggested",
+                "label": f"AI Recommended: {llm_recommendation.get('suggested_fix')}",
+                "action": llm_action or "noop",
+                "recommended": True,
+                "description": f"Why it matters: {llm_recommendation.get('why_it_matters')}. Risk: {llm_recommendation.get('risk')}",
+                "llm_metadata": {
+                    "example_sql": llm_recommendation.get("example_sql"),
+                    "example_pandas": llm_recommendation.get("example_pandas"),
+                    "confidence": confidence,
+                }
             }
-        }
-        opts = [llm_opt] + [opt for opt in opts if opt.get("id") != "llm_suggested"]
+            opts = [llm_opt] + [opt for opt in opts if opt.get("id") != "llm_suggested"]
 
-    out["resolution_options"] = opts
+        out["resolution_options"] = opts
+
     default = next((o["id"] for o in opts if o.get("recommended")), opts[0]["id"] if opts else "keep_as_is")
     out.setdefault("default_resolution", default)
     out.setdefault("status", "pending")

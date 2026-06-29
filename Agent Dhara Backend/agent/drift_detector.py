@@ -40,6 +40,8 @@ def compare_snapshots(
     rel_tol = float(policy.get("row_count_relative") or 0.15)
     null_abs = float(policy.get("null_rate_absolute") or 0.08)
     dist_tol = float(policy.get("distinct_count_relative") or 0.25)
+    mean_tol = float(policy.get("distribution_mean_relative") or 0.20)
+    std_tol = float(policy.get("distribution_std_relative") or 0.25)
 
     signals: List[Dict[str, Any]] = []
     if not previous or not isinstance(previous, dict):
@@ -128,6 +130,46 @@ def compare_snapshots(
                         )
             except (TypeError, ValueError):
                 pass
+
+            # Mean and std dev drift checks (distribution drift)
+            if "mean" in a and "mean" in b:
+                try:
+                    m0 = float(a["mean"])
+                    m1 = float(b["mean"])
+                    if abs(m0) > 1e-5:
+                        dm = abs(m1 - m0) / abs(m0)
+                        if dm > mean_tol:
+                            signals.append(
+                                {
+                                    "kind": "mean_drift",
+                                    "column": c,
+                                    "previous": m0,
+                                    "current": m1,
+                                    "relative_delta": round(dm, 4),
+                                    "severity": "medium",
+                                }
+                            )
+                except (TypeError, ValueError):
+                    pass
+            if "std" in a and "std" in b:
+                try:
+                    s0 = float(a["std"])
+                    s1 = float(b["std"])
+                    if abs(s0) > 1e-5:
+                        ds = abs(s1 - s0) / abs(s0)
+                        if ds > std_tol:
+                            signals.append(
+                                {
+                                    "kind": "std_drift",
+                                    "column": c,
+                                    "previous": s0,
+                                    "current": s1,
+                                    "relative_delta": round(ds, 4),
+                                    "severity": "low",
+                                }
+                            )
+                except (TypeError, ValueError):
+                    pass
 
     sev_order = {"high": 3, "medium": 2, "low": 1, "none": 0}
     top = "none"

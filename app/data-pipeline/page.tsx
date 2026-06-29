@@ -954,6 +954,7 @@ export default function DataPipelinePage() {
                 etlCode={etlCode}
                 assessmentData={assessmentData}
                 userFeedback={userFeedback}
+                execResult={execResult}
                 onComplete={() => { setDirection('forward'); setCurrentStep('complete'); }}
                 onFeedback={(liked, comment) => handleFeedback('cleaning', liked, comment)}
               />

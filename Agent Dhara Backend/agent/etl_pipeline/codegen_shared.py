@@ -82,7 +82,7 @@ def get_sql_cast_type(col_type: Optional[str], col_name: str) -> str:
     else:
         if "amount" in col_lower or "price" in col_lower:
             return "DECIMAL(18,2)"
-        if "quantity" in col_lower or "qty" in col_lower or "count" in col_lower:
+        if "quantity" in col_lower or "qty" in col_lower or ("count" in col_lower and not any(x in col_lower for x in ("account", "discount", "counter"))):
             return "DECIMAL(18,4)"
 
     # 3. String columns checks
@@ -118,7 +118,7 @@ def sql_fill_update_lines(
               ("date" in col_lower or "time" in col_lower or "stamp" in col_lower or col_lower.endswith("_at"))
     
     is_numeric = (col_type and ("int" in col_type.lower() or "float" in col_type.lower() or "double" in col_type.lower() or "decimal" in col_type.lower() or "numeric" in col_type.lower() or "real" in col_type.lower())) or \
-                 ("amount" in col_lower or "price" in col_lower or "quantity" in col_lower or "qty" in col_lower or "count" in col_lower)
+                 ("amount" in col_lower or "price" in col_lower or "quantity" in col_lower or "qty" in col_lower or ("count" in col_lower and not any(x in col_lower for x in ("account", "discount", "counter"))))
 
     if strat == "mean" and fval is None and dialect == "tsql":
         lines.append(

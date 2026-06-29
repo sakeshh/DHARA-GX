@@ -67,7 +67,19 @@ class ExtractionAgent:
         """
         Synchronous single-source extraction.
         """
-        location_type = str((loc.get("type") or "")).lower()
+        from agent.models import SourceDescriptor
+        ds_name = loc.get("name") or loc.get("path") or f"dataset_{idx}"
+        desc = SourceDescriptor.from_location_dict(loc, ds_name)
+
+        if desc.source_type in ("AZURE_SQL", "SQL_SERVER", "POSTGRES", "MYSQL"):
+            location_type = "database"
+        elif "BLOB" in desc.source_type.value:
+            location_type = "azure_blob"
+        elif desc.source_type == "STREAM":
+            location_type = "stream"
+        else:
+            location_type = "filesystem"
+
         mcp = mcp_for_location_type(location_type)
         if isinstance(mcp, StreamMCP):
             raise ValueError("Stream sources require records input; use extract_stream_records().")

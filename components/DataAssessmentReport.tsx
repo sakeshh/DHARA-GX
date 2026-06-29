@@ -264,49 +264,13 @@ export default function DataAssessmentReport({
       setReportMarkdown(typeof payload?.report_markdown === 'string' ? payload.report_markdown : null);
       setReportHtml(typeof payload?.report_html === 'string' ? payload.report_html : null);
 
-      let suggestionsOut: any = null;
-      if (transformEnabled && result) {
-        setTransformLoading(true);
-        try {
-          const tr = await fetch('/api/transform-suggest', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ assessment_result: result }),
-          });
-          const trJson = await tr.json().catch(() => null);
-          suggestionsOut = trJson?.suggestions ?? null;
-          setTransformSuggestions(suggestionsOut);
-        } catch {
-          suggestionsOut = null;
-          setTransformSuggestions(null);
-        } finally {
-          setTransformLoading(false);
-        }
-      }
-
-      if (dqRecEnabled && result && !result.dq_recommendations) {
-        try {
-          const res = await fetch('/api/dq-recommend', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data_quality: result.data_quality_issues || result, user_intent: title }),
-          });
-          const j = await res.json().catch(() => null);
-          if (j?.recommendations) {
-            result.dq_recommendations = j.recommendations;
-          }
-        } catch (e) {
-          console.error("Failed to pre-fetch DQ recommendations:", e);
-        }
-      }
-
       setProgress(100);
       onComplete({
         result,
         report_markdown: payload?.report_markdown,
         report_html: payload?.report_html,
         report_files: payload?.report_files,
-        transform_suggestions: suggestionsOut,
+        transform_suggestions: null,
       });
     } catch (err: any) {
       setAssessment(null);

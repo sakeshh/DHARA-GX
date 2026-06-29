@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -140,6 +141,10 @@ def enrich_assessment_with_governance(
         }
     )
 
+    warning = check_manifest_staleness(assessment)
+    if warning:
+        gov["manifest_stale_warning"] = warning
+
     assessment.setdefault("raw_payload_registry", empty_registry())
 
     # Semantic contexts
@@ -236,13 +241,33 @@ def enrich_assessment_with_governance(
     assessment["drift_analysis"] = aggregate_drift(drift_by)
     assessment["reconciliation_analysis"] = analyze_reconciliation_bundle(assessment.get("reconciliation"))
 
+    # Promote drift signals (severity >= medium) to DQ issues
+    _drift_signals_to_dq_issues(assessment, drift_by)
+
     # Cross-field rules
     rules = load_cross_field_rules()
+    from agent.auto_cross_field_rules import generate_auto_cross_field_rules
+    auto_rules = generate_auto_cross_field_rules(assessment, assessment.get("semantic_context"))
+    
+    combined_rules = list(rules)
+    for ar in auto_rules:
+        duplicate = False
+        for cr in combined_rules:
+            if cr.get("dataset") == ar.get("dataset") and cr.get("type") == ar.get("type"):
+                if ar.get("type") == "date_order" and cr.get("start_column") == ar.get("start_column") and cr.get("end_column") == ar.get("end_column"):
+                    duplicate = True
+                    break
+                elif ar.get("type") == "non_negative" and cr.get("column") == ar.get("column"):
+                    duplicate = True
+                    break
+        if not duplicate:
+            combined_rules.append(ar)
+
     dq = assessment.setdefault("data_quality_issues", {}).setdefault("datasets", {})
     for ds_name, df in datasets.items():
         if not isinstance(df, pd.DataFrame) or df.empty:
             continue
-        extra = evaluate_cross_field_rules(str(ds_name), df, rules)
+        extra = evaluate_cross_field_rules(str(ds_name), df, combined_rules)
         if not extra:
             continue
         block = dq.setdefault(str(ds_name), {"issues": [], "summary": {"issue_count": 0, "high_severity": 0, "medium_severity": 0, "low_severity": 0}})
@@ -273,16 +298,6 @@ def enrich_assessment_with_governance(
         gi["relationship_row_issues_supplemental"] = [
             x for x in merged if isinstance(x, dict) and relationship_issue_key(x) not in old_keys
         ]
-
-    preview_sql = str((business_rules or {}).get("duck_preview_sql") or os.getenv("DHARA_DUCKDB_PREVIEW_SQL", "") or "").strip()
-    if preview_sql and datasets:
-        try:
-            from agent.duckdb_preview_runner import preview_generated_sql_against_assessment
-
-            assessment["duckdb_preview"] = preview_generated_sql_against_assessment(preview_sql, datasets)
-        except Exception as e:
-            logger.warning("duckdb preview failed: %s", e)
-            assessment["duckdb_preview"] = {"ok": False, "error": str(e)}
 
     try:
         from agent.gx_suite_builder import list_expectation_descriptors_from_assessment
@@ -337,3 +352,85 @@ def enrich_assessment_with_governance(
         pass
 
     return assessment
+
+
+def check_manifest_staleness(assessment: Dict[str, Any]) -> Optional[str]:
+    """
+    Compares the metadata manifest modified time with the run timestamp of the assessment.
+    Returns a warning message if the manifest has been modified since the assessment.
+    """
+    if not isinstance(assessment, dict):
+        return None
+    gov = assessment.get("governance")
+    if not isinstance(gov, dict) or "run_timestamp" not in gov:
+        return None
+
+    manifest_path = Path(os.getenv("DHARA_METADATA_MANIFEST", str(Path(__file__).resolve().parent.parent / "config" / "metadata_manifest.yaml")))
+    if not manifest_path.is_file():
+        return None
+
+    try:
+        from datetime import datetime, timezone
+        last_run = datetime.fromisoformat(gov["run_timestamp"])
+        manifest_mtime = datetime.fromtimestamp(manifest_path.stat().st_mtime, tz=timezone.utc if last_run.tzinfo else None)
+        if manifest_mtime > last_run:
+            return "The metadata manifest has been modified since this assessment was generated. Please re-run assessment to apply changes."
+    except Exception as e:
+        logger.debug("Manifest staleness check failed: %s", e)
+    return None
+
+
+def _drift_signals_to_dq_issues(assessment: Dict[str, Any], drift_by: Dict[str, Any]) -> None:
+    dq = assessment.setdefault("data_quality_issues", {}).setdefault("datasets", {})
+    for ds_name, drift in drift_by.items():
+        if not isinstance(drift, dict) or not drift.get("signals"):
+            continue
+        extra_issues = []
+        for sig in drift["signals"]:
+            if not isinstance(sig, dict):
+                continue
+            severity = str(sig.get("severity") or "low").lower()
+            if severity not in ("medium", "high"):
+                continue
+
+            kind = sig.get("kind", "unknown_drift")
+            col = sig.get("column")
+
+            if kind == "row_count_drift":
+                msg = f"Dataset row count drifted from {sig.get('previous')} to {sig.get('current')} (delta: {sig.get('relative_delta')})."
+            elif kind == "schema_drift":
+                added = sig.get("columns_added") or []
+                removed = sig.get("columns_removed") or []
+                parts = []
+                if added:
+                    parts.append(f"added: {', '.join(added)}")
+                if removed:
+                    parts.append(f"removed: {', '.join(removed)}")
+                msg = f"Schema drifted: {'; '.join(parts)}."
+            elif kind == "dtype_drift":
+                msg = f"Column '{col}' data type drifted from {sig.get('previous')} to {sig.get('current')}."
+            elif kind == "null_rate_drift":
+                msg = f"Column '{col}' null rate drifted from {sig.get('previous')} to {sig.get('current')}."
+            else:
+                msg = f"Drift detected ({kind}): previous={sig.get('previous')}, current={sig.get('current')}."
+
+            extra_issues.append({
+                "dataset": ds_name,
+                "column": col or None,
+                "issue_type": kind,
+                "severity": severity,
+                "message": msg,
+                "value": sig.get("current")
+            })
+
+        if extra_issues:
+            block = dq.setdefault(ds_name, {
+                "issues": [],
+                "summary": {"issue_count": 0, "high_severity": 0, "medium_severity": 0, "low_severity": 0}
+            })
+            block.setdefault("issues", []).extend(extra_issues)
+            block["summary"]["issue_count"] = len(block["issues"])
+            block["summary"]["high_severity"] = sum(1 for i in block["issues"] if str(i.get("severity")).lower() == "high")
+            block["summary"]["medium_severity"] = sum(1 for i in block["issues"] if str(i.get("severity")).lower() == "medium")
+            block["summary"]["low_severity"] = sum(1 for i in block["issues"] if str(i.get("severity")).lower() == "low")
+

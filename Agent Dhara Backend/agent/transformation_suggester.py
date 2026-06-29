@@ -8,7 +8,7 @@ Can be extended to call an Azure AI Foundry agent to generate SQL/Spark snippets
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 # Map DQ issue types to suggested actions (rule-based)
@@ -79,6 +79,15 @@ ISSUE_TO_ACTION = {
     "date_clumping_jan1": "nullify_dummy_dates",
     "date_clumping_month_end": "review_manually",
     "weekend_date_anomaly": "review_manually",
+    
+    # India-specific validation issues
+    "invalid_gstin": "review_manually",
+    "invalid_pan": "review_manually",
+    "invalid_aadhaar": "review_manually",
+    "invalid_ifsc": "review_manually",
+    "invalid_cin": "review_manually",
+    "disposable_email": "review_manually",
+    "encoding_corruption": "review_manually",
 }
 
 # Columns we should NOT coerce to numeric (semantic string columns)
@@ -189,7 +198,10 @@ def _should_coerce_numeric(ds_name: str, col: str, issue_type: str, assessment_r
     return False
 
 
-def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]:
+def suggest_transformations(
+    assessment_result: Dict[str, Any],
+    semantic_plan: Optional[Any] = None,
+) -> Dict[str, Any]:
     """
     Build a list of suggested transformations from assessment + DQ output.
 
@@ -213,6 +225,8 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
       "summary": { "by_action": {...}, "by_dataset": {...} }
     }
     """
+    from agent.etl_pipeline.rule_provenance import RuleProvenance
+
     dq = assessment_result.get("data_quality_issues", {})
     by_dataset = dq.get("datasets", {})
     suggested: List[Dict[str, Any]] = []
@@ -240,6 +254,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": _get_manual_guidance(issue_type),
                         "row_count_affected": issue.get("count"),
                         "auto_fixable": False,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     }
                 )
                 continue
@@ -256,10 +271,78 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                     "manual_guidance": "",
                     "row_count_affected": issue.get("count"),
                     "auto_fixable": True,
+                    "provenance": RuleProvenance.AUTO_DETECTED,
                 }
             )
             if col and action in ("coerce_numeric", "parse_dates"):
                 trim_columns.add((ds_name, col))
+
+    # --- Component 10: Integrate Semantic Cleaning Plan into suggestions ---
+    from agent.semantic_context import SemanticCleaningPlan
+    if semantic_plan is None:
+        sem_ctx = assessment_result.get("semantic_context") or {}
+        if isinstance(sem_ctx, dict):
+            sem_model = sem_ctx.get("semantic_model")
+            if isinstance(sem_model, dict) and "entities" in sem_model:
+                try:
+                    semantic_plan = SemanticCleaningPlan(
+                        entities=sem_model.get("entities") or {},
+                        relationships=sem_model.get("relationships") or [],
+                    )
+                except Exception:
+                    pass
+            if semantic_plan is None and "entities" in sem_ctx:
+                try:
+                    semantic_plan = SemanticCleaningPlan(
+                        entities=sem_ctx.get("entities") or {},
+                        relationships=sem_ctx.get("relationships") or [],
+                    )
+                except Exception:
+                    pass
+    elif isinstance(semantic_plan, dict):
+        try:
+            semantic_plan = SemanticCleaningPlan(**semantic_plan)
+        except Exception:
+            pass
+
+    if semantic_plan and isinstance(semantic_plan, SemanticCleaningPlan):
+        try:
+            semantic_rules = semantic_plan.to_tagged_rules()
+            for r in semantic_rules:
+                action = r.action
+                if action == "normalize_email":
+                    action = "sanitize_email"
+                elif action == "standardize_date":
+                    action = "parse_dates"
+                elif action in ("fill_null", "quarantine_null"):
+                    action = "fill_or_drop"
+                elif action == "quarantine_invalid_value":
+                    action = "replace_values"
+                
+                # Deduplicate check
+                exists = False
+                for s in suggested:
+                    if s["dataset"] == r.dataset and s["column"] == r.column and s["suggested_action"] == action:
+                        exists = True
+                        break
+                
+                if not exists:
+                    suggested.append({
+                        "dataset": r.dataset,
+                        "column": r.column,
+                        "issue_type": r.issue_type,
+                        "severity": "medium",
+                        "message": f"Semantic contract: {r.source_detail}",
+                        "suggested_action": action,
+                        "manual_guidance": "",
+                        "row_count_affected": None,
+                        "auto_fixable": True,
+                        "provenance": RuleProvenance.SEMANTIC_LAYER,
+                    })
+                    if action in ("coerce_numeric", "parse_dates", "sanitize_email", "normalize_phone"):
+                        trim_columns.add((r.dataset, r.column))
+        except Exception:
+            pass
 
     # Proactive Semantic-Based Upgrades (Email, Phone, Date, Categorical, Text)
     for ds_name, ds_meta in datasets_meta.items():
@@ -285,6 +368,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": "",
                         "row_count_affected": None,
                         "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     })
                     trim_columns.add((ds_name, col_name))
                     
@@ -301,6 +385,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": "",
                         "row_count_affected": None,
                         "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     })
                     trim_columns.add((ds_name, col_name))
                     
@@ -317,6 +402,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": "",
                         "row_count_affected": None,
                         "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     })
                     trim_columns.add((ds_name, col_name))
 
@@ -333,6 +419,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": "",
                         "row_count_affected": None,
                         "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     })
                 if not any(s["dataset"] == ds_name and s["column"] == col_name and s["suggested_action"] == "lowercase" for s in suggested):
                     suggested.append({
@@ -345,6 +432,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                         "manual_guidance": "",
                         "row_count_affected": None,
                         "auto_fixable": True,
+                        "provenance": RuleProvenance.AUTO_DETECTED,
                     })
 
     # Robust: add trim before coerce/parse (handles " 123 ", " 2024-01-15 ")
@@ -361,6 +449,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                     "manual_guidance": "",
                     "row_count_affected": None,
                     "auto_fixable": True,
+                    "provenance": RuleProvenance.AUTO_DETECTED,
                 }
             )
 
@@ -378,6 +467,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                 "manual_guidance": _get_manual_guidance("orphan_foreign_key"),
                 "row_count_affected": orphan.get("orphan_count"),
                 "auto_fixable": True,
+                "provenance": RuleProvenance.AUTO_DETECTED,
             }
         )
 
@@ -395,6 +485,7 @@ def suggest_transformations(assessment_result: Dict[str, Any]) -> Dict[str, Any]
                 "manual_guidance": row_iss.get("recommendation") or _get_manual_guidance("orphan_foreign_key"),
                 "row_count_affected": row_iss.get("count"),
                 "auto_fixable": False,
+                "provenance": RuleProvenance.AUTO_DETECTED,
             }
         )
 

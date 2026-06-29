@@ -120,3 +120,52 @@ def test_enrich_assessment_minimal(tmp_path, monkeypatch):
     assert "reconciliation" in out
     assert "drift_analysis" in out
     assert "reconciliation_analysis" in out
+
+
+def test_distribution_drift():
+    # Previous fingerprint with mean/std
+    prev = {
+        "fingerprint": {
+            "row_count": 100,
+            "column_count": 1,
+            "columns": {
+                "val": {
+                    "dtype": "float64",
+                    "null_pct": 0.0,
+                    "unique": 90,
+                    "semantic_type": "numeric",
+                    "mean": 10.0,
+                    "std": 2.0,
+                }
+            }
+        }
+    }
+    
+    # Current fingerprint with drifted mean & std
+    curr = {
+        "row_count": 100,
+        "column_count": 1,
+        "columns": {
+            "val": {
+                "dtype": "float64",
+                "null_pct": 0.0,
+                "unique": 90,
+                "semantic_type": "numeric",
+                "mean": 13.0,  # +30% drift (threshold 20%)
+                "std": 3.0,   # +50% drift (threshold 25%)
+            }
+        }
+    }
+    
+    res = compare_snapshots(prev, curr)
+    assert res["has_baseline"] is True
+    signals = res["signals"]
+    kinds = [s["kind"] for s in signals]
+    assert "mean_drift" in kinds
+    assert "std_drift" in kinds
+    
+    # Find relative deltas
+    mean_signal = next(s for s in signals if s["kind"] == "mean_drift")
+    std_signal = next(s for s in signals if s["kind"] == "std_drift")
+    assert mean_signal["relative_delta"] == 0.30
+    assert std_signal["relative_delta"] == 0.50

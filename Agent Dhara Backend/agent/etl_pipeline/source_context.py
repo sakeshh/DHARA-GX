@@ -42,66 +42,80 @@ def _resolve_dataset_source(
     *,
     selected: str,
 ) -> Dict[str, Any]:
-    """Map one assessment dataset name to a source descriptor."""
+    """Map one assessment dataset name to a source descriptor using SourceDescriptor model."""
+    from agent.models import SourceDescriptor
+
     tables: List[str] = list(ctx.get("selected_tables") or [])
     blob_files: List[str] = list(ctx.get("selected_blob_files") or [])
     local_files: List[str] = list(ctx.get("selected_local_files") or [])
     local_root = str(ctx.get("local_files_root") or "").strip()
     ext = _ext(ds_name)
-    loc = ds_name
-    stype = "unknown"
+
+    loc_dict = {"type": "unknown", "path": ds_name}
 
     if ds_name in tables or (tables and ds_name.split(".")[-1] in tables):
         if "azure" in selected:
-            stype = "azure_sql"
+            stype = "database"
+            conn = {"driver": "ODBC Driver 17 for SQL Server", "server": "azure_database.windows.net"}
         elif "postgres" in selected:
-            stype = "postgres"
+            stype = "database"
+            conn = {"driver": "PostgreSQL Unicode", "server": "localhost"}
         elif "mysql" in selected:
-            stype = "mysql"
+            stype = "database"
+            conn = {"driver": "MySQL ODBC", "server": "localhost"}
         else:
-            stype = "sql_server"
-        loc = ds_name
+            stype = "database"
+            conn = {"driver": "ODBC Driver 17 for SQL Server", "server": "localhost"}
+        loc_dict = {"type": stype, "connection": conn, "path": ds_name}
     elif ds_name in blob_files:
-        stype = "blob_storage"
-        loc = ds_name
+        loc_dict = {"type": "azure_blob", "path": ds_name}
     elif ds_name in local_files:
-        stype = _file_type_from_extension(_ext(ds_name))
-        loc = os.path.join(local_root, ds_name) if local_root else ds_name
+        loc_dict = {"type": "filesystem", "path": local_root}
     elif blob_files and len(blob_files) == len((assessment.get("datasets") or {})):
         ds_names = list((assessment.get("datasets") or {}).keys())
         if ds_name in ds_names:
             idx = ds_names.index(ds_name)
             if idx < len(blob_files):
-                stype = "blob_storage"
-                loc = blob_files[idx]
+                loc_dict = {"type": "azure_blob", "path": blob_files[idx]}
     elif local_files and len(local_files) == len((assessment.get("datasets") or {})):
         ds_names = list((assessment.get("datasets") or {}).keys())
         if ds_name in ds_names:
             idx = ds_names.index(ds_name)
             if idx < len(local_files):
-                stype = _file_type_from_extension(_ext(local_files[idx]))
-                loc = (
-                    os.path.join(local_root, local_files[idx])
-                    if local_root
-                    else local_files[idx]
-                )
+                loc_dict = {"type": "filesystem", "path": local_root}
     else:
         if ext in (".csv", ".tsv", ".parquet", ".json", ".xlsx", ".xls"):
-            stype = _file_type_from_extension(ext)
+            loc_dict = {"type": "filesystem", "path": local_root}
         elif "abfss://" in ds_name.lower():
-            stype = "blob_storage"
+            loc_dict = {"type": "azure_blob", "path": ds_name}
         else:
-            stype = "csv_file"
-        loc = ds_name
+            loc_dict = {"type": "filesystem", "path": local_root}
 
+    descriptor = SourceDescriptor.from_location_dict(loc_dict, ds_name)
     ds_meta = (assessment.get("datasets") or {}).get(ds_name) or {}
-    return {
-        "dataset": ds_name,
-        "type": stype,
-        "location": loc,
-        "extension": ext or _ext(loc),
-        "row_count": int(ds_meta.get("row_count") or 0),
-    }
+    descriptor.row_count = int(ds_meta.get("row_count") or 0)
+    descriptor.size_mb = round(descriptor.row_count * 0.0005, 2) if descriptor.row_count > 0 else 0.0
+
+    res = descriptor.model_dump()
+    res.update({
+        "dataset": descriptor.dataset_name,
+        "type": descriptor.source_type.value.lower() if hasattr(descriptor.source_type, 'value') else str(descriptor.source_type).lower(),
+        "location": descriptor.physical_location,
+    })
+
+    # Keep backward-compatible type mappings
+    if descriptor.source_type in ("LOCAL_CSV", "BLOB_CSV"):
+        res["type"] = "csv_file"
+    elif descriptor.source_type in ("LOCAL_PARQUET", "BLOB_PARQUET"):
+        res["type"] = "parquet"
+    elif descriptor.source_type in ("LOCAL_JSON", "BLOB_JSON"):
+        res["type"] = "json"
+    elif descriptor.source_type == "LOCAL_EXCEL":
+        res["type"] = "excel"
+    elif descriptor.source_type in ("AZURE_SQL", "SQL_SERVER", "POSTGRES", "MYSQL"):
+        res["type"] = descriptor.source_type.value.lower()
+
+    return res
 
 
 def _build_sources_list(

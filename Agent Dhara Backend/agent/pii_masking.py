@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
 
 
 _EMAIL_RE = re.compile(r"^([^@]{2})[^@]*(@.*)$")
+
+# PII detection regex patterns for scanning ALL text columns (Gap 10)
+_PII_PATTERNS = {
+    "email": re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"),
+    "phone": re.compile(r"\b(?:\+?\d{1,3}[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b"),
+    "ssn": re.compile(r"\b\d{3}[\s\-]?\d{2}[\s\-]?\d{4}\b"),
+    "credit_card": re.compile(r"\b(?:\d{4}[\s\-]?){3}\d{4}\b"),
+    "aadhaar": re.compile(r"\b[2-9]\d{3}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
+    "ip_address": re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"),
+}
 
 
 def _mask_email(s: str) -> str:
@@ -47,6 +59,8 @@ def is_sensitive_column(name: str) -> bool:
             "phone",
             "mobile",
             "address",
+            "aadhaar",
+            "aadhar",
         )
     )
 
@@ -84,4 +98,78 @@ def mask_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 rr[str(k)] = v
         out.append(rr)
     return out
+
+
+def scan_text_column_for_pii(
+    series: "pd.Series",
+    column_name: str,
+    sample_size: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Scan a text column for embedded PII patterns (Gap 10).
+    Scans ALL text columns, not just those with name heuristics.
+    Returns list of detected PII issues.
+    """
+    issues: List[Dict[str, Any]] = []
+    try:
+        # Only scan object/string columns
+        if str(series.dtype) not in ("object", "string", "str"):
+            return issues
+
+        # Sample for efficiency
+        sample = series.dropna()
+        if len(sample) > sample_size:
+            sample = sample.sample(sample_size, random_state=42)
+
+        for pii_type, pattern in _PII_PATTERNS.items():
+            matches = 0
+            sample_matches: List[str] = []
+            for val in sample:
+                s = str(val)
+                if len(s) > 5 and pattern.search(s):
+                    matches += 1
+                    if len(sample_matches) < 3:
+                        # Mask the matched value for safety
+                        sample_matches.append(_mask_generic(s[:50]))
+
+            if matches > 0:
+                pct = round(matches / len(sample) * 100, 1)
+                issues.append({
+                    "column": column_name,
+                    "pii_type": pii_type,
+                    "matches_in_sample": matches,
+                    "sample_size": len(sample),
+                    "estimated_pct": pct,
+                    "severity": "HIGH" if pct > 10 else "MEDIUM",
+                    "message": f"Embedded {pii_type} detected in '{column_name}': ~{pct}% of sampled values",
+                })
+    except Exception:
+        pass
+    return issues
+
+
+def scan_dataframe_for_pii(
+    df: "pd.DataFrame",
+    *,
+    skip_columns: Optional[List[str]] = None,
+    sample_size: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Scan ALL text columns of a DataFrame for embedded PII (Gap 10).
+    Returns aggregated list of PII findings across all columns.
+    """
+    skip = set(c.lower() for c in (skip_columns or []))
+    all_issues: List[Dict[str, Any]] = []
+
+    for col in df.columns:
+        if str(col).lower() in skip:
+            continue
+        # Skip known-safe dtypes
+        if str(df[col].dtype) not in ("object", "string", "str"):
+            continue
+        col_issues = scan_text_column_for_pii(df[col], str(col), sample_size=sample_size)
+        all_issues.extend(col_issues)
+
+    return all_issues
+
 

@@ -14,10 +14,10 @@ from typing import Any, Dict, List, Optional
 
 from agent.etl_pipeline.validate_sql import validate_sql_basic
 from agent.azure_sql_executor import (
-    run_transactional_sql,
     check_requires_approval,
     get_connection,
 )
+from agent.execution import execute_plan, ExecutionPlan, ExecutionEngine
 
 logger = logging.getLogger("agent.etl_pipeline.execution_orchestrator")
 
@@ -90,15 +90,33 @@ def orchestrate_sql_execution(
             "timestamp_utc": now_str,
         }
 
-    # 3. Call run_transactional_sql(...)
-    exec_res = run_transactional_sql(
-        sql,
+    # 3. Call execution registry
+    plan = ExecutionPlan(
+        plan_id=rid,
+        engine=ExecutionEngine.AZURE_SQL,
+        code=sql,
+        requires_approval=app_check["requires_approval"],
+        destructive_ops=app_check["ops_found"],
+    )
+    exec_result = execute_plan(
+        plan,
         connection_string=connection_string,
         dry_run=dry_run,
         approved=approved,
         timeout_s=timeout_s,
         run_id=rid,
     )
+    exec_res = {
+        "ok": exec_result.ok,
+        "run_id": exec_result.run_id,
+        "total_rows_affected": exec_result.rows_affected,
+        "total_duration_ms": exec_result.duration_ms,
+        "transaction_committed": exec_result.committed,
+        "rollback_reason": exec_result.error,
+        "batches_run": len(exec_result.batch_results),
+        "batch_results": exec_result.batch_results,
+        "artifacts": exec_result.artifacts,
+    }
 
     # 4. Build post_execution_summary
     committed = exec_res.get("transaction_committed", False)
@@ -108,6 +126,7 @@ def orchestrate_sql_execution(
     rollback_reason = exec_res.get("rollback_reason")
 
     row_deltas = {}
+    post_validation_report = {"ok": True, "deltas": {"improvements": [], "regressions": []}}
     if pre_execution_counts and committed and not dry_run:
         table_names = list(pre_execution_counts.keys())
         post_execution_counts = build_pre_execution_counts(table_names, connection_string)
@@ -123,6 +142,17 @@ def orchestrate_sql_execution(
                 "after": after,
                 "delta": delta,
             }
+        
+        # Run post-ETL validation (Component 14)
+        from agent.post_etl_validator import run_post_etl_validation
+        try:
+            post_validation_report = run_post_etl_validation(
+                target_tables=table_names,
+                connection_string=connection_string,
+                pre_assessment=assessment
+            )
+        except Exception as e:
+            logger.debug(f"Post-ETL validation run failed: {e}")
 
     post_execution_summary = {
         "transaction_committed": committed,
@@ -131,6 +161,7 @@ def orchestrate_sql_execution(
         "batch_count": batch_count,
         "row_deltas": row_deltas,
         "rollback_reason": rollback_reason,
+        "post_etl_validation": post_validation_report,
     }
 
     return {

@@ -35,12 +35,23 @@ def build_profile_fingerprint(ds_meta: Dict[str, Any]) -> Dict[str, Any]:
             c = cols.get(cname) or {}
             if not isinstance(c, dict):
                 continue
-            col_summary[str(cname)] = {
+            entry = {
                 "dtype": str(c.get("dtype") or ""),
                 "null_pct": float(c.get("null_percentage") or 0),
                 "unique": int(c.get("unique_count") or 0),
                 "semantic_type": str(c.get("semantic_type") or ""),
             }
+            if "mean" in c and c["mean"] is not None:
+                try:
+                    entry["mean"] = float(c["mean"])
+                except (ValueError, TypeError):
+                    pass
+            if "std" in c and c["std"] is not None:
+                try:
+                    entry["std"] = float(c["std"])
+                except (ValueError, TypeError):
+                    pass
+            col_summary[str(cname)] = entry
     return {
         "row_count": int(ds_meta.get("row_count") or 0),
         "column_count": int(ds_meta.get("column_count") or len(col_summary)),
@@ -60,6 +71,8 @@ def save_snapshot(
     ds_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     rid = (run_id or "run")[:80]
+    for char in [":", "/", "\\", "*", "?", '"', "<", ">", "|"]:
+        rid = rid.replace(char, "-")
     path = ds_dir / f"{ts}_{rid}.json"
     payload = {
         "dataset_name": dataset_name,
