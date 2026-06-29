@@ -74,7 +74,7 @@ export default function ETLCodeTabView({
     reader.readAsText(file);
   };
 
-  const pendingReviewsCount = manualItems.filter(item => !item.default_resolution).length;
+  const pendingReviewsCount = manualItems.filter(item => (item.status || 'pending') === 'pending').length;
 
   return (
     <div className="rounded-2xl border border-black/10 bg-white/60 shadow-sm overflow-hidden flex flex-col min-h-[600px]">

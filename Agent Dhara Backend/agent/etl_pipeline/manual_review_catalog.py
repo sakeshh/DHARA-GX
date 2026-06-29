@@ -579,12 +579,23 @@ def get_dynamic_resolution_options(issue_type: str, item: Dict[str, Any]) -> Lis
 
 
 def action_for_resolution(issue_type: str, resolution_id: str, options: Optional[List[ResolutionOption]] = None) -> Optional[str]:
+    rid = str(resolution_id or "").strip()
+    if rid == "skip":
+        if options:
+            for o in options:
+                if o.get("id") in ("keep_as_is", "skip_requirement"):
+                    return str(o.get("action") or "")
+        for o in get_resolution_options(issue_type):
+            if o.get("id") in ("keep_as_is", "skip_requirement"):
+                return str(o.get("action") or "")
+        return "noop"
+
     if options:
         for o in options:
-            if o.get("id") == resolution_id:
+            if o.get("id") == rid:
                 return str(o.get("action") or "")
     for o in get_resolution_options(issue_type):
-        if o.get("id") == resolution_id:
+        if o.get("id") == rid:
             return str(o.get("action") or "")
     return None
 

@@ -719,6 +719,8 @@ def etl_apply_manual_resolutions(
     # We also apply manual resolutions to the current rules in flow
     rules = flow.get("business_rules") or plan.get("business_rules") or {}
     updated, apply_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules)
+    if apply_errs:
+        logger.warning(f"etl_apply_manual_resolutions: Errors applying resolutions: {apply_errs}")
     if rules:
         flow["business_rules"] = rules
         ctx["business_rules"] = rules

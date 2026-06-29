@@ -432,6 +432,9 @@ def build_etl_plan(
     """
     Build versioned ETL plan JSON from assessment + normalized business rules.
     """
+    import logging
+    logger = logging.getLogger("agent.etl_pipeline.planner")
+
     if not isinstance(assessment, dict) or not assessment.get("datasets"):
         raise ValueError("Invalid assessment: missing datasets")
 
@@ -626,8 +629,7 @@ def build_etl_plan(
                 new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
                 sug_map[new_key] = new_sug
 
-    from agent.etl_pipeline.issue_to_step_compiler import preprocess_suggestions_in_place
-    non_fixable_issues = preprocess_suggestions_in_place(suggestions, rules, sem_schema)
+    non_fixable_issues = []
 
     # Run conflict detection on all TaggedRules (Component 11)
     from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
@@ -729,21 +731,20 @@ def build_etl_plan(
         suggestions, rules, sem_schema
     )
 
+    logger.info(
+        "Compiler output: %d auto-fix steps across %d datasets, %d manual review, %d non-fixable",
+        sum(len(s) for s in compiled_steps.values()),
+        len(compiled_steps),
+        len(compiled_mr),
+        len(compiled_non_fixable),
+    )
+
     # 1. Store non-fixables
     non_fixable_issues = compiled_non_fixable
 
     # 2. Add manual review items
     for mr in compiled_mr:
-        manual_review.append(
-            enrich_manual_review_item({
-                "dataset": mr.get("dataset") or None,
-                "column": mr.get("column"),
-                "issue_type": mr.get("issue_type"),
-                "severity": mr.get("severity") or "medium",
-                "message": mr.get("message"),
-                "guidance": mr.get("guidance") or "",
-            })
-        )
+        manual_review.append(mr)
 
     # Append any conflict warnings to manual review
     added_conflicts = set()
@@ -978,6 +979,61 @@ def build_etl_plan(
                     "guidance": "Resolve data quality issues or lower/override the threshold in business rules.",
                 })
 
+    # Build coverage report
+    def _clean(val: Any, default: str = "") -> str:
+        if val is None:
+            return default
+        return str(val).strip()
+
+    all_issues = set()
+    for s in suggestions:
+        ds = _clean(s.get("dataset"), "_global")
+        col = _clean(s.get("column"), "*")
+        it = _clean(s.get("issue_type"))
+        all_issues.add((ds, col, it))
+
+    covered_by_steps = set()
+    for ds_name, steps in datasets_out.items():
+        for st in steps:
+            col = _clean(st.get("column"), "*")
+            it = _clean(st.get("source_issue_type"))
+            covered_by_steps.add((_clean(ds_name), col, it))
+
+    in_manual = set()
+    for m in manual_review:
+        ds = _clean(m.get("dataset"), "_global")
+        col = _clean(m.get("column"), "*")
+        it = _clean(m.get("issue_type"))
+        in_manual.add((ds, col, it))
+
+    in_non_fixable = set()
+    for nf in non_fixable_issues:
+        ds = _clean(nf.get("dataset"), "_global")
+        col = _clean(nf.get("column"), "*")
+        it = _clean(nf.get("issue_type"))
+        in_non_fixable.add((ds, col, it))
+
+    covered = covered_by_steps | in_manual | in_non_fixable
+    uncovered = all_issues - covered
+
+    coverage_summary = {
+        "total_issues": len(all_issues),
+        "covered_by_steps": len(covered_by_steps),
+        "manual_review": len(in_manual),
+        "non_fixable": len(in_non_fixable),
+        "uncovered": len(uncovered),
+        "uncovered_items": [{"dataset": d, "column": c, "issue_type": i} for d, c, i in uncovered],
+    }
+
+    logger.info(
+        "Plan coverage: total=%d, steps=%d, manual=%d, non_fixable=%d, uncovered=%d",
+        coverage_summary["total_issues"],
+        coverage_summary["covered_by_steps"],
+        coverage_summary["manual_review"],
+        coverage_summary["non_fixable"],
+        coverage_summary["uncovered"],
+    )
+
     plan = {
         "plan_version": 1,
         "plan_id": _plan_id(),
@@ -991,6 +1047,7 @@ def build_etl_plan(
         "manual_review": manual_review,
         "blocked": blocked,
         "non_fixable": non_fixable_issues,
+        "coverage": coverage_summary,
         "invariants": build_plan_invariants(rules),
         "suggestions_summary": sug_pkg.get("summary") or {},
         "engine_recommendation": engine_rec,
