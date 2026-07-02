@@ -982,7 +982,7 @@ def build_etl_plan(
 
     # Build coverage report
     def _clean(val: Any, default: str = "") -> str:
-        if val is None:
+        if val is None or str(val).strip() == "":
             return default
         return str(val).strip()
 
@@ -1054,7 +1054,7 @@ def build_etl_plan(
         "engine_recommendation": engine_rec,
         "source_context": source_context or {},
         "relationships": rel_plan,
-        "semantic_schema": {k: dict(v) for k, v in sem_schema.items()},
+        "semantic_schema": {k: v for k, v in sem_schema.items()},
     }
 
     if rules.get("auto_resolve_pending") and plan.get("manual_review"):

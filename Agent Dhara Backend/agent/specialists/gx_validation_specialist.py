@@ -1665,6 +1665,32 @@ def run_gx_validation(
                                 "unexpected_values": [""]
                             })
 
+                # 45. Non-numeric strings in numeric columns
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    is_semantic_numeric = semantic_type in ("numeric", "metric", "numeric_id") or col.lower() in ("fee", "credits", "amount", "price", "quantity")
+                    if _is_text_dtype(validation_df[col].dtype) and is_semantic_numeric:
+                        s = validation_df[col].dropna()
+                        placeholders = {"", "n/a", "na", "null", "none", "unknown", "nan"}
+                        s_clean = s[~s.astype(str).str.strip().str.lower().isin(placeholders)]
+                        if not s_clean.empty:
+                            coerced = pd.to_numeric(s_clean, errors="coerce")
+                            failed_mask = coerced.isna()
+                            cnt = int(failed_mask.sum())
+                            if cnt > 0:
+                                failed_values = s_clean[failed_mask].head(10).tolist()
+                                failed_indices = s_clean[failed_mask].index.tolist()
+                                results_processed.append({
+                                    "expectation": "invalid_numeric_values",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"{cnt} non-numeric value(s) (e.g. {failed_values}) in semantically numeric column",
+                                    "unexpected_count": cnt,
+                                    "unexpected_index_list": failed_indices[:50],
+                                    "unexpected_values": failed_values
+                                })
+
                 # Statistics rollup
                 eval_cnt = len(results_processed)
                 succ_cnt = sum(1 for r in results_processed if r["success"])

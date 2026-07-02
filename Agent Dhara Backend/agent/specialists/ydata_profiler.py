@@ -82,7 +82,8 @@ def profile_dataframe(df, minimal: bool = False) -> Optional[Dict[str, Any]]:
             progress_bar=False,
         )
 
-        profile_dict = profile.to_dict()
+        import json
+        profile_dict = json.loads(profile.to_json())
 
         # Extract key stats into a clean, flat structure
         variables = profile_dict.get("variables", {})

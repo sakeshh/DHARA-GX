@@ -84,6 +84,8 @@ def _fallback(dq: Dict[str, Any]) -> DQRecommendations:
                 mapped = "flag_outliers"
             elif "skew" in itl:
                 mapped = "flag_outliers"
+            elif "custom_rule_violation" in itl:
+                mapped = "review_manually"
 
             recs.append(
                 {

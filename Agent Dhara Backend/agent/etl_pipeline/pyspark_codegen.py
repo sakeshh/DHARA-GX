@@ -130,6 +130,16 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
         return [
             f'{df} = {df}.withColumn({c}, F.when(F.lower(F.col({c}).cast("string")).isin("1","true","yes","y","t"), F.lit(1)).otherwise(F.lit(0)))'
         ]
+    if act == "nullify_punctuation":
+        return [
+            f"# Nullify punctuation-only strings",
+            f"{df} = {df}.withColumn({c}, F.when(~F.col({c}).cast('string').rlike('[a-zA-Z0-9]'), F.lit(None)).otherwise(F.col({c})))"
+        ]
+    if act == "nullify_dummy_dates":
+        return [
+            f"# Nullify dummy dates (e.g. 1900-01-01)",
+            f"{df} = {df}.withColumn({c}, F.when(F.to_date(F.col({c})).eqNullSafe(F.lit('1900-01-01')) | (F.month(F.to_date(F.col({c}))) == 1) & (F.dayofmonth(F.to_date(F.col({c}))) == 1), F.lit(None)).otherwise(F.col({c})))"
+        ]
     if act in ("drop_column", "exclude_column"):
         return [f"{df} = {df}.drop({c})"]
     if act == "noop":

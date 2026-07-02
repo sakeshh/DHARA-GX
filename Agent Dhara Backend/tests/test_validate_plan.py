@@ -98,3 +98,44 @@ def test_validate_many_transforms_with_duplicates():
     assert not ok
     assert any("has many transforms" in e for e in errs)
 
+
+def test_to_tagged_rules_case_mapping_and_filtering():
+    from agent.etl_pipeline.business_rules import to_tagged_rules
+    
+    # Mock assessment containing customers dataset with proper casing
+    assessment = {
+        "datasets": {
+            "customers": {
+                "columns": {
+                    "Email": {},
+                    "Age": {},
+                    "DepartmentName": {}
+                }
+            }
+        }
+    }
+    
+    rules = {
+        "non_nullable": ["email", "missing_col"],
+        "valid_values": {
+            "departmentname": ["HR", "IT"],
+            "not_present_col": ["val"]
+        }
+    }
+    
+    tagged = to_tagged_rules(rules, "customers", assessment)
+    
+    # 1. 'email' should be mapped to 'Email'
+    # 2. 'missing_col' should be filtered out
+    # 3. 'departmentname' should be mapped to 'DepartmentName'
+    # 4. 'not_present_col' should be filtered out
+    
+    assert len(tagged) == 2
+    
+    email_rule = next(t for t in tagged if t.column == "Email")
+    assert email_rule.issue_type == "nulls"
+    
+    dept_rule = next(t for t in tagged if t.column == "DepartmentName")
+    assert dept_rule.issue_type == "invalid_lookup_value"
+
+

@@ -21,7 +21,8 @@ def test_new_dq_detection():
         "ints_stored_as_floats": [1.0, 2.0, 3.0, 4.0, 5.0] * 5, 
         "ambiguous_bools": ["yes", "no", "true", "false", "yes"] * 5, 
         "constant_col": ["always_same"] * 25, 
-        "empty_strings": ["", "", "non_empty", "non_empty", "non_empty"] * 5
+        "empty_strings": ["", "", "non_empty", "non_empty", "non_empty"] * 5,
+        "bad_numeric": ["100", "200", "abc", "300", "400"] * 5
     })
 
     profile_results = {
@@ -38,7 +39,8 @@ def test_new_dq_detection():
                     "ints_stored_as_floats": {"semantic_type": "numeric"},
                     "ambiguous_bools": {"semantic_type": "categorical"},
                     "constant_col": {"semantic_type": "text"},
-                    "empty_strings": {"semantic_type": "text"}
+                    "empty_strings": {"semantic_type": "text"},
+                    "bad_numeric": {"semantic_type": "numeric"}
                 }
             }
         }
@@ -67,6 +69,7 @@ def test_new_dq_detection():
     assert "ambiguous_boolean" in expectations
     assert "constant_column" in expectations
     assert "empty_string_values" in expectations
+    assert "invalid_numeric_values" in expectations
 
 
 def test_suggestion_mappings():

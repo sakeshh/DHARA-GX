@@ -17,38 +17,44 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
     covered = []
     uncovered = []
     
+    def _clean_ds(ds):
+        d = str(ds or "").strip()
+        if not d or d.lower() == "global":
+            return "_global"
+        return d.lower()
+
+    def _clean_col(col):
+        c = str(col or "").strip()
+        return c.lower() if c else "*"
+
     # 1. Collect all columns with steps in the plan
     planned_cols = set()
     datasets = (plan or {}).get("datasets") or {}
     for ds_name, ds_block in datasets.items():
         for step in (ds_block.get("steps") or []):
             col = step.get("column")
-            if col:
-                planned_cols.add((ds_name.lower(), col.lower()))
+            planned_cols.add((_clean_ds(ds_name), _clean_col(col)))
                 
     # 2. Collect columns in manual review
     manual_review = (plan or {}).get("manual_review") or []
     for item in manual_review:
-        ds = item.get("dataset") or "global"
+        ds = item.get("dataset")
         col = item.get("column")
-        if col:
-            planned_cols.add((ds.lower(), col.lower()))
+        planned_cols.add((_clean_ds(ds), _clean_col(col)))
             
     # 3. Collect columns in blocked
     blocked = (plan or {}).get("blocked") or []
     for item in blocked:
-        ds = item.get("dataset") or "global"
+        ds = item.get("dataset")
         col = item.get("column")
-        if col:
-            planned_cols.add((ds.lower(), col.lower()))
+        planned_cols.add((_clean_ds(ds), _clean_col(col)))
 
     # 3b. Collect columns in non_fixable
     non_fixable = (plan or {}).get("non_fixable") or []
     for item in non_fixable:
-        ds = item.get("dataset") or "global"
+        ds = item.get("dataset")
         col = item.get("column")
-        if col:
-            planned_cols.add((ds.lower(), col.lower()))
+        planned_cols.add((_clean_ds(ds), _clean_col(col)))
             
     # 4. Iterate over quality issues in the assessment
     ass_datasets = (assessment or {}).get("datasets") or {}
@@ -62,19 +68,17 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
             
         for issue in dq_issues:
             col = issue.get("column")
-            if not col:
-                continue
             total_issues += 1
-            issue_key = (ds_name.lower(), col.lower())
             
             issue_detail = {
                 "dataset": ds_name,
-                "column": col,
+                "column": col or "",
                 "issue_type": issue.get("type"),
                 "message": issue.get("message"),
                 "severity": issue.get("severity")
             }
             
+            issue_key = (_clean_ds(ds_name), _clean_col(col))
             if issue_key in planned_cols:
                 covered.append(issue_detail)
             else:

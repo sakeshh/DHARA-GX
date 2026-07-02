@@ -1,26 +1,26 @@
 {
   "manifest_version": "1.0",
-  "generated_at": "2026-06-29T19:41:27.111150Z",
-  "verdict": "READY",
-  "overall_dq_score": 95.0,
+  "generated_at": "2026-07-01T15:36:39.894548Z",
+  "verdict": "NEEDS_WORK",
+  "overall_dq_score": 48.8,
   "total_datasets": 1,
   "summary": {
-    "high": 1,
-    "medium": 3,
-    "low": 10
+    "high": 14,
+    "medium": 16,
+    "low": 6
   },
   "datasets": {
-    "dbo.courses_raw": {
-      "source_file": "dbo.courses_raw",
-      "row_count": 51,
-      "column_count": 6,
-      "dq_score": 95.0,
-      "readiness": "READY",
-      "total_issues": 14,
+    "dbo.EmployeeData": {
+      "source_file": "dbo.EmployeeData",
+      "row_count": 20,
+      "column_count": 10,
+      "dq_score": 48.8,
+      "readiness": "NEEDS_WORK",
+      "total_issues": 36,
       "issues_by_severity": {
-        "high": 1,
-        "medium": 3,
-        "low": 10
+        "high": 14,
+        "medium": 16,
+        "low": 6
       },
       "issues": [
         {
@@ -33,8 +33,8 @@
             7
           ],
           "sample_bad_values": [
-            "{'course_id': 'C007', 'course_name': 'Cyber Security', 'department': 'ECE', 'cre",
-            "{'course_id': 'C007', 'course_name': 'Cyber Security', 'department': 'ECE', 'cre"
+            "{'EmployeeID': 'E007', 'EmployeeName': 'Rahul Kumar', 'Email': 'rahul.kumar@comp",
+            "{'EmployeeID': 'E007', 'EmployeeName': 'Rahul Kumar', 'Email': 'rahul.kumar@comp"
           ],
           "message": "2 duplicate in candidate PK",
           "recommended_action": "deduplicate_or_alert",
@@ -42,68 +42,62 @@
           "manual_guidance": ""
         },
         {
-          "column": "credits",
-          "issue_type": "sentinel_numeric_value",
-          "severity": "medium",
+          "column": "EmployeeName",
+          "issue_type": "nulls",
+          "severity": "high",
           "rows_affected": 1,
           "row_indexes": [
-            4
+            3
           ],
           "sample_bad_values": [
-            "-1"
+            "None"
           ],
-          "message": "1 sentinel/magic number(s) detected (e.g. -999, 9999999)",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
         },
         {
-          "column": "[Row-level]",
-          "issue_type": "near_duplicate_rows",
-          "severity": "medium",
-          "rows_affected": 5,
+          "column": "Email",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
           "row_indexes": [
-            5,
-            5,
-            6,
-            9,
             9
           ],
           "sample_bad_values": [
-            "{'row_index_a': 5, 'row_index_b': 6, 'similarity': 1.0}",
-            "{'row_index_a': 5, 'row_index_b': 7, 'similarity': 1.0}",
-            "{'row_index_a': 6, 'row_index_b': 7, 'similarity': 1.0}",
-            "{'row_index_a': 9, 'row_index_b': 39, 'similarity': 0.9538461538461537}",
-            "{'row_index_a': 9, 'row_index_b': 49, 'similarity': 0.9538461538461537}"
+            "None"
           ],
-          "message": "Found 5 pair(s) of near-duplicate rows withsimilarity >= 0.92",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
         },
         {
-          "column": "instructor",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
+          "column": "Phone",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 2,
           "row_indexes": [
-            3
+            1,
+            13
           ],
           "sample_bad_values": [
-            ""
+            "None",
+            "None"
           ],
-          "message": "instructor: expectation failed.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+          "message": "2 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
         },
         {
-          "column": "credits",
+          "column": "Department",
           "issue_type": "nulls",
-          "severity": "low",
+          "severity": "high",
           "rows_affected": 1,
           "row_indexes": [
-            3
+            16
           ],
           "sample_bad_values": [
             "None"
@@ -114,62 +108,92 @@
           "manual_guidance": ""
         },
         {
-          "column": "course_name",
-          "issue_type": "whitespace",
-          "severity": "low",
-          "rows_affected": 2,
-          "row_indexes": [
-            1,
-            8
-          ],
-          "sample_bad_values": [
-            "machine learning ",
-            " Big Data "
-          ],
-          "message": "2 leading/trailing spaces",
-          "recommended_action": "trim",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "instructor",
-          "issue_type": "whitespace",
-          "severity": "low",
-          "rows_affected": 1,
-          "row_indexes": [
-            3
-          ],
-          "sample_bad_values": [
-            ""
-          ],
-          "message": "1 leading/trailing spaces",
-          "recommended_action": "trim",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "fee",
-          "issue_type": "whitespace",
-          "severity": "low",
-          "rows_affected": 1,
-          "row_indexes": [
-            8
-          ],
-          "sample_bad_values": [
-            " 80000 "
-          ],
-          "message": "1 leading/trailing spaces",
-          "recommended_action": "trim",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "instructor",
+          "column": "JobTitle",
           "issue_type": "nulls",
-          "severity": "low",
+          "severity": "high",
           "rows_affected": 1,
           "row_indexes": [
-            3
+            10
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "HireDate",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            18
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Salary",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Location",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            19
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Status",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            10
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "EmployeeID",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
           ],
           "sample_bad_values": [
             ""
@@ -180,84 +204,524 @@
           "manual_guidance": ""
         },
         {
-          "column": "course_name",
-          "issue_type": "all_caps_values",
-          "severity": "low",
-          "rows_affected": 2,
+          "column": "EmployeeName",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
           "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            "Unknown"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Email",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Phone",
+          "issue_type": "nulls",
+          "severity": "high",
+          "rows_affected": 1,
+          "row_indexes": [
+            5
+          ],
+          "sample_bad_values": [
+            "N/A"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Status",
+          "issue_type": "invalid_lookup_value",
+          "severity": "medium",
+          "rows_affected": 4,
+          "row_indexes": [
+            4,
+            12,
+            13,
+            18
+          ],
+          "sample_bad_values": [
+            "Inactive",
+            "Inactive",
+            "Inactive",
+            "Inactive"
+          ],
+          "message": "Value not in allowed lookup list for Status (4 invalid value(s))",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Department",
+          "issue_type": "invalid_lookup_value",
+          "severity": "medium",
+          "rows_affected": 3,
+          "row_indexes": [
+            8,
+            9,
+            17
+          ],
+          "sample_bad_values": [
+            "Marketing",
+            "Operations",
+            "Marketing"
+          ],
+          "message": "Value not in allowed lookup list for Department (3 invalid value(s))",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "JobTitle",
+          "issue_type": "invalid_lookup_value",
+          "severity": "medium",
+          "rows_affected": 15,
+          "row_indexes": [
+            0,
+            1,
             2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19
+          ],
+          "sample_bad_values": [
+            "Data Analyst",
+            "HR Executive",
+            "Accountant",
+            "Data Engineer",
+            "Sales Manager"
+          ],
+          "message": "Value not in allowed lookup list for JobTitle (15 invalid value(s))",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Location",
+          "issue_type": "invalid_lookup_value",
+          "severity": "medium",
+          "rows_affected": 19,
+          "row_indexes": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18
+          ],
+          "sample_bad_values": [
+            "Bangalore",
+            "Mumbai",
+            "Delhi",
+            "Chennai",
+            "Hyderabad"
+          ],
+          "message": "Value not in allowed lookup list for Location (19 invalid value(s))",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeID",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            "{'EmployeeID': ''}"
+          ],
+          "message": "Employee ID must follow the standard format (E followed by digits).",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeName",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 1,
+          "row_indexes": [
             3
           ],
           "sample_bad_values": [
-            "AI",
-            "DBMS"
+            "{'EmployeeName': None}"
           ],
-          "message": "2 ALL-CAPS value(s) mixed with 49 mixed/lower-case",
-          "recommended_action": "lowercase",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "credits",
-          "issue_type": "string_length_outlier",
-          "severity": "low",
-          "rows_affected": 1,
-          "row_indexes": [
-            1
-          ],
-          "sample_bad_values": [
-            "four"
-          ],
-          "message": "1 value(s) exceed 4 chars (mean=1, \u03c3=1)",
+          "message": "Employee Name length must be between 3 and 100 characters.",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
         },
         {
-          "column": "fee",
-          "issue_type": "string_length_outlier",
-          "severity": "low",
-          "rows_affected": 1,
-          "row_indexes": [
-            8
-          ],
-          "sample_bad_values": [
-            " 80000 "
-          ],
-          "message": "1 value(s) exceed 7 chars (mean=5, \u03c3=0)",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "department",
-          "issue_type": "duplicate_insensitive_values",
-          "severity": "low",
-          "rows_affected": 1,
-          "row_indexes": [],
-          "sample_bad_values": [
-            "['CSE', 'cse']"
-          ],
-          "message": "1 value(s) that differ only by case/whitespace \u2014 false uniqueness",
-          "recommended_action": "lowercase",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "fee",
-          "issue_type": "nulls",
-          "severity": "low",
+          "column": "Email",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
           "rows_affected": 3,
           "row_indexes": [
-            5,
-            6,
-            7
+            2,
+            4,
+            9
           ],
           "sample_bad_values": [
-            "55000"
+            "{'Email': 'mjohnson@company'}",
+            "{'Email': ''}",
+            "{'Email': None}"
           ],
-          "message": "3 null/placeholder",
-          "recommended_action": "fill_or_drop",
+          "message": "Email Address must belong to an approved company domain.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Phone",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 6,
+          "row_indexes": [
+            1,
+            3,
+            5,
+            9,
+            13,
+            14
+          ],
+          "sample_bad_values": [
+            "{'Phone': None}",
+            "{'Phone': '98765-12345'}",
+            "{'Phone': 'N/A'}",
+            "{'Phone': '123456789'}",
+            "{'Phone': None}"
+          ],
+          "message": "Phone Number must contain exactly 10 numeric digits.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeName",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 3,
+          "row_indexes": [
+            1,
+            3,
+            11
+          ],
+          "sample_bad_values": [
+            "{'EmployeeName': ' jane doe '}",
+            "{'EmployeeName': None}",
+            "{'EmployeeName': 'Chris Wilson '}"
+          ],
+          "message": "Leading and trailing spaces must be removed from Employee Name.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeName",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 19,
+          "row_indexes": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            17,
+            18,
+            19
+          ],
+          "sample_bad_values": [
+            "{'EmployeeName': 'John Smith'}",
+            "{'EmployeeName': ' jane doe '}",
+            "{'EmployeeName': 'Michael Johnson'}",
+            "{'EmployeeName': None}",
+            "{'EmployeeName': 'David Lee'}"
+          ],
+          "message": "Employee Name must contain only valid alphabetic characters and spaces.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Phone",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 10,
+          "row_indexes": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            9,
+            13
+          ],
+          "sample_bad_values": [
+            "{'Phone': '9876543210'}",
+            "{'Phone': None}",
+            "{'Phone': '9988776655'}",
+            "{'Phone': '98765-12345'}",
+            "{'Phone': '9123456780'}"
+          ],
+          "message": "Dummy phone numbers such as repeated digits must be flagged.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "[Row-level]",
+          "issue_type": "near_duplicate_rows",
+          "severity": "medium",
+          "rows_affected": 1,
+          "row_indexes": [
+            6
+          ],
+          "sample_bad_values": [
+            "{'row_index_a': 6, 'row_index_b': 7, 'similarity': 1.0}"
+          ],
+          "message": "Found 1 pair(s) of near-duplicate rows withsimilarity >= 0.92",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "HireDate",
+          "issue_type": "mixed_date_formats",
+          "severity": "medium",
+          "rows_affected": 16,
+          "row_indexes": [
+            0,
+            1,
+            3,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19
+          ],
+          "sample_bad_values": [
+            "ISO(YYYY-MM-DD)",
+            "US(MM/DD/YYYY)"
+          ],
+          "message": "Multiple date formats detected: ISO(YYYY-MM-DD)=15, US(MM/DD/YYYY)=1",
+          "recommended_action": "parse_dates",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "HireDate",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 3,
+          "row_indexes": [
+            8,
+            12,
+            14
+          ],
+          "sample_bad_values": [
+            "2024-02-30",
+            "2021-13-01",
+            "2020-06-31"
+          ],
+          "message": "HireDate: expectation failed.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeID",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "EmployeeID: expectation failed.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Email",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "Email: expectation failed.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "EmployeeID",
+          "issue_type": "whitespace",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "1 leading/trailing spaces",
+          "recommended_action": "trim",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "EmployeeName",
+          "issue_type": "whitespace",
+          "severity": "low",
+          "rows_affected": 2,
+          "row_indexes": [
+            1,
+            11
+          ],
+          "sample_bad_values": [
+            " jane doe ",
+            "Chris Wilson "
+          ],
+          "message": "2 leading/trailing spaces",
+          "recommended_action": "trim",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Email",
+          "issue_type": "whitespace",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "1 leading/trailing spaces",
+          "recommended_action": "trim",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Location",
+          "issue_type": "whitespace",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            14
+          ],
+          "sample_bad_values": [
+            " Bengaluru "
+          ],
+          "message": "1 leading/trailing spaces",
+          "recommended_action": "trim",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Status",
+          "issue_type": "all_caps_values",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            9
+          ],
+          "sample_bad_values": [
+            "ACTIVE"
+          ],
+          "message": "1 ALL-CAPS value(s) mixed with 18 mixed/lower-case",
+          "recommended_action": "lowercase",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Status",
+          "issue_type": "duplicate_insensitive_values",
+          "severity": "low",
+          "rows_affected": 2,
+          "row_indexes": [],
+          "sample_bad_values": [
+            "['Active', 'active', 'ACTIVE']"
+          ],
+          "message": "2 value(s) that differ only by case/whitespace \u2014 false uniqueness",
+          "recommended_action": "lowercase",
           "auto_fixable": true,
           "manual_guidance": ""
         }

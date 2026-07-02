@@ -228,7 +228,7 @@ def orchestrate_sql_execution(
             sess = load_session(session_id)
             ctx = sess.get("context") or {}
             flow = ctx.get("etl_flow") or {}
-            original_plan = flow.get("approved_plan")
+            original_plan = flow.get("approved_plan") or flow.get("plan")
             engine = flow.get("codegen_engine") or "sql"
             if original_plan:
                 patched = post_etl_regen_if_needed(

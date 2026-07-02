@@ -1,10 +1,14 @@
 {
-    "dbo.courses_raw": {
-        "course_id": "object",
-        "course_name": "object",
-        "department": "object",
-        "credits": "object",
-        "instructor": "object",
-        "fee": "object"
+    "dbo.EmployeeData": {
+        "EmployeeID": "object",
+        "EmployeeName": "object",
+        "Email": "object",
+        "Phone": "object",
+        "Department": "object",
+        "JobTitle": "object",
+        "HireDate": "object",
+        "Salary": "object",
+        "Location": "object",
+        "Status": "object"
     }
 }

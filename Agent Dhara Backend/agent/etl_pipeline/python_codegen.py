@@ -228,6 +228,27 @@ def _emit_nullify_future_dates(col: str, ds_var: str, _p: Dict[str, Any]) -> Lis
     ]
 
 
+def _emit_nullify_punctuation(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
+    c = _col_expr(col)
+    return [
+        f"# Nullify punctuation-only strings",
+        f"if {c} in {ds_var}.columns:",
+        f"    _mask = ~{ds_var}[{c}].astype(str).str.contains(r'[a-zA-Z0-9]', na=False) & {ds_var}[{c}].notna()",
+        f"    {ds_var}.loc[_mask, {c}] = pd.NA",
+    ]
+
+
+def _emit_nullify_dummy_dates(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
+    c = _col_expr(col)
+    return [
+        f"# Nullify dummy dates (e.g. 1900-01-01 or Jan 1st default dates)",
+        f"if {c} in {ds_var}.columns:",
+        f"    _dates = pd.to_datetime({ds_var}[{c}], errors='coerce')",
+        f"    _mask = (_dates == '1900-01-01') | ((_dates.dt.month == 1) & (_dates.dt.day == 1))",
+        f"    {ds_var}.loc[_mask & {ds_var}[{c}].notna(), {c}] = pd.NA",
+    ]
+
+
 def _emit_noop(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
     return [f"# Column {col}: no transform (user accepted as-is)"]
 
@@ -333,6 +354,8 @@ _ACTION_REGISTRY: Dict[str, Callable[[str, str, Dict[str, Any]], List[str]]] = {
     "drop_column": _emit_drop_column,
     "exclude_column": _emit_drop_column,
     "nullify_future_dates": _emit_nullify_future_dates,
+    "nullify_punctuation": _emit_nullify_punctuation,
+    "nullify_dummy_dates": _emit_nullify_dummy_dates,
     "noop": _emit_noop,
     "validate_referential_integrity_or_stage": _emit_ri,
     "at_least_one": _emit_at_least_one,

@@ -538,19 +538,15 @@ def etl_plan_start(
                 })
         plan = enrich_plan_manual_review(plan)
 
-    resolutions = list(agentic_result.get("manual_review_resolutions") or [])
-    user_resolutions = ctx.get("manual_review_resolutions") or []
-    res_map = {r.get("item_id") or r.get("id"): r for r in resolutions if r}
-    for ur in user_resolutions:
-        if not ur:
-            continue
-        iid = ur.get("item_id") or ur.get("id")
-        if iid:
-            res_map[iid] = ur
-    resolutions = list(res_map.values())
+    # Clear stale session-saved manual review resolutions on fresh plan build.
+    # These are picks from previous plan iterations that should NOT auto-apply to a new plan.
+    # The user must see the fresh manual review queue and make new choices.
+    ctx.pop("manual_review_resolutions", None)
 
+    # Only apply agentic (LLM-generated) resolutions if the agentic pass produced them
+    resolutions = list(agentic_result.get("manual_review_resolutions") or [])
     if resolutions:
-        logger.info(f"Applying {len(resolutions)} manual review resolutions to plan.")
+        logger.info(f"Applying {len(resolutions)} agentic manual review resolutions to plan.")
         plan, res_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules_merged)
         if res_errs:
             logger.warning(f"Resolutions errors: {res_errs}")
@@ -769,26 +765,114 @@ def etl_apply_manual_resolutions(
     updated, apply_errs = apply_manual_resolutions(plan, resolutions, business_rules=rules)
     if apply_errs:
         logger.warning(f"etl_apply_manual_resolutions: Errors applying resolutions: {apply_errs}")
+    
     if rules:
         flow["business_rules"] = rules
         ctx["business_rules"] = rules
+        updated["business_rules"] = rules
+
+    # Recalculate readiness and apply improvements based on resolutions
+    if assess:
+        from agent.etl_readiness_scorer import compute_etl_readiness
+        readiness = compute_etl_readiness(assess)
+        resolved = updated.get("resolved_manual_review") or []
+        resolved_keys = set(
+            f"{str(r.get('dataset') or '').lower()}|{str(r.get('column') or '').lower()}|{str(r.get('issue_type') or '').lower()}"
+            for r in resolved if isinstance(r, dict)
+        )
+        if resolved_keys:
+            active_blockers = []
+            score_improvement = 0
+            for b in readiness.get("blockers") or []:
+                b_ds = str(b.get("dataset") or "").lower()
+                if b_ds == "global":
+                    b_ds = ""
+                b_col = str(b.get("column") or "").lower()
+                b_it = str(b.get("issue_type") or "").lower()
+                key = f"{b_ds}|{b_col}|{b_it}"
+                if key in resolved_keys:
+                    if b_it == "business_key_duplicate":
+                        score_improvement += 15
+                    elif b_it == "high_null_percentage":
+                        score_improvement += 20
+                    elif b.get("severity") == "HIGH":
+                        score_improvement += 15
+                    elif b_it == "orphan_foreign_keys":
+                        score_improvement += 15
+                    elif b_it == "reconciliation_imbalance":
+                        score_improvement += 12
+                    else:
+                        score_improvement += 15
+                else:
+                    active_blockers.append(b)
+                    
+            active_warnings = []
+            for w in readiness.get("warnings") or []:
+                w_ds = str(w.get("dataset") or "").lower()
+                if w_ds == "global":
+                    w_ds = ""
+                w_col = str(w.get("column") or "").lower()
+                w_it = str(w.get("issue_type") or "").lower()
+                key = f"{w_ds}|{w_col}|{w_it}"
+                if key in resolved_keys:
+                    score_improvement += 8
+                else:
+                    active_warnings.append(w)
+                    
+            readiness["score"] = min(100.0, float(readiness["score"]) + score_improvement)
+            readiness["blockers"] = active_blockers
+            readiness["warnings"] = active_warnings
+            readiness["grade"] = "A" if readiness["score"] >= 90 else "B" if readiness["score"] >= 75 else "C" if readiness["score"] >= 50 else "F"
+            readiness["etl_recommendation"] = (
+                "Ready for ETL generation" if not active_blockers
+                else f"Fix {len(active_blockers)} blocker(s) before generating ETL"
+            )
+        assess["etl_readiness"] = readiness
+
+    updated["blocked"] = []
+
+    # Run validation on the resolved plan
+    from agent.etl_pipeline.validate_plan import validate_etl_plan
+    plan_ok, plan_errs = validate_etl_plan(updated, assess or {}, rules)
+
+    # Build impact preview
+    preview = build_impact_preview(assess or {}, updated)
+    flow["preview"] = preview
+
+    # Build coverage report
+    from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+    cov_report = build_coverage_report(assess or {}, updated)
+    updated["coverage_report"] = cov_report
+
+    flow["plan"] = updated
+    flow["plan_validation_ok"] = plan_ok
+    flow["plan_validation_errors"] = plan_errs
 
     save_session(sess)
 
-    # Rebuild plan with updated resolutions and rules
-    intent = flow.get("etl_intent") or {}
-    rebuilt = etl_plan_start(
-        session_id=sid,
-        business_rules=rules,
-        engine=flow.get("target_engine") or "python",
-        codegen_engine=flow.get("codegen_engine"),
-        sql_dialect=flow.get("sql_dialect") or "tsql",
-        target_destination=intent.get("target_destination") or "dataframe_only",
-        target_path=intent.get("target_path"),
-        source_context=plan.get("source_context"),
-        generation_mode=intent.get("generation_mode") or "full",
-    )
-    return rebuilt
+    pending_manual = count_pending_manual_review(updated)
+    ce = flow.get("codegen_engine")
+    sd = flow.get("sql_dialect")
+
+    return {
+        "ok": plan_ok and not updated.get("blocked"),
+        "session_id": sid,
+        "plan": updated,
+        "blocked": updated.get("blocked") or [],
+        "pending_manual_review": pending_manual,
+        "plan_validation_ok": plan_ok,
+        "plan_validation_errors": plan_errs,
+        "engine_recommendation": updated.get("engine_recommendation"),
+        "source_context": updated.get("source_context"),
+        "recommended_codegen_engine": ce,
+        "recommended_sql_dialect": sd,
+        "coverage_report": cov_report,
+        "message": (
+            None
+            if (plan_ok and not updated.get("blocked"))
+            else "Plan resolved with validation warnings — review plan_validation_errors."
+        ),
+    }
 
 
 def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1076,7 +1160,7 @@ def etl_generate_code(
             "phase": current_phase,
         }
 
-    plan = flow.get("approved_plan")
+    plan = flow.get("approved_plan") or flow.get("plan")
     if not isinstance(plan, dict) or not plan.get("datasets"):
         return {
             "ok": False,
@@ -1395,7 +1479,7 @@ def etl_execute_sql(
             "errors": violations
         }
 
-    plan = flow.get("approved_plan")
+    plan = flow.get("approved_plan") or flow.get("plan")
     table_names = []
     if plan and isinstance(plan, dict) and "datasets" in plan:
         table_names = list(plan["datasets"].keys())

@@ -88,6 +88,9 @@ ISSUE_TO_ACTION = {
     "invalid_cin": "review_manually",
     "disposable_email": "review_manually",
     "encoding_corruption": "review_manually",
+    "sentinel_numeric_value": "zero_to_null",
+    "string_length_outlier": "review_manually",
+    "custom_rule_violation": "review_manually",
 }
 
 # Columns we should NOT coerce to numeric (semantic string columns)

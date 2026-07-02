@@ -71,8 +71,9 @@ def validate_etl_plan(
             if action == "drop_rows" and never_drop:
                 errs.append(f"never_drop_rows: drop_rows on {ds_name}.{col} is not allowed")
             if col and str(col) not in cols and str(col) not in ("*", "[Row-level]"):
+                cols_lower = {str(c).lower() for c in cols}
                 sub_cols = [c.strip() for c in str(col).split(",") if c.strip()]
-                if not (sub_cols and all(sc in cols for sc in sub_cols)):
+                if not (sub_cols and all(str(sc).lower() in cols_lower for sc in sub_cols)):
                     errs.append(f"column '{col}' not in assessment schema for dataset '{ds_name}'")
             if col:
                 seen_cols.setdefault(str(col), []).append(action)

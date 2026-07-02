@@ -291,6 +291,16 @@ def _classify_column(col_name: str, col_meta: dict, sem_schema: dict = None, ds_
     if c_lower in ("etl_batch_id", "run_id", "etl_created_at", "etl_updated_at", "_rn", "_dedup_rn", "etl_run_id", "etl_created_date", "etl_updated_date") or c_lower.startswith("etl_"):
         return "metadata"
 
+    # Priority check: columns with numeric keywords or explicit numeric dtype/target_dtype are always metric
+    dtype = str((col_meta or {}).get("dtype") or (col_meta or {}).get("inferred_type") or "").lower()
+    target_dtype = str((col_meta or {}).get("target_dtype") or "").lower()
+    
+    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")) or \
+       any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+        return "metric"
+    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count", "score", "grade", "val")):
+        return "metric"
+
     # 0a. Check semantic_schema (single source of truth)
     if sem_schema:
         key = f"{ds_name}.{col_name}"
@@ -474,7 +484,8 @@ def _consolidate_and_filter_datasets(
             elif action in ("clip_outliers", "cap_outliers"):
                 norm_action = "modify_outliers"
                 
-            op_key = (norm_action, str(col).lower() if col else None)
+            is_internal_trim = (norm_action == "trim") and (step.get("source_issue_type") == "internal_whitespace" or step.get("issue_type") == "internal_whitespace")
+            op_key = (norm_action, str(col).lower() if col else None, is_internal_trim)
             if op_key in seen_operations:
                 continue
             seen_operations.add(op_key)
