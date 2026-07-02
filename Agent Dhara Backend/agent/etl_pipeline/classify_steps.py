@@ -33,6 +33,8 @@ _AUTO_ACTIONS = frozenset(
         "drop_column",
         "exclude_column",
         "nullify_future_dates",
+        "nullify_punctuation",
+        "nullify_dummy_dates",
         "noop",
     }
 )
@@ -74,6 +76,7 @@ def classify_step_bucket(
         "normalize_phone", "range_clip", "clip_or_flag", "flag_outliers",
         "clip_outliers", "cap_outliers", "standardize_boolean", "zero_to_null",
         "deduplicate", "drop_column", "exclude_column", "nullify_future_dates",
+        "nullify_punctuation", "nullify_dummy_dates",
         "noop", "drop_rows"
     }
     phase = "cleanse" if act in cleanse_actions else "transform"

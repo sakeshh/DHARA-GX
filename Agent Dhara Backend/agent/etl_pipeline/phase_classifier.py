@@ -15,7 +15,7 @@ def classify_action_phase(action: str) -> str:
         "normalize_phone", "range_clip", "clip_or_flag", "flag_outliers",
         "clip_outliers", "cap_outliers", "standardize_boolean", "zero_to_null",
         "deduplicate", "drop_column", "exclude_column", "nullify_future_dates",
-        "noop", "drop_rows"
+        "noop", "drop_rows", "nullify_punctuation", "nullify_dummy_dates"
     }
     return "cleanse" if act in cleanse_actions else "transform"
 

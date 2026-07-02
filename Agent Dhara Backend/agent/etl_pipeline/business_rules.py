@@ -114,6 +114,17 @@ def to_tagged_rules(rules: Dict[str, Any], dataset_name: str, assessment: Option
     from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
     tagged = []
     
+    # Map case and filter if assessment is provided
+    ds_cols = {}
+    has_schema = False
+    if assessment and assessment.get("datasets") and dataset_name in assessment["datasets"]:
+        ds_info = assessment["datasets"][dataset_name] or {}
+        cols_info = ds_info.get("columns") or {}
+        if cols_info:
+            has_schema = True
+            for c in cols_info.keys():
+                ds_cols[str(c).lower()] = str(c)
+    
     # 1. Non-nullable columns
     nn = rules.get("non_nullable") or []
     for col in nn:
@@ -125,6 +136,13 @@ def to_tagged_rules(rules: Dict[str, Any], dataset_name: str, assessment: Option
                 continue
         else:
             col_name = col
+            if has_schema and col_name.lower() not in ds_cols:
+                continue
+        
+        # Fix casing
+        col_lower = col_name.lower()
+        if has_schema and col_lower in ds_cols:
+            col_name = ds_cols[col_lower]
         
         action = "fill_nulls_simple" if rules.get("never_drop_rows") else "fill_or_drop"
         tagged.append(TaggedRule(
@@ -144,6 +162,15 @@ def to_tagged_rules(rules: Dict[str, Any], dataset_name: str, assessment: Option
             parts = col.split(".")
             if not (len(parts) >= 2 and parts[-2].lower() in dataset_name.lower()):
                 continue
+        else:
+            if has_schema and col_name.lower() not in ds_cols:
+                continue
+        
+        # Fix casing
+        col_lower = col_name.lower()
+        if has_schema and col_lower in ds_cols:
+            col_name = ds_cols[col_lower]
+            
         tagged.append(TaggedRule(
             dataset=dataset_name,
             column=col_name,

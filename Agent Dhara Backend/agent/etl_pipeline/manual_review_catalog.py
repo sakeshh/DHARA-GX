@@ -199,6 +199,14 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("keep_as_is", "Keep as-is (skip in ETL)", "noop", recommended=True, description="Keep long strings as-is."),
         _opt("exclude_column", "Exclude column from output", "exclude_column", description="Drop column before writing to target."),
     ],
+    "custom_rule_violation": [
+        _opt("flag_outliers", "Flag rule violations", "flag_outliers", recommended=True, description="Add audit column flagging rows that violate custom business rules."),
+        _opt("keep_as_is", "Keep as-is (accept risk)", "noop"),
+    ],
+    "near_duplicate_rows": [
+        _opt("deduplicate", "Deduplicate near-duplicates", "deduplicate", recommended=True, description="Deduplicate rows using primary/composite keys."),
+        _opt("keep_as_is", "Keep duplicates as-is", "noop"),
+    ],
     "date_format_inconsistency": [
         _opt("parse_dates", "Standardize date formats", "parse_dates", recommended=True, description="Convert and parse mixed date strings into standard ISO dates."),
         _opt("keep_as_is", "Keep as-is (skip in ETL)", "noop"),
@@ -325,6 +333,8 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
 
 def manual_review_item_id(dataset: Optional[str], column: Optional[str], issue_type: Optional[str]) -> str:
     ds = (dataset or "_global").strip()
+    if ds.lower() == "global":
+        ds = "_global"
     col = (column or "*").strip()
     it = (issue_type or "unknown").strip()
     return f"{ds}|{col}|{it}"

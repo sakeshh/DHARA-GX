@@ -37,6 +37,16 @@ def _has_fake_default_value(sql: str) -> bool:
             idx = low.find(b, start)
             if idx == -1:
                 break
+            # Skip if the line contains references to seeding metadata table etl_invalid_values
+            line_start = low.rfind("\n", 0, idx) + 1
+            line_end = low.find("\n", idx)
+            if line_end == -1:
+                line_end = len(low)
+            line_content = low[line_start:line_end]
+            if "etl_invalid_values" in line_content:
+                start = idx + len(b)
+                continue
+
             # Check downstream text for 'then null' within 150 characters
             downstream = low[idx + len(b):idx + len(b) + 150]
             if "then null" in downstream:

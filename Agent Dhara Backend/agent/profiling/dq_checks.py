@@ -372,10 +372,14 @@ def analyze_dataset_quality(
             issue_type = "duplicate_rows"
             severity = "medium"
             msg = f"{unexp_cnt} duplicate row(s)" if unexp_cnt > 0 else "Duplicate rows found"
-        elif "be in type list" in exp or "be of type" in exp:
+        elif "be in type list" in exp or "be of type" in exp or "invalid_numeric" in exp or exp == "invalid_numeric_values":
             issue_type = "invalid_numeric"
             severity = "medium"
-            msg = f"{unexp_cnt} non-numeric value(s)" if unexp_cnt > 0 else "Type mismatch"
+            msg = f"{unexp_cnt} non-numeric value(s) in numeric column" if unexp_cnt > 0 else "Type mismatch"
+        elif exp == "mixed_scalar_types":
+            issue_type = "mixed_scalar_types"
+            severity = "medium"
+            msg = details or f"{unexp_cnt} mixed scalar types detected"
         elif exp == "internal_whitespace":
             issue_type = "internal_whitespace"
             severity = "low"

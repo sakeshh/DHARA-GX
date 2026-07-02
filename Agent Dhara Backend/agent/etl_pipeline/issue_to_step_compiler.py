@@ -29,6 +29,9 @@ _ISSUE_TO_ACTION_MAP.update({
     "invalid_url": "regex_replace",
     "repeated_token_in_string": "regex_replace",
     "encoding_corruption": "regex_replace",
+    "sentinel_numeric_value": "zero_to_null",
+    "string_length_outlier": "flag_outliers",
+    "custom_rule_violation": "review_manually",
 })
 
 def compile_issues_to_steps(

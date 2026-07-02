@@ -98,7 +98,7 @@ FIXABILITY_BY_ISSUE_TYPE: Dict[str, str] = {
     "dominant_value_skew": "COMPLEX",
     "name_format_inconsistency": "COMPLEX",
     "systematic_placeholder": "COMPLEX",
-    "sentinel_numeric_value": "COMPLEX",
+    "sentinel_numeric_value": "FIXABLE",
     "punctuation_only_value": "COMPLEX",
     "round_number_anomaly": "COMPLEX",
     "date_clumping_jan1": "COMPLEX",

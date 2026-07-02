@@ -12,7 +12,15 @@ def _is_numeric_dtype(dtype: str, col_stats: Dict[str, Any]) -> bool:
     if d in ("int", "integer", "float", "double", "decimal", "numeric", "number"):
         return True
     inf = str(col_stats.get("dtype_inference") or "").lower()
-    return inf in ("numeric", "integer", "float")
+    if inf in ("numeric", "integer", "float"):
+        return True
+    semantic_type = str(col_stats.get("semantic_type") or "").lower().strip()
+    if semantic_type == "metric":
+        return True
+    c_lower = str(col_stats.get("name") or "").lower()
+    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count")):
+        return True
+    return False
 
 
 def _is_text_dtype(dtype: str, col_stats: Dict[str, Any]) -> bool:
@@ -118,10 +126,10 @@ def build_step_params(
     elif act == "zero_to_null":
         import yaml
         import os
-        backend_dir = r"c:\Users\ssakesh\Downloads\DHARA-GX\Agent Dhara Backend"
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         sentinels = [0, -999, 999999, 9999999]
         try:
-            with open(os.path.join(backend_dir, "config", "dq_thresholds.yaml"), "r") as f:
+            with open(os.path.join(base_dir, "config", "dq_thresholds.yaml"), "r") as f:
                 cfg = yaml.safe_load(f) or {}
             sentinels = cfg.get("sentinels", sentinels)
         except Exception:

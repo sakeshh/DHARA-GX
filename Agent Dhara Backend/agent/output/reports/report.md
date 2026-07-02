@@ -1,48 +1,74 @@
-## Assessment Report of `dbo.courses_raw`
+## Assessment Report of `dbo.EmployeeData`
 
 > [!NOTE]
-> **dbo.courses_raw**: Full dataset has 51 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.
+> **dbo.EmployeeData**: Full dataset has 20 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.
 
 ### Datasets (summary)
 
 | Dataset | Source | Rows | Cols | Issues | High | Med | Low |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `dbo.courses_raw` | Azure SQL (SQL data) | 51 | 6 | 14 | 1 | 3 | 10 |
+| `dbo.EmployeeData` | Azure SQL (SQL data) | 20 | 10 | 36 | 14 | 16 | 6 |
 
 ### Columns (per dataset)
 
 
-#### `dbo.courses_raw`
+#### `dbo.EmployeeData`
 
 | Column | dtype | null% | unique | semantic type | candidate_pk |
 |---|---|---:|---:|---|:---:|
-| `course_id` | `object` | 0.0% | 50 | `categorical` | ✗ |
-| `course_name` | `object` | 0.0% | 49 | `categorical` | ✗ |
-| `credits` | `object` | 2.0% | 5 | `numeric_id` | ✗ |
-| `department` | `object` | 0.0% | 3 | `categorical` | ✗ |
-| `fee` | `object` | 0.0% | 47 | `numeric_id` | ✗ |
-| `instructor` | `object` | 0.0% | 49 | `categorical` | ✗ |
+| `Department` | `object` | 5.0% | 6 | `categorical` | ✗ |
+| `Email` | `object` | 5.0% | 18 | `email` | ✗ |
+| `EmployeeID` | `object` | 0.0% | 19 | `categorical` | ✗ |
+| `EmployeeName` | `object` | 5.0% | 18 | `categorical` | ✗ |
+| `HireDate` | `object` | 5.0% | 17 | `date` | ✗ |
+| `JobTitle` | `object` | 5.0% | 15 | `categorical` | ✗ |
+| `Location` | `object` | 5.0% | 9 | `categorical` | ✗ |
+| `Phone` | `object` | 10.0% | 16 | `phone` | ✗ |
+| `Salary` | `object` | 5.0% | 17 | `categorical` | ✗ |
+| `Status` | `object` | 5.0% | 3 | `categorical` | ✗ |
 
 ### Top issues (per dataset)
 
-#### `dbo.courses_raw`
+#### `dbo.EmployeeData`
 
 | Severity | Type | Column | Count | Message | Recommendation |
 |:--:|---|---|---:|---|---|
 | high | `duplicate_primary_key` | `[Row-level]` | 2 | 2 duplicate in candidate PK | Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL. |
-| low | `nulls` | `credits` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
-| low | `whitespace` | `course_name` | 2 | 2 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
-| low | `whitespace` | `instructor` | 1 | 1 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
-| low | `whitespace` | `fee` | 1 | 1 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
-| low | `nulls` | `instructor` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
-| medium | `sentinel_numeric_value` | `credits` | 1 | 1 sentinel/magic number(s) detected (e.g. -999, 9999999) | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. |
-| medium | `near_duplicate_rows` | `[Row-level]` | 5 | Found 5 pair(s) of near-duplicate rows withsimilarity >= 0.92 | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. |
-| low | `all_caps_values` | `course_name` | 2 | 2 ALL-CAPS value(s) mixed with 49 mixed/lower-case | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. |
-| low | `string_length_outlier` | `credits` | 1 | 1 value(s) exceed 4 chars (mean=1, σ=1) | Strings significantly longer than the column average may contain concatenated data or free-text errors. |
-| low | `string_length_outlier` | `fee` | 1 | 1 value(s) exceed 7 chars (mean=5, σ=0) | Strings significantly longer than the column average may contain concatenated data or free-text errors. |
-| low | `duplicate_insensitive_values` | `department` | 1 | 1 value(s) that differ only by case/whitespace — false uniqueness | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. |
-| low | `nulls` | `fee` | 3 | 3 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
-| medium | `custom_rule_violation` | `instructor` | 1 | instructor: expectation failed. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| high | `nulls` | `EmployeeName` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Email` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Phone` | 2 | 2 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Department` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `JobTitle` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `HireDate` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Salary` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Location` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Status` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| low | `whitespace` | `EmployeeID` | 1 | 1 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
+| low | `whitespace` | `EmployeeName` | 2 | 2 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
+| low | `whitespace` | `Email` | 1 | 1 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
+| low | `whitespace` | `Location` | 1 | 1 leading/trailing spaces | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. |
+| high | `nulls` | `EmployeeID` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `EmployeeName` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Email` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| high | `nulls` | `Phone` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
+| medium | `invalid_lookup_value` | `Status` | 4 | Value not in allowed lookup list for Status (4 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `invalid_lookup_value` | `Department` | 3 | Value not in allowed lookup list for Department (3 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `invalid_lookup_value` | `JobTitle` | 15 | Value not in allowed lookup list for JobTitle (15 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `invalid_lookup_value` | `Location` | 19 | Value not in allowed lookup list for Location (19 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeID` | 1 | Employee ID must follow the standard format (E followed by digits). | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeName` | 1 | Employee Name length must be between 3 and 100 characters. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Email` | 3 | Email Address must belong to an approved company domain. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Phone` | 6 | Phone Number must contain exactly 10 numeric digits. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeName` | 3 | Leading and trailing spaces must be removed from Employee Name. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeName` | 19 | Employee Name must contain only valid alphabetic characters and spaces. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Phone` | 10 | Dummy phone numbers such as repeated digits must be flagged. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `near_duplicate_rows` | `[Row-level]` | 1 | Found 1 pair(s) of near-duplicate rows withsimilarity >= 0.92 | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. |
+| medium | `mixed_date_formats` | `HireDate` | 16 | Multiple date formats detected: ISO(YYYY-MM-DD)=15, US(MM/DD/YYYY)=1 | Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors. |
+| low | `all_caps_values` | `Status` | 1 | 1 ALL-CAPS value(s) mixed with 18 mixed/lower-case | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. |
+| low | `duplicate_insensitive_values` | `Status` | 2 | 2 value(s) that differ only by case/whitespace — false uniqueness | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. |
+| medium | `custom_rule_violation` | `HireDate` | 3 | HireDate: expectation failed. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeID` | 1 | EmployeeID: expectation failed. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Email` | 1 | Email: expectation failed. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
 
 ### Relationships
 
@@ -66,11 +92,42 @@
 
 | Priority | Dataset | Column | Severity | Suggested Fix | Risk |
 |---|---|---|---|---|---|
-| 1 | `dbo.courses_raw` | `[Row-level]` | high | Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL. | High risk of data corruption and integrity loss. |
-| 2 | `dbo.courses_raw` | `credits` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Medium risk of misleading data analysis. |
-| 3 | `dbo.courses_raw` | `instructor` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Medium risk of data quality issues affecting reporting. |
-| 4 | `dbo.courses_raw` | `credits` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Low risk of data analysis errors. |
-| 5 | `dbo.courses_raw` | `course_name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Low risk of data inconsistency. |
+| 99 | `dbo.EmployeeData` | `[Row-level]` | high | Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Email` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Phone` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Department` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `JobTitle` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `HireDate` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Salary` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Location` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Status` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeID` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Email` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Location` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeID` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Email` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Phone` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Status` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Department` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `JobTitle` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Location` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeID` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Email` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Phone` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Phone` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `[Row-level]` | medium | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `HireDate` | medium | Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Status` | low | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Status` | low | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `HireDate` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `EmployeeID` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Email` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 
 ### What might still be missed
 
