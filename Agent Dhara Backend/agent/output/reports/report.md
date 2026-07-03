@@ -7,7 +7,7 @@
 
 | Dataset | Source | Rows | Cols | Issues | High | Med | Low |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `dbo.EmployeeData` | Azure SQL (SQL data) | 20 | 10 | 36 | 14 | 16 | 6 |
+| `dbo.EmployeeData` | Azure SQL (SQL data) | 20 | 10 | 33 | 14 | 13 | 6 |
 
 ### Columns (per dataset)
 
@@ -51,17 +51,14 @@
 | high | `nulls` | `EmployeeName` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
 | high | `nulls` | `Email` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
 | high | `nulls` | `Phone` | 1 | 1 null/placeholder | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. |
-| medium | `invalid_lookup_value` | `Status` | 4 | Value not in allowed lookup list for Status (4 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `invalid_lookup_value` | `Department` | 3 | Value not in allowed lookup list for Department (3 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `invalid_lookup_value` | `JobTitle` | 15 | Value not in allowed lookup list for JobTitle (15 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `invalid_lookup_value` | `Location` | 19 | Value not in allowed lookup list for Location (19 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `EmployeeID` | 1 | Employee ID must follow the standard format (E followed by digits). | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `EmployeeName` | 1 | Employee Name length must be between 3 and 100 characters. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `Email` | 3 | Email Address must belong to an approved company domain. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `Phone` | 6 | Phone Number must contain exactly 10 numeric digits. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `EmployeeName` | 3 | Leading and trailing spaces must be removed from Employee Name. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `EmployeeName` | 19 | Employee Name must contain only valid alphabetic characters and spaces. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
-| medium | `custom_rule_violation` | `Phone` | 10 | Dummy phone numbers such as repeated digits must be flagged. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `invalid_lookup_value` | `Department` | 1 | Value not in allowed lookup list for Department (1 invalid value(s)) | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeID` | 1 | EmployeeID must follow the standard format (E followed by digits). | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Email` | 20 | Email must belong to an approved company domain. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Phone` | 6 | Phone must contain exactly 10 numeric digits. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeName` | 1 | EmployeeName length must be between 3 and 100 characters. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `EmployeeName` | 1 | EmployeeName must contain only valid alphabetic characters and spaces. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Department` | 2 | Department must match an approved department list. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
+| medium | `custom_rule_violation` | `Status` | 4 | Status must be one of the approved status values. | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
 | medium | `near_duplicate_rows` | `[Row-level]` | 1 | Found 1 pair(s) of near-duplicate rows withsimilarity >= 0.92 | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. |
 | medium | `mixed_date_formats` | `HireDate` | 16 | Multiple date formats detected: ISO(YYYY-MM-DD)=15, US(MM/DD/YYYY)=1 | Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors. |
 | low | `all_caps_values` | `Status` | 1 | 1 ALL-CAPS value(s) mixed with 18 mixed/lower-case | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. |
@@ -110,17 +107,14 @@
 | 99 | `dbo.EmployeeData` | `EmployeeName` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Email` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Phone` | high | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.EmployeeData` | `Status` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Department` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.EmployeeData` | `JobTitle` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.EmployeeData` | `Location` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `EmployeeID` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Email` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Phone` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `EmployeeName` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
-| 99 | `dbo.EmployeeData` | `Phone` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Department` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `dbo.EmployeeData` | `Status` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `[Row-level]` | medium | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `HireDate` | medium | Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `dbo.EmployeeData` | `Status` | low | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |

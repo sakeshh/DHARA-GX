@@ -110,6 +110,12 @@ class EtlApplyManualResolutionsPayload(BaseModel):
     resolutions: List[Dict[str, Any]] = []
 
 
+class EtlEnrichReviewOptionsPayload(BaseModel):
+    session_id: str = "default"
+    issue_type: str
+    item: Dict[str, Any]
+
+
 class EtlNonFixableResolutionsPayload(BaseModel):
     session_id: str = "default"
     resolutions: List[Dict[str, Any]] = []
@@ -636,6 +642,38 @@ def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) 
         payload.resolutions or [],
         plan_override=payload.plan,
     )
+
+
+@router.post("/etl/enrich-review-options")
+def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload) -> Dict[str, Any]:
+    """Enrich dynamic resolution options for an unmapped anomaly type in the plan using the LLM."""
+    from agent.etl_pipeline.manual_review_catalog import get_dynamic_resolution_options, enrich_manual_review_item
+    from agent.session_store import load_session, save_session
+    import logging
+
+    logger = logging.getLogger("agent.api_routes")
+    opts = get_dynamic_resolution_options(payload.issue_type, payload.item, allow_llm_call=True)
+    
+    sid = (payload.session_id or "default").strip() or "default"
+    try:
+        sess = load_session(sid)
+        if sess and "context" in sess and "etl_flow" in sess["context"]:
+            flow = sess["context"]["etl_flow"]
+            plan = flow.get("plan")
+            if plan and "manual_review" in plan:
+                updated_mr = []
+                for mr in plan["manual_review"]:
+                    if mr.get("issue_type") == payload.issue_type and mr.get("column") == payload.item.get("column") and mr.get("dataset") == payload.item.get("dataset"):
+                        mr["resolution_options"] = opts
+                        mr = enrich_manual_review_item(mr)
+                    updated_mr.append(mr)
+                plan["manual_review"] = updated_mr
+                flow["plan"] = plan
+                save_session(sess)
+    except Exception as e:
+        logger.warning(f"Failed to update session plan with enriched options: {e}")
+        
+    return {"ok": True, "options": opts}
 
 
 @router.post("/etl/non-fixable-resolutions")

@@ -34,14 +34,37 @@ _ISSUE_TO_ACTION_MAP.update({
     "custom_rule_violation": "review_manually",
 })
 
+
+# These issues CANNOT be resolved by any ETL action — must be acknowledged
+_NON_FIXABLE_ISSUE_TYPES = frozenset({
+    "missing_required_column",
+    "very_wide_table",
+    "empty_dataset",
+    "orphan_foreign_keys",          # FK violation — needs source fix
+    "schema_mismatch",              # target schema incompatible
+    "encoding_corruption",          # when regex cannot recover original
+    "referential_integrity_violation",
+})
+
+# These CAN be partially addressed but carry high business risk — need explicit acknowledgment
+_COMPLEX_ISSUE_TYPES = frozenset({
+    "custom_rule_violation",
+    "business_key_duplicate",
+    "duplicate_primary_key",        # when multi-column PK is involved
+    "dq_gate_warning",
+    "high_null_percentage",         # >50% null — may indicate structural problem
+    "dominant_value_skew",          # may indicate sentinel fill
+    "multivariate_outliers",        # cross-column — needs domain judgment
+})
+
+
 def compile_issues_to_steps(
     suggestions: List[Dict[str, Any]],
     rules: Dict[str, Any],
     sem_schema: Dict[str, Any]
-) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
     datasets_steps = {}
     manual_review = []
-    non_fixable = []
     
     never_drop_rows = bool(rules.get("never_drop_rows"))
     outlier_strategy = str(rules.get("outlier_strategy") or "flag").lower().strip()
@@ -175,37 +198,40 @@ def compile_issues_to_steps(
                 "message": sug.get("message"),
             })
         else:
-            # Route to manual review or non-fixable
-            # Non-fixable items are those that the compiler cannot solve automatically, or explicitly marked
-            is_non_fixable = it in (
-                "missing_required_column", "very_wide_table", "empty_dataset",
-            )
-            
+            # Determine risk tier
+            if it in _NON_FIXABLE_ISSUE_TYPES:
+                risk_tier = "non_fixable"
+            elif it in _COMPLEX_ISSUE_TYPES or (
+                sug.get("severity", "").lower() == "high" and not auto_fixable
+            ):
+                risk_tier = "complex"
+            else:
+                risk_tier = "standard"
+
             mr_item = {
                 "id": manual_review_item_id(ds if ds != "global" else None, col, it),
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,
+                "risk_tier": risk_tier,          # ← NEW unified field
                 "severity": sug.get("severity") or "medium",
-                "message": sug.get("message") or f"Manual review required for {it}",
+                "message": sug.get("message") or f"Review required for {it}",
                 "guidance": sug.get("manual_guidance") or f"Configure action for {col}",
                 "suggested_action": action,
-                "auto_fixable": False
+                "auto_fixable": False,
             }
             if "llm_recommendation" in sug:
                 mr_item["llm_recommendation"] = sug["llm_recommendation"]
             if "llm_confidence" in sug:
                 mr_item["llm_confidence"] = sug["llm_confidence"]
+
+            # ALL tiers go to manual_review — no separate non_fixable list
+            manual_review.append(enrich_manual_review_item(
+                mr_item,
+                llm_recommendation=mr_item.get("llm_recommendation")
+            ))
             
-            if is_non_fixable:
-                non_fixable.append(mr_item)
-            else:
-                manual_review.append(enrich_manual_review_item(
-                    mr_item,
-                    llm_recommendation=mr_item.get("llm_recommendation")
-                ))
-                
-    return datasets_steps, manual_review, non_fixable
+    return datasets_steps, manual_review
 
 
 def preprocess_suggestions_in_place(
@@ -303,17 +329,17 @@ def preprocess_suggestions_in_place(
         sug["auto_fixable"] = auto_fixable
         
         # Check non_fixable
-        is_non_fixable = it in (
-            "missing_required_column", "very_wide_table", "empty_dataset",
-        )
+        is_non_fixable = it in _NON_FIXABLE_ISSUE_TYPES
         if is_non_fixable:
             sug["non_fixable"] = True
+            sug["risk_tier"] = "non_fixable"
             from agent.etl_pipeline.manual_review_catalog import manual_review_item_id
             nf_item = {
                 "id": manual_review_item_id(ds if ds != "global" else None, col, it),
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,
+                "risk_tier": "non_fixable",
                 "severity": sug.get("severity") or "medium",
                 "message": sug.get("message") or f"Manual review required for {it}",
                 "guidance": sug.get("manual_guidance") or f"Configure action for {col}",

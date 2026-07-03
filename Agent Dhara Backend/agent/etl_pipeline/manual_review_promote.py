@@ -180,15 +180,41 @@ def apply_manual_resolutions(
         item["status"] = "resolved"
         resolved_log.append({**item, "promoted": True})
 
+    plan["datasets"] = datasets
+
+    # After processing all resolutions, handle non_fixable tier items
+    # that were resolved with quarantine/flag strategy
+    nf_resolutions = []
+    for iid, rid in res_map.items():
+        item = by_id.get(iid)
+        if not item:
+            continue
+        if item.get("risk_tier") == "non_fixable":
+            action = action_for_resolution(item.get("issue_type"), rid, item.get("resolution_options"))
+            if action and action != "noop":
+                nf_resolutions.append({
+                    "dataset": item.get("dataset"),
+                    "column": item.get("column"),
+                    "strategy": rid,
+                    "user_note": f"User acknowledged non-fixable: {rid}",
+                })
+    
+    if nf_resolutions:
+        plan = promote_non_fixable_resolutions(plan, nf_resolutions)
+        datasets = plan.get("datasets") or {}
+
     pending_only = [
         enrich_manual_review_item(m)
         for m in manual
         if str(m.get("status") or "pending") == "pending"
     ]
     plan["manual_review"] = pending_only
-    prev_resolved = [x for x in (plan.get("resolved_manual_review") or []) if isinstance(x, dict)]
-    plan["resolved_manual_review"] = resolved_log + prev_resolved
-    plan["datasets"] = datasets
+    
+    existing_resolved = {x["id"]: x for x in (plan.get("resolved_manual_review") or []) if isinstance(x, dict)}
+    for item in resolved_log:
+        existing_resolved[item["id"]] = item
+
+    plan["resolved_manual_review"] = list(existing_resolved.values())
     return plan, errs
 
 
@@ -210,11 +236,15 @@ def promote_non_fixable_resolutions(
     Each resolution becomes a real step in plan.datasets[ds].steps.
     """
     resolution_step_map = {
-        "quarantine":         {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
-        "flag":               {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
-        "fill_null":          {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
-        "accept_risk":        None,  # No step — just document in blocked[]
-        "custom":             None,  # Custom step built from user_note via LLM
+        "quarantine":          {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
+        "quarantine_all_null": {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
+        "reject_orphans":      {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
+        "flag":                {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
+        "flag_outliers":       {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
+        "fill_null":           {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
+        "fill_nulls":          {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
+        "accept_risk":         None,  # No step — just document in blocked[]
+        "custom":              None,  # Custom step built from user_note via LLM
     }
     
     updated_plan = dict(plan)

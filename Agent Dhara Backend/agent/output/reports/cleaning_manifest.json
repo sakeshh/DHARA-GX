@@ -1,12 +1,12 @@
 {
   "manifest_version": "1.0",
-  "generated_at": "2026-07-01T15:36:39.894548Z",
+  "generated_at": "2026-07-02T08:39:27.873076Z",
   "verdict": "NEEDS_WORK",
   "overall_dq_score": 48.8,
   "total_datasets": 1,
   "summary": {
     "high": 14,
-    "medium": 16,
+    "medium": 13,
     "low": 6
   },
   "datasets": {
@@ -16,10 +16,10 @@
       "column_count": 10,
       "dq_score": 48.8,
       "readiness": "NEEDS_WORK",
-      "total_issues": 36,
+      "total_issues": 33,
       "issues_by_severity": {
         "high": 14,
-        "medium": 16,
+        "medium": 13,
         "low": 6
       },
       "issues": [
@@ -252,86 +252,42 @@
           "manual_guidance": ""
         },
         {
-          "column": "Status",
-          "issue_type": "invalid_lookup_value",
-          "severity": "medium",
-          "rows_affected": 4,
-          "row_indexes": [
-            4,
-            12,
-            13,
-            18
-          ],
-          "sample_bad_values": [
-            "Inactive",
-            "Inactive",
-            "Inactive",
-            "Inactive"
-          ],
-          "message": "Value not in allowed lookup list for Status (4 invalid value(s))",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
           "column": "Department",
           "issue_type": "invalid_lookup_value",
           "severity": "medium",
-          "rows_affected": 3,
+          "rows_affected": 1,
           "row_indexes": [
-            8,
-            9,
-            17
+            9
           ],
           "sample_bad_values": [
-            "Marketing",
-            "Operations",
-            "Marketing"
+            "Operations"
           ],
-          "message": "Value not in allowed lookup list for Department (3 invalid value(s))",
+          "message": "Value not in allowed lookup list for Department (1 invalid value(s))",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
         },
         {
-          "column": "JobTitle",
-          "issue_type": "invalid_lookup_value",
+          "column": "EmployeeID",
+          "issue_type": "custom_rule_violation",
           "severity": "medium",
-          "rows_affected": 15,
+          "rows_affected": 1,
           "row_indexes": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            13,
-            14,
-            15,
-            16,
-            17,
-            19
+            16
           ],
           "sample_bad_values": [
-            "Data Analyst",
-            "HR Executive",
-            "Accountant",
-            "Data Engineer",
-            "Sales Manager"
+            "{'EmployeeID': ''}"
           ],
-          "message": "Value not in allowed lookup list for JobTitle (15 invalid value(s))",
+          "message": "EmployeeID must follow the standard format (E followed by digits).",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
         },
         {
-          "column": "Location",
-          "issue_type": "invalid_lookup_value",
+          "column": "Email",
+          "issue_type": "custom_rule_violation",
           "severity": "medium",
-          "rows_affected": 19,
+          "rows_affected": 20,
           "row_indexes": [
             0,
             1,
@@ -351,68 +307,17 @@
             15,
             16,
             17,
-            18
+            18,
+            19
           ],
           "sample_bad_values": [
-            "Bangalore",
-            "Mumbai",
-            "Delhi",
-            "Chennai",
-            "Hyderabad"
-          ],
-          "message": "Value not in allowed lookup list for Location (19 invalid value(s))",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "EmployeeID",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
-          "row_indexes": [
-            16
-          ],
-          "sample_bad_values": [
-            "{'EmployeeID': ''}"
-          ],
-          "message": "Employee ID must follow the standard format (E followed by digits).",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "EmployeeName",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
-          "row_indexes": [
-            3
-          ],
-          "sample_bad_values": [
-            "{'EmployeeName': None}"
-          ],
-          "message": "Employee Name length must be between 3 and 100 characters.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Email",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 3,
-          "row_indexes": [
-            2,
-            4,
-            9
-          ],
-          "sample_bad_values": [
+            "{'Email': 'john.smith@company.com'}",
+            "{'Email': 'JANE.DOE@company.com'}",
             "{'Email': 'mjohnson@company'}",
-            "{'Email': ''}",
-            "{'Email': None}"
+            "{'Email': 'sarah.connor@company.com'}",
+            "{'Email': ''}"
           ],
-          "message": "Email Address must belong to an approved company domain.",
+          "message": "Email must belong to an approved company domain.",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
@@ -437,7 +342,7 @@
             "{'Phone': '123456789'}",
             "{'Phone': None}"
           ],
-          "message": "Phone Number must contain exactly 10 numeric digits.",
+          "message": "Phone must contain exactly 10 numeric digits.",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
@@ -446,18 +351,14 @@
           "column": "EmployeeName",
           "issue_type": "custom_rule_violation",
           "severity": "medium",
-          "rows_affected": 3,
+          "rows_affected": 1,
           "row_indexes": [
-            1,
-            3,
-            11
+            3
           ],
           "sample_bad_values": [
-            "{'EmployeeName': ' jane doe '}",
-            "{'EmployeeName': None}",
-            "{'EmployeeName': 'Chris Wilson '}"
+            "{'EmployeeName': None}"
           ],
-          "message": "Leading and trailing spaces must be removed from Employee Name.",
+          "message": "EmployeeName length must be between 3 and 100 characters.",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
@@ -466,65 +367,54 @@
           "column": "EmployeeName",
           "issue_type": "custom_rule_violation",
           "severity": "medium",
-          "rows_affected": 19,
+          "rows_affected": 1,
           "row_indexes": [
-            0,
-            1,
+            3
+          ],
+          "sample_bad_values": [
+            "{'EmployeeName': None}"
+          ],
+          "message": "EmployeeName must contain only valid alphabetic characters and spaces.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Department",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 2,
+          "row_indexes": [
+            9,
+            16
+          ],
+          "sample_bad_values": [
+            "{'Department': 'Operations'}",
+            "{'Department': None}"
+          ],
+          "message": "Department must match an approved department list.",
+          "recommended_action": "review_manually",
+          "auto_fixable": false,
+          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+        },
+        {
+          "column": "Status",
+          "issue_type": "custom_rule_violation",
+          "severity": "medium",
+          "rows_affected": 4,
+          "row_indexes": [
             2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
             9,
             10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            17,
-            18,
-            19
+            17
           ],
           "sample_bad_values": [
-            "{'EmployeeName': 'John Smith'}",
-            "{'EmployeeName': ' jane doe '}",
-            "{'EmployeeName': 'Michael Johnson'}",
-            "{'EmployeeName': None}",
-            "{'EmployeeName': 'David Lee'}"
+            "{'Status': 'active'}",
+            "{'Status': 'ACTIVE'}",
+            "{'Status': None}",
+            "{'Status': 'active'}"
           ],
-          "message": "Employee Name must contain only valid alphabetic characters and spaces.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Phone",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 10,
-          "row_indexes": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            9,
-            13
-          ],
-          "sample_bad_values": [
-            "{'Phone': '9876543210'}",
-            "{'Phone': None}",
-            "{'Phone': '9988776655'}",
-            "{'Phone': '98765-12345'}",
-            "{'Phone': '9123456780'}"
-          ],
-          "message": "Dummy phone numbers such as repeated digits must be flagged.",
+          "message": "Status must be one of the approved status values.",
           "recommended_action": "review_manually",
           "auto_fixable": false,
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."

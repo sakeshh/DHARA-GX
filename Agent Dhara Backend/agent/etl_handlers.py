@@ -187,20 +187,25 @@ def _transition(flow: dict, to_phase: str, *, by: str = "system", reason: str = 
     flow["phase"] = to_phase
 
 
-def rollback_on_failure(flow: dict, *, reason: str = "") -> None:
-    """Reset flow to planned while preserving plan, assessment context, and history."""
+def rollback_on_failure(flow: dict, *, reason: str = "", soft: bool = False) -> None:
+    """Reset flow to planned (or failed for soft rollback) while preserving plan/history."""
     flow["failure_reason"] = reason
     flow["last_failure_reason"] = reason
     try:
         _transition(flow, "failed", by="system", reason=reason)
     except ValueError:
         flow["phase"] = "failed"
-    flow["approved_plan"] = None
-    flow["validation_ok"] = False
-    try:
-        _transition(flow, "planned", by="system", reason="rollback_on_failure")
-    except ValueError:
-        flow["phase"] = "planned"
+        
+    if soft:
+        # Keep approved_plan for soft rollback so that regeneration or adjustments can be retried
+        flow["validation_ok"] = False
+    else:
+        flow["approved_plan"] = None
+        flow["validation_ok"] = False
+        try:
+            _transition(flow, "planned", by="system", reason="rollback_on_failure")
+        except ValueError:
+            flow["phase"] = "planned"
 
 
 def _plan_all_auto(plan: Dict[str, Any]) -> bool:
@@ -1168,6 +1173,20 @@ def etl_generate_code(
             "message": "Confirm the plan first (POST /etl/confirm).",
         }
     plan = _rehydrate_plan(plan, ctx)
+    
+    # Gate check: check for any pending complex or non-fixable issues
+    from agent.etl_pipeline.planner import get_unacknowledged_blockers
+    blockers = get_unacknowledged_blockers(plan)
+    if blockers:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "error": "UNACKNOWLEDGED_BLOCKERS",
+            "reason": "unacknowledged_complex_or_non_fixable_issues",
+            "blockers": blockers,
+            "message": f"{len(blockers)} complex/non-fixable issue(s) must be reviewed before ETL can generate."
+        }
+
     non_fixable = ctx.get("non_fixable_resolutions") or []
     if non_fixable:
         from agent.etl_pipeline.manual_review_promote import promote_non_fixable_resolutions
@@ -1340,7 +1359,7 @@ def etl_generate_code(
         _transition(flow, "code_ready", by="system", reason="artifact_written")
         sess["session_state"] = "generated"
     else:
-        rollback_on_failure(flow, reason=f"validation_failed: {(errs or ['unknown'])[:3]}")
+        rollback_on_failure(flow, reason=f"validation_failed: {(errs or ['unknown'])[:3]}", soft=True)
     latency_ms = (time.time() - t_gen) * 1000
     flow_update: Dict[str, Any] = {
         "code": combined_code,

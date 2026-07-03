@@ -275,11 +275,11 @@ def _estimate_tokens(text: str) -> int:
 
 
 def _safe_max_tokens(payload_json: str, engine_key: str) -> int:
-    context_window = 16000 if engine_key != "adf" else 32000
-    system_overhead = 800
+    context_window = 128000  # GPT-4o window
+    system_overhead = 4500  # SQL prompt is very large
     input_tokens = _estimate_tokens(payload_json)
     available = context_window - input_tokens - system_overhead
-    cap = 8000 if engine_key != "adf" else 6000
+    cap = 16000 if engine_key != "adf" else 6000
     return max(1500, min(cap, available))
 
 
@@ -682,6 +682,9 @@ def _call_llm(
     if not client or not model:
         return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
 
+    # Trim payload first before embedding it into user message
+    payload = _trim_payload_for_window(payload, engine_key)
+
     system = SYSTEM_PROMPTS.get(engine_key, SYSTEM_PROMPTS["python"])
     user_parts = [
         f"Target engine: {engine_key}",
@@ -841,7 +844,6 @@ def _call_llm(
         if previous_output:
             user_parts.append(f"Previous output (truncated):\n{previous_output[:12000]}")
 
-    payload = _trim_payload_for_window(payload, engine_key)
     payload_json = json.dumps(payload, indent=2, default=str)
     max_tokens = _safe_max_tokens(payload_json, engine_key)
 
@@ -854,6 +856,7 @@ def _call_llm(
             ],
             temperature=0.05,
             max_tokens=max_tokens,
+            timeout=120,
         )
         return _strip_markdown_fences(response.choices[0].message.content or "")
     except Exception as e:

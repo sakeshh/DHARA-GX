@@ -42,16 +42,53 @@ def translate_assertion_to_sql(assertion: str, cols: List[str] = None) -> str:
         pattern = contains_match.group(2)
         expr = f"[{col}] LIKE '%{pattern}%'"
 
+    # 1b. Match regex checks
+    match_match = re.search(r'([\w\[\]\d_]+)\.str\.match\([\'"]([^\'"]+)[\'"]\)', expr, re.IGNORECASE)
+    if match_match:
+        col = match_match.group(1)
+        pat = match_match.group(2)
+        if pat == r'^\d{10}$' or pat == r'^[0-9]{10}$':
+            expr = f"(LEN([{col}]) = 10 AND [{col}] NOT LIKE '%[^0-9]%')"
+        elif pat == r'^\d+$' or pat == r'^[0-9]+$':
+            expr = f"(LEN([{col}]) > 0 AND [{col}] NOT LIKE '%[^0-9]%')"
+        elif pat == r'^E\d+$' or pat == r'^E[0-9]+$':
+            expr = f"([{col}] LIKE 'E%' AND LEN([{col}]) > 1 AND SUBSTRING([{col}], 2, 8000) NOT LIKE '%[^0-9]%')"
+        else:
+            clean_pat = pat.lstrip('^').rstrip('$')
+            clean_pat = clean_pat.replace(r'\d', '[0-9]')
+            expr = f"[{col}] LIKE '{clean_pat}'"
+
+    # 1c. isin check conversion
+    isin_match = re.search(r'([\w\[\]\d_]+)\.isin\(\[([^\]]+)\]\)', expr, re.IGNORECASE)
+    if isin_match:
+        col = isin_match.group(1)
+        list_str = isin_match.group(2)
+        expr = f"[{col}] IN ({list_str})"
+
     # 2. Null checks replacement
     expr = re.sub(r'([\w\[\]\d_]+)\.isnull\(\)', r'[\1] IS NULL', expr, flags=re.IGNORECASE)
     expr = re.sub(r'([\w\[\]\d_]+)\.isna\(\)', r'[\1] IS NULL', expr, flags=re.IGNORECASE)
     expr = re.sub(r'([\w\[\]\d_]+)\.notnull\(\)', r'[\1] IS NOT NULL', expr, flags=re.IGNORECASE)
     expr = re.sub(r'([\w\[\]\d_]+)\.notna\(\)', r'[\1] IS NOT NULL', expr, flags=re.IGNORECASE)
+
+    # 2b. Length checks
+    expr = re.sub(r'([\w\[\]\d_]+)\.str\.len\(\)', r'LEN([\1])', expr, flags=re.IGNORECASE)
     
+    # 2c. Strip checks
+    expr = re.sub(r'([\w\[\]\d_]+)\.str\.strip\(\)', r'LTRIM(RTRIM([\1]))', expr, flags=re.IGNORECASE)
+    
+    # 2d. Alpha/Space/Numeric checks
+    expr = re.sub(r'([\w\[\]\d_]+)\.str\.isalpha\(\)', r"(LEN([\1]) > 0 AND [\1] NOT LIKE '%[^a-zA-Z]%')", expr, flags=re.IGNORECASE)
+    expr = re.sub(r'([\w\[\]\d_]+)\.str\.isspace\(\)', r"(LEN([\1]) > 0 AND [\1] NOT LIKE '%[^ ]%')", expr, flags=re.IGNORECASE)
+
     # 3. Replace python operators with SQL equivalents
     expr = re.sub(r'\bnot\b', 'NOT', expr, flags=re.IGNORECASE)
     expr = re.sub(r'\band\b', 'AND', expr, flags=re.IGNORECASE)
     expr = re.sub(r'\bor\b', 'OR', expr, flags=re.IGNORECASE)
+    
+    # Replace Pandas logical bitwise operators used in series
+    expr = re.sub(r'\s*&\s*', ' AND ', expr)
+    expr = re.sub(r'\s*\|\s*', ' OR ', expr)
     
     expr = expr.replace("==", "=")
     expr = expr.replace("!=", "<>")

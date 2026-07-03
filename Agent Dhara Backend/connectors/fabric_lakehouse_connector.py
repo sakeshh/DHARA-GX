@@ -89,7 +89,7 @@ def get_fabric_storage_options() -> Dict[str, str]:
 
     return options
 
-def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "overwrite") -> Dict[str, Any]:
+def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append") -> Dict[str, Any]:
     """
     Writes a pandas DataFrame to Fabric OneLake as a Delta table.
     
@@ -122,6 +122,12 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "overwrite
     
     logger.info(f"Preparing to write to Fabric Lakehouse: {target_uri}")
 
+    max_rows = int(os.getenv("DHARA_FABRIC_MAX_ROWS_PER_WRITE") or 100000)
+    chunk_size = int(os.getenv("DHARA_FABRIC_WRITE_CHUNK_SIZE") or 50000)
+    
+    if len(df) > max_rows:
+        logger.warning(f"DataFrame size ({len(df)} rows) exceeds maximum row threshold ({max_rows}). Chunking writes...")
+
     try:
         from deltalake import write_deltalake
     except ImportError as ie:
@@ -132,13 +138,29 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "overwrite
     storage_options = get_fabric_storage_options()
 
     try:
-        write_deltalake(
-            target_uri,
-            df,
-            mode=mode,
-            storage_options=storage_options,
-            schema_mode="overwrite" if mode == "overwrite" else None
-        )
+        if len(df) <= chunk_size:
+            write_deltalake(
+                target_uri,
+                df,
+                mode=mode,
+                storage_options=storage_options,
+                schema_mode="overwrite" if mode == "overwrite" else "merge"
+            )
+        else:
+            first = True
+            for i in range(0, len(df), chunk_size):
+                chunk = df.iloc[i : i + chunk_size]
+                chunk_mode = mode if first else "append"
+                chunk_schema_mode = "overwrite" if chunk_mode == "overwrite" else "merge"
+                write_deltalake(
+                    target_uri,
+                    chunk,
+                    mode=chunk_mode,
+                    storage_options=storage_options,
+                    schema_mode=chunk_schema_mode
+                )
+                first = False
+
         logger.info(f"Successfully mirrored table {safe_table_name} to Fabric Lakehouse in {mode} mode.")
         return {
             "ok": True,

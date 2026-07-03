@@ -61,9 +61,10 @@ def _has_fake_default_value(sql: str) -> bool:
 def validate_sql_basic_dict(source: str) -> dict:
     """Parse SQL and return structured validation result."""
     if not source or not source.strip():
-        return {"valid": False, "error": "Empty SQL", "issues": ["empty sql"]}
+        return {"valid": False, "error": "Empty SQL", "issues": ["empty sql"], "warnings": []}
 
     issues: List[str] = []
+    warnings: List[str] = []
     low = source.lower()
     for pattern, msg in _DANGEROUS:
         if re.search(pattern, low):
@@ -78,16 +79,16 @@ def validate_sql_basic_dict(source: str) -> dict:
 
         parsed = sqlparse.parse(source)
         if not parsed or not parsed[0].tokens:
-            return {"valid": False, "error": "Empty or unparseable SQL", "issues": ["Empty or unparseable SQL"]}
+            return {"valid": False, "error": "Empty or unparseable SQL", "issues": ["Empty or unparseable SQL"], "warnings": []}
     except ImportError:
         pass  # structural checks only when sqlparse unavailable
     except Exception as e:
-        return {"valid": False, "error": f"SQL validation error: {str(e)}", "issues": [str(e)]}
+        return {"valid": False, "error": f"SQL validation error: {str(e)}", "issues": [str(e)], "warnings": []}
 
     issues.extend(_bracket_balance(source))
     issues.extend(_tsql_transaction_blocks(source))
 
-    # Strict DQ Rules Validation
+    # Strict DQ Rules Validation (Advisory Warnings)
     # 1. Reject pipeline defined but not used
     # Only flag if etl_rejects is referenced INSIDE stored procedure bodies
     # (beyond the shared infrastructure CREATE TABLE block).
@@ -101,61 +102,63 @@ def validate_sql_basic_dict(source: str) -> dict:
         if "etl_rejects" in low_no_infra:
             pattern_rejects = r"insert\s+into\s+(?:dbo\s*\.\s*)?\[?etl_rejects\]?"
             if not re.search(pattern_rejects, low_no_infra):
-                issues.append("etl_rejects table is defined but never inserted into (reject pipeline not used)")
+                warnings.append("etl_rejects table is defined but never inserted into (reject pipeline not used)")
         
     # 2. Fake default values
     if _has_fake_default_value(source):
-        issues.append("contains hardcoded fake default values ('99999', '10120631.5', or '1900-01-01')")
+        warnings.append("contains hardcoded fake default values ('99999', '10120631.5', or '1900-01-01')")
         
     # 3. Wrong deduplication ordering/columns
     if re.search(r"over\s*\([^\)]*etl_created_at", low):
-        issues.append("deduplication partitions or orders by etl_created_at instead of a business column")
+        warnings.append("deduplication partitions or orders by etl_created_at instead of a business column")
         
     # 4. SELECT DISTINCT * used for dedup
     if "select distinct *" in low:
-        issues.append("contains SELECT DISTINCT * instead of key-aware CTE deduplication")
+        warnings.append("contains SELECT DISTINCT * instead of key-aware CTE deduplication")
         
     # 5. Non-production safe SELECT INTO
     into_matches = re.finditer(r"\bselect\b(?:(?!insert|update|delete|create|procedure|\bgo\b|declare|begin|end|commit|rollback)\b[\s\S])*?\binto\s+([\w\.\_\[\]#]+)", low)
     for match in into_matches:
         tbl = match.group(1).strip("[]")
         if not tbl.startswith("#") and not any(x in tbl for x in ("temp_", "staging", "log", "watermark", "reject")):
-            issues.append(f"contains SELECT INTO on clean/joined table '{tbl}' instead of CREATE VIEW or INSERT INTO")
+            warnings.append(f"contains SELECT INTO on clean/joined table '{tbl}' instead of CREATE VIEW or INSERT INTO")
 
     # 6. Destructive multi-column NULL update (data wipe pattern)
     if re.search(r"set\s+[\w\.\_\[\]#]+\s*=\s*null\s*,\s*[\w\.\_\[\]#]+\s*=\s*null", low):
-        issues.append("contains destructive multi-column NULL update statement (data wipe pattern)")
+        warnings.append("contains destructive multi-column NULL update statement (data wipe pattern)")
 
     # 7. Redundant/double casting
     if re.search(r"cast\(\s*(?:try_)?cast\(", low) or re.search(r"try_cast\(\s*(?:try_)?cast\(", low):
-        issues.append("contains redundant double CAST statements (e.g. CAST(CAST(...)))")
+        warnings.append("contains redundant double CAST statements (e.g. CAST(CAST(...)))")
     if re.search(r"lower\(\s*cast\(\s*(?:ltrim|rtrim|replace|lower|upper|coalesce)", low):
-        issues.append("contains redundant nested CAST operations inside LOWER/LTRIM string wrappers")
+        warnings.append("contains redundant nested CAST operations inside LOWER/LTRIM string wrappers")
         
     # 8. Email validation constraint check
     if "email" in low:
         if not any(pat in low for pat in ("%_@_%._%", "%_@_%._%")):
-            issues.append("Email column detected but missing format check constraint (e.g. Email LIKE '%_@_%._%')")
+            warnings.append("Email column detected but missing format check constraint (e.g. Email LIKE '%_@_%._%')")
             
     # 9. Phone normalization & validation check
     if "phone" in low:
         if "replace" not in low:
-            issues.append("Phone column detected but missing symbol cleaning operations (nested REPLACE for spaces/dashes)")
+            warnings.append("Phone column detected but missing symbol cleaning operations (nested REPLACE for spaces/dashes)")
         if not any(x in low for x in ("len(", "length(", "[^0-9]")):
-            issues.append("Phone column detected but missing validation checks (length >= 7 or only numeric digits)")
+            warnings.append("Phone column detected but missing validation checks (length >= 7 or only numeric digits)")
 
     # 10. Date parsing checks for OrderDate / CreatedDate
     if "orderdate" in low or "createddate" in low:
         if not any(x in low for x in ("try_convert(", "try_cast(", "to_date(", "to_datetime(")):
-            issues.append("Date columns detected but missing TRY_CAST/TRY_CONVERT date parsing or validation")
+            warnings.append("Date columns detected but missing TRY_CAST/TRY_CONVERT date parsing or validation")
 
     # 11. Empty column wildcard check (symptom of empty metadata)
     if "select *, @run_id" in low or "select *, @batch_id" in low or "select *," in low:
-        issues.append("contains empty column wildcard select list (symptom of empty metadata)")
+        warnings.append("contains empty column wildcard select list (symptom of empty metadata)")
 
-    if issues:
-        return {"valid": False, "issues": issues}
-    return {"valid": True, "issues": []}
+    return {
+        "valid": len(issues) == 0,
+        "issues": issues,
+        "warnings": warnings,
+    }
 
 
 def _tsql_transaction_blocks(source: str) -> List[str]:
@@ -239,6 +242,11 @@ def validate_for_execution(sql: str) -> dict:
                 issues.append(iss)
         if basic_res.get("error") and basic_res["error"] not in issues:
             issues.append(basic_res["error"])
+
+    # Also collect warnings
+    for warn in basic_res.get("warnings", []):
+        if warn not in warnings:
+            warnings.append(warn)
 
     return {
         "valid": len(issues) == 0,

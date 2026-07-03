@@ -55,19 +55,16 @@ def classify_step_bucket(
     act = (action or "").strip().lower()
     sev = (severity or "medium").lower()
 
-    bucket = "review"
-    if act == "drop_rows" or (act == "fill_or_drop" and never_drop_rows is False and null_percentage is not None and null_percentage > 30):
-        if never_drop_rows and act == "fill_or_drop":
-            bucket = "auto"
-        elif act == "drop_rows":
-            bucket = "blocked" if never_drop_rows else "review"
+    if act == "drop_rows":
+        bucket = "blocked" if never_drop_rows else "review"
+    elif act == "fill_or_drop" and null_percentage is not None and null_percentage > 30:
+        bucket = "review"
     elif act in _REVIEW_ACTIONS or sev == "high":
         bucket = "review"
     elif act in _AUTO_ACTIONS:
-        if act == "fill_or_drop" and null_percentage is not None and null_percentage > 30:
-            bucket = "review"
-        else:
-            bucket = "auto"
+        bucket = "auto"
+    else:
+        bucket = "review"
 
     # Define cleanse-phase vs transform-phase actions
     cleanse_actions = {

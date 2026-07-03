@@ -184,5 +184,28 @@
       "recommended": false,
       "description": "Fill missing 'customer_id' values with a default value to maintain dataset integrity, though this may not be advisable without understanding the context."
     }
+  ],
+  "unknown_random_anomalous_issue": [
+    {
+      "id": "keep_as_is",
+      "label": "Keep as-is (skip in ETL)",
+      "action": "noop",
+      "recommended": true,
+      "description": "No transform; document in runbook."
+    },
+    {
+      "id": "option_1",
+      "label": "Flag Outliers in Customer Email",
+      "action": "flag_outliers",
+      "recommended": true,
+      "description": "Add a boolean audit column to flag anomalous customer email values that may indicate data quality issues."
+    },
+    {
+      "id": "option_2",
+      "label": "Exclude Customer Email from Output",
+      "action": "exclude_column",
+      "recommended": false,
+      "description": "Exclude the customer_email column from the output to prevent potential issues from affecting downstream processes."
+    }
   ]
 }

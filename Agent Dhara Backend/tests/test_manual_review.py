@@ -217,7 +217,7 @@ class TestBlockerManualReview(unittest.TestCase):
         item_id = plan["manual_review"][0]["id"]
         updated, errs = apply_manual_resolutions(
             plan,
-            [{"item_id": item_id, "resolution_id": "deduplicate"}],
+            [{"item_id": item_id, "resolution_id": "deduplicate_last"}],
         )
         self.assertEqual(errs, [])
         

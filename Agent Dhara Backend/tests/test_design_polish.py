@@ -88,5 +88,27 @@ class TestDesignPolish(unittest.TestCase):
         self.assertEqual(plan["semantic_schema"].get("dbo.Orders_Raw.OrderID"), "identifier")
         self.assertEqual(plan["semantic_schema"].get("dbo.Orders_Raw.customer_email"), "email")
 
+    def test_translate_assertion_to_sql(self) -> None:
+        from agent.etl_pipeline.sql_codegen import translate_assertion_to_sql
+        
+        # Test regex match
+        sql1 = translate_assertion_to_sql("student_id.str.match('^E\\d+$')")
+        self.assertIn("[student_id] LIKE 'E%'", sql1)
+        self.assertIn("SUBSTRING([student_id], 2, 8000)", sql1)
+        
+        # Test length and logical bitwise AND (&)
+        sql2 = translate_assertion_to_sql("name.str.len() >= 3 & name.str.len() <= 100")
+        self.assertEqual(sql2, "LEN([name]) >= 3 AND LEN([name]) <= 100")
+        
+        # Test isalpha and logical bitwise OR (|)
+        sql3 = translate_assertion_to_sql("name.str.isalpha() | name.str.isspace()")
+        self.assertIn("NOT LIKE '%[^a-zA-Z]%'", sql3)
+        self.assertIn("NOT LIKE '%[^ ]%'", sql3)
+        self.assertIn(" OR ", sql3)
+
+        # Test isin
+        sql4 = translate_assertion_to_sql("department.isin(['approved_list'])")
+        self.assertEqual(sql4, "[department] IN ('approved_list')")
+
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,6 @@ print("Suggestions:")
 for sug in suggestions:
     print(sug)
 
-datasets_steps, manual_review, non_fixable = compile_issues_to_steps(suggestions, rules, sem_schema)
+datasets_steps, manual_review = compile_issues_to_steps(suggestions, rules, sem_schema)
 print("datasets_steps:", datasets_steps)
 print("manual_review:", manual_review)
-print("non_fixable:", non_fixable)
