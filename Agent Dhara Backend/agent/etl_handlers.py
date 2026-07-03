@@ -1443,6 +1443,7 @@ def etl_list_tenants() -> Dict[str, Any]:
     return {"ok": True, "tenants": list_tenant_ids()}
 
 
+@with_session_lock
 def etl_deploy(session_id: str) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1458,6 +1459,7 @@ def etl_deploy(session_id: str) -> Dict[str, Any]:
     return {"ok": True, "session_id": sid, "session_state": "deployed"}
 
 
+@with_session_lock
 def etl_execute_sql(
     session_id: str,
     *,

@@ -86,7 +86,9 @@ def validate_sql_basic_dict(source: str) -> dict:
         return {"valid": False, "error": f"SQL validation error: {str(e)}", "issues": [str(e)], "warnings": []}
 
     issues.extend(_bracket_balance(source))
-    issues.extend(_tsql_transaction_blocks(source))
+    tx_issues, tx_warnings = _tsql_transaction_blocks(source)
+    issues.extend(tx_issues)
+    warnings.extend(tx_warnings)
 
     # Strict DQ Rules Validation (Advisory Warnings)
     # 1. Reject pipeline defined but not used
@@ -161,22 +163,33 @@ def validate_sql_basic_dict(source: str) -> dict:
     }
 
 
-def _tsql_transaction_blocks(source: str) -> List[str]:
-    """Warn when BEGIN TRY appears without END CATCH (cheap structural check)."""
-    low = source.lower()
+def _tsql_transaction_blocks(source: str) -> Tuple[List[str], List[str]]:
+    """
+    Returns (hard_issues, warnings).
+    hard_issues  → block execution (genuine SQL Server parse errors)
+    warnings     → advisory only, do not block execution
+    """
     issues: List[str] = []
-    if "begin try" in low and "end catch" not in low:
-        issues.append("BEGIN TRY without matching END CATCH")
-        
-    has_begin_tran = "begin tran" in low or "begin transaction" in low
-    has_commit = "commit" in low or "commit transaction" in low
-    has_rollback = "rollback" in low or "rollback transaction" in low
-    
+    warnings: List[str] = []
+    low = source.lower()
+
+    has_begin_try   = "begin try"    in low
+    has_end_catch   = "end catch"    in low
+    has_begin_tran  = "begin tran"   in low or "begin transaction" in low
+    has_commit      = "commit"       in low or "commit transaction" in low
+    has_rollback    = "rollback"     in low or "rollback transaction" in low
+
+    # HARD BLOCK: SQL Server will fail to parse this
+    if has_begin_try and not has_end_catch:
+        issues.append("BEGIN TRY without matching END CATCH — SQL Server will reject this script")
+
+    # ADVISORY: valid but worth flagging
     if has_begin_tran and not has_commit:
-        issues.append("BEGIN TRANSACTION without COMMIT TRANSACTION")
+        warnings.append("BEGIN TRANSACTION without COMMIT TRANSACTION — verify rollback is intentional")
     if (has_commit or has_rollback) and not has_begin_tran:
-        issues.append("COMMIT/ROLLBACK TRANSACTION without BEGIN TRANSACTION")
-    return issues
+        warnings.append("COMMIT/ROLLBACK TRANSACTION found without BEGIN TRANSACTION")
+
+    return issues, warnings
 
 
 def validate_sql_basic(source: str) -> Tuple[bool, List[str]]:
