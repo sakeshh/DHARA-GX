@@ -7,6 +7,18 @@ import os
 import re
 import time
 from typing import Any, Dict, List, Optional
+import functools
+from agent.session_store import get_session_lock
+
+def with_session_lock(func):
+    @functools.wraps(func)
+    def wrapper(session_id: str, *args, **kwargs):
+        sid = (session_id or "default").strip() or "default"
+        lock = get_session_lock(sid)
+        with lock:
+            return func(session_id, *args, **kwargs)
+    return wrapper
+
 
 def _safe_bracket_quote(name: str) -> str:
     """
@@ -309,6 +321,7 @@ def _assessment_schema_signature(assess: Dict[str, Any]) -> str:
     return hashlib.sha256(sig_str.encode("utf-8")).hexdigest()
 
 
+@with_session_lock
 def etl_plan_start(
     session_id: str,
     business_rules: Any,
@@ -734,6 +747,7 @@ def etl_plan_start(
     }
 
 
+@with_session_lock
 def etl_apply_manual_resolutions(
     session_id: str,
     resolutions: List[Dict[str, Any]],
@@ -880,6 +894,7 @@ def etl_apply_manual_resolutions(
     }
 
 
+@with_session_lock
 def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1124,6 +1139,7 @@ def _template_fallback(
     return "", False, [f"Unsupported engine: {eng}"]
 
 
+@with_session_lock
 def etl_generate_code(
     session_id: str,
     engine: Optional[str] = None,
@@ -1697,6 +1713,7 @@ def etl_execute_sql(
     return result
 
 
+@with_session_lock
 def etl_save_non_fixable_resolutions(session_id: str, resolutions: List[Dict[str, Any]]) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1706,6 +1723,7 @@ def etl_save_non_fixable_resolutions(session_id: str, resolutions: List[Dict[str
     return {"ok": True, "session_id": sid, "message": "Saved non-fixable resolutions to session."}
 
 
+@with_session_lock
 def etl_patch_regen_code(session_id: str, post_validation_report: Dict[str, Any]) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)

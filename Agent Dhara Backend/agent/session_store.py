@@ -416,3 +416,16 @@ def get_pipeline_runs_for_datasets(
     finally:
         conn.close()
 
+
+import threading
+
+_SESSION_LOCKS: Dict[str, threading.Lock] = {}
+_SESSION_LOCKS_MUTEX = threading.Lock()
+
+def get_session_lock(session_id: str) -> threading.Lock:
+    sid = (session_id or "default").strip() or "default"
+    with _SESSION_LOCKS_MUTEX:
+        if sid not in _SESSION_LOCKS:
+            _SESSION_LOCKS[sid] = threading.Lock()
+        return _SESSION_LOCKS[sid]
+

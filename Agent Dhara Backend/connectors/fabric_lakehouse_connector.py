@@ -89,7 +89,7 @@ def get_fabric_storage_options() -> Dict[str, str]:
 
     return options
 
-def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append") -> Dict[str, Any]:
+def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append", schema_mode: Optional[str] = None) -> Dict[str, Any]:
     """
     Writes a pandas DataFrame to Fabric OneLake as a Delta table.
     
@@ -97,6 +97,7 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append") 
         df: The pandas DataFrame to write.
         table_name: The target table name (becomes folder in Tables/ zone).
         mode: Write mode ('overwrite' or 'append').
+        schema_mode: Delta schema evolution mode ('overwrite', 'merge', or None).
         
     Returns:
         A dictionary summarizing the result of the write operation.
@@ -137,6 +138,7 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append") 
 
     storage_options = get_fabric_storage_options()
 
+    actual_schema_mode = schema_mode or ("overwrite" if mode == "overwrite" else "merge")
     try:
         if len(df) <= chunk_size:
             write_deltalake(
@@ -144,14 +146,14 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append") 
                 df,
                 mode=mode,
                 storage_options=storage_options,
-                schema_mode="overwrite" if mode == "overwrite" else "merge"
+                schema_mode=actual_schema_mode
             )
         else:
             first = True
             for i in range(0, len(df), chunk_size):
                 chunk = df.iloc[i : i + chunk_size]
                 chunk_mode = mode if first else "append"
-                chunk_schema_mode = "overwrite" if chunk_mode == "overwrite" else "merge"
+                chunk_schema_mode = actual_schema_mode if chunk_mode == mode else "merge"
                 write_deltalake(
                     target_uri,
                     chunk,

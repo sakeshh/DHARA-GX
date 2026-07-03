@@ -16,7 +16,7 @@ except ImportError:
     AzureOpenAI = None
     OpenAI = None
 
-from agent.model_config import load_llm_config
+from agent.model_config import load_llm_config, LLM_REQUEST_TIMEOUT
 from agent.etl_pipeline.codegen_policy import llm_codegen_extra_context, plan_policy_block
 from agent.etl_pipeline.io_snippets import resolve_path_pyspark_helper
 
@@ -856,7 +856,7 @@ def _call_llm(
             ],
             temperature=0.05,
             max_tokens=max_tokens,
-            timeout=120,
+            timeout=LLM_REQUEST_TIMEOUT,
         )
         return _strip_markdown_fences(response.choices[0].message.content or "")
     except Exception as e:

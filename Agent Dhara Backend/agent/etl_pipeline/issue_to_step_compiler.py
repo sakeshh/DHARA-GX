@@ -58,6 +58,101 @@ _COMPLEX_ISSUE_TYPES = frozenset({
 })
 
 
+def _apply_three_pass_overrides(
+    sug: Dict[str, Any],
+    action: str,
+    rules: Dict[str, Any],
+    sem_schema: Dict[str, Any],
+) -> Tuple[str, bool, str, Dict[str, Any]]:
+    """
+    Applies Pass 1 (baseline mapping), Pass 2 (business rules), Pass 3 (semantic refinement).
+    Returns (resolved_action, auto_fixable, note, params).
+    """
+    never_drop_rows = bool(rules.get("never_drop_rows"))
+    outlier_strategy = str(rules.get("outlier_strategy") or "flag").lower().strip()
+    non_nullable_cols = [str(x).lower().strip() for x in (rules.get("non_nullable") or [])]
+
+    ds = sug.get("dataset") or "global"
+    col = sug.get("column") or "*"
+    it = sug.get("issue_type") or "unknown"
+    was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
+    note = f"Baseline issue mapping for {it}"
+    params = {}
+
+    # Pass 1: Issue Baseline Mapping
+    if not action or action == "noop":
+        action = _ISSUE_TO_ACTION_MAP.get(it) or "noop"
+    if action in ("review_manually", "noop"):
+        action = "review_manually"
+
+    # Pass 2: Business Rules Overrides
+    if never_drop_rows and action == "fill_or_drop":
+        action = "fill_nulls_simple"
+        note = "never_drop_rows override: changed from fill_or_drop to fill_nulls_simple"
+        params["fill_strategy"] = "value"
+        params["fill_value"] = None
+
+    if action == "clip_or_flag":
+        action = {"clip": "clip_outliers", "cap": "cap_outliers"}.get(outlier_strategy, "flag_outliers")
+        note = f"outlier_strategy={outlier_strategy} override"
+
+    col_key = col.lower()
+    if (col_key in non_nullable_cols or f"{ds}.{col_key}" in non_nullable_cols) and action == "fill_or_drop":
+        action = "fill_nulls_simple"
+        note = "non_nullable override: using fill-only instead of drop/fill choice"
+        params["fill_strategy"] = "value"
+        params["fill_value"] = None
+
+    # Pass 3: Semantic Refinement
+    sem_desc = sem_schema.get(f"{ds}.{col}") or {}
+    sem_type = str(sem_desc.get("semantic_type") or "").lower().strip()
+    sub_type = str(sem_desc.get("sub_type") or "").lower().strip()
+    pii_level = str(sem_desc.get("pii_level") or "").lower().strip()
+    sem_confidence = float(sem_desc.get("confidence", 1.0))
+
+    if sem_type == "date" and action in ("cast_type", "noop", "review_manually"):
+        action = "parse_dates"
+        note = "Semantic refinement: parse_dates for date semantic_type"
+    elif sem_type == "email" and action in ("trim", "lowercase", "noop", "review_manually"):
+        action = "sanitize_email"
+        note = "Semantic refinement: sanitize_email for email semantic_type"
+    elif sem_type == "phone" and action in ("trim", "noop", "review_manually"):
+        if pii_level in ("high", "medium"):
+            action = "hash_phone"
+            note = "Semantic refinement: hash_phone for high/medium PII phone number"
+        else:
+            action = "normalize_phone"
+            note = "Semantic refinement: normalize_phone for phone semantic_type"
+    elif sub_type == "currency" and action in ("clip_or_flag", "clip_outliers", "review_manually"):
+        action = "range_clip"
+        params["lower_bound"] = 0.0
+        note = "Semantic refinement: range_clip (lower_bound=0) for currency sub_type"
+    elif sub_type == "boolean_int" and action in ("coerce_numeric", "review_manually"):
+        action = "standardize_boolean"
+        note = "Semantic refinement: standardize_boolean for boolean_int sub_type"
+
+    # Enforce manual intent preservation if semantic confidence is low
+    if was_manual and action != "review_manually" and sem_confidence < 0.85:
+        action = "review_manually"
+        note = f"Preserved manual review: semantic confidence {sem_confidence:.2f} < 0.85"
+
+    # Determine auto_fixable
+    is_risky = action in ("drop_column", "exclude_column", "clip_outliers", "cap_outliers", "review_manually")
+    auto_fixable = sug.get("auto_fixable", False)
+    if is_risky:
+        auto_fixable = False
+
+    # Check LLM confidence if inferred suggestion
+    from agent.etl_pipeline.rule_provenance import RuleProvenance
+    is_llm_inferred = sug.get("llm_recommendation") is not None and sug.get("provenance") != RuleProvenance.AUTO_DETECTED
+    if is_llm_inferred:
+        confidence = sug.get("llm_confidence") or 1.0
+        if confidence < 0.65:
+            auto_fixable = False
+
+    return action, auto_fixable, note, params
+
+
 def compile_issues_to_steps(
     suggestions: List[Dict[str, Any]],
     rules: Dict[str, Any],
@@ -66,10 +161,6 @@ def compile_issues_to_steps(
     datasets_steps = {}
     manual_review = []
     
-    never_drop_rows = bool(rules.get("never_drop_rows"))
-    outlier_strategy = str(rules.get("outlier_strategy") or "flag").lower().strip()
-    non_nullable_cols = [str(x).lower().strip() for x in (rules.get("non_nullable") or [])]
-    
     from agent.etl_pipeline.manual_review_catalog import enrich_manual_review_item, manual_review_item_id
     
     # Process suggestions
@@ -77,103 +168,11 @@ def compile_issues_to_steps(
         ds = sug.get("dataset") or "global"
         col = sug.get("column") or "*"
         it = sug.get("issue_type") or "unknown"
-        action = sug.get("suggested_action")
         
-        # Original manual intent preservation flag
-        was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
+        action, auto_fixable, note, params = _apply_three_pass_overrides(
+            sug, sug.get("suggested_action"), rules, sem_schema
+        )
         
-        # 1. PASS 1: Issue Baseline Mapping
-        if not action or action == "noop":
-            action = _ISSUE_TO_ACTION_MAP.get(it) or "noop"
-            
-        # If still unmapped or review manually, mark as review_manually
-        if action == "review_manually" or action == "noop":
-            action = "review_manually"
-            
-        note = f"Baseline issue mapping for {it}"
-        params = {}
-        
-        # 2. PASS 2: Business Rules Overrides
-        if never_drop_rows and action == "fill_or_drop":
-            action = "fill_nulls_simple"
-            note = f"never_drop_rows override: changed from fill_or_drop to fill_nulls_simple"
-            params["fill_strategy"] = "value"
-            params["fill_value"] = None
-            
-        if action == "clip_or_flag":
-            if outlier_strategy == "clip":
-                action = "clip_outliers"
-            elif outlier_strategy == "cap":
-                action = "cap_outliers"
-            else:
-                action = "flag_outliers"
-            note = f"outlier_strategy={outlier_strategy} override"
-            
-        col_full_key = f"{ds}.{col}".lower()
-        col_short_key = col.lower()
-        
-        # Non-nullable override
-        is_non_nullable = col_short_key in non_nullable_cols or col_full_key in non_nullable_cols
-        if is_non_nullable and action == "fill_or_drop":
-            action = "fill_nulls_simple"
-            note = f"non_nullable override: using fill-only instead of drop/fill choice"
-            params["fill_strategy"] = "value"
-            params["fill_value"] = None
-
-        # 3. PASS 3: Semantic Refinement
-        sem_desc = sem_schema.get(f"{ds}.{col}") or {}
-        sem_type = str(sem_desc.get("semantic_type") or "").lower().strip()
-        sub_type = str(sem_desc.get("sub_type") or "").lower().strip()
-        pii_level = str(sem_desc.get("pii_level") or "").lower().strip()
-        
-        if sem_type == "date" and action in ("cast_type", "noop", "review_manually"):
-            action = "parse_dates"
-            note = "Semantic refinement: parse_dates for date semantic_type"
-            
-        if sem_type == "email" and action in ("trim", "lowercase", "noop", "review_manually"):
-            action = "sanitize_email"
-            note = "Semantic refinement: sanitize_email for email semantic_type"
-            
-        if sem_type == "phone" and action in ("trim", "noop", "review_manually"):
-            if pii_level == "high" or pii_level == "medium":
-                action = "hash_phone"
-                note = "Semantic refinement: hash_phone for high/medium PII phone number"
-            else:
-                action = "normalize_phone"
-                note = "Semantic refinement: normalize_phone for phone semantic_type"
-                
-        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers", "review_manually"):
-            action = "range_clip"
-            params["lower_bound"] = 0.0
-            note = "Semantic refinement: range_clip (lower_bound=0) for currency sub_type"
-            
-        if sub_type == "boolean_int" and action in ("coerce_numeric", "review_manually"):
-            action = "standardize_boolean"
-            note = "Semantic refinement: standardize_boolean for boolean_int sub_type"
-            
-        # Enforce manual intent preservation if semantic confidence is low
-        if was_manual and action != "review_manually":
-            sem_confidence = float(sem_desc.get("confidence", 0.0))
-            if sem_confidence < 0.85:
-                action = "review_manually"
-                note = f"Preserved manual review: semantic confidence {sem_confidence} < 0.85"
-            
-        # Determine auto_fixable
-        # Risky steps: drop_column, exclude_column, clip_outliers/cap_outliers, or review_manually
-        is_risky = action in ("drop_column", "exclude_column", "clip_outliers", "cap_outliers", "review_manually")
-        
-        auto_fixable = sug.get("auto_fixable", False)
-        if is_risky:
-            auto_fixable = False
-            
-        # Special case: if it is an LLM-inferred suggestion, check confidence
-        from agent.etl_pipeline.rule_provenance import RuleProvenance
-        is_llm_inferred = sug.get("llm_recommendation") is not None and sug.get("provenance") != RuleProvenance.AUTO_DETECTED
-        if is_llm_inferred:
-            confidence = sug.get("llm_confidence") or 1.0
-            if confidence < 0.65:
-                auto_fixable = False
-            
         # Save step or route to manual_review/non_fixable
         if auto_fixable and action != "review_manually":
             # Add to steps
@@ -243,87 +242,16 @@ def preprocess_suggestions_in_place(
     Modifies suggestions in-place to apply the 3-pass compiler logic.
     Returns the list of non_fixable issues.
     """
-    never_drop_rows = bool(rules.get("never_drop_rows"))
-    outlier_strategy = str(rules.get("outlier_strategy") or "flag").lower().strip()
-    non_nullable_cols = [str(x).lower().strip() for x in (rules.get("non_nullable") or [])]
-    
     non_fixables = []
 
     for sug in suggestions:
         ds = sug.get("dataset") or "global"
         col = sug.get("column") or "*"
         it = sug.get("issue_type") or "unknown"
-        action = sug.get("suggested_action")
         
-        # Original manual intent preservation flag
-        was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
-        
-        # 1. PASS 1: Issue Baseline Mapping
-        if not action or action == "noop":
-            action = _ISSUE_TO_ACTION_MAP.get(it) or "noop"
-            
-        if action == "review_manually" or action == "noop":
-            action = "review_manually"
-            
-        # 2. PASS 2: Business Rules Overrides
-        if never_drop_rows and action == "fill_or_drop":
-            action = "fill_nulls_simple"
-            
-        if action == "clip_or_flag":
-            if outlier_strategy == "clip":
-                action = "clip_outliers"
-            elif outlier_strategy == "cap":
-                action = "cap_outliers"
-            else:
-                action = "flag_outliers"
-            
-        col_full_key = f"{ds}.{col}".lower()
-        col_short_key = col.lower()
-        
-        is_non_nullable = col_short_key in non_nullable_cols or col_full_key in non_nullable_cols
-        if is_non_nullable and action == "fill_or_drop":
-            action = "fill_nulls_simple"
-
-        # 3. PASS 3: Semantic Refinement
-        sem_desc = sem_schema.get(f"{ds}.{col}") or {}
-        sem_type = str(sem_desc.get("semantic_type") or "").lower().strip()
-        sub_type = str(sem_desc.get("sub_type") or "").lower().strip()
-        pii_level = str(sem_desc.get("pii_level") or "").lower().strip()
-        
-        if sem_type == "date" and action in ("cast_type", "noop", "review_manually"):
-            action = "parse_dates"
-            
-        if sem_type == "email" and action in ("trim", "lowercase", "noop", "review_manually"):
-            action = "sanitize_email"
-            
-        if sem_type == "phone" and action in ("trim", "noop", "review_manually"):
-            if pii_level == "high" or pii_level == "medium":
-                action = "hash_phone"
-            else:
-                action = "normalize_phone"
-                
-        if sub_type == "currency" and action in ("clip_or_flag", "clip_outliers", "review_manually"):
-            action = "range_clip"
-            
-        if sub_type == "boolean_int" and action in ("coerce_numeric", "review_manually"):
-            action = "standardize_boolean"
-            
-        # Enforce manual intent preservation if semantic confidence is low
-        if was_manual and action != "review_manually":
-            sem_confidence = float(sem_desc.get("confidence", 0.0))
-            if sem_confidence < 0.85:
-                action = "review_manually"
-            
-        # Determine auto_fixable
-        is_risky = action in ("drop_column", "exclude_column", "clip_outliers", "cap_outliers", "review_manually")
-        
-        auto_fixable = sug.get("auto_fixable", False)
-        if is_risky:
-            auto_fixable = False
-            
-        confidence = sug.get("llm_confidence") or 1.0
-        if confidence < 0.65:
-            auto_fixable = False
+        action, auto_fixable, _, _ = _apply_three_pass_overrides(
+            sug, sug.get("suggested_action"), rules, sem_schema
+        )
             
         sug["suggested_action"] = action
         sug["auto_fixable"] = auto_fixable

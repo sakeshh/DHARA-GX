@@ -62,3 +62,6 @@ def load_llm_config(*, purpose: str = "general") -> Optional[LLMConfig]:
 def is_llm_enabled(*, purpose: str = "general") -> bool:
     return load_llm_config(purpose=purpose) is not None
 
+
+LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
+
