@@ -362,7 +362,7 @@ def test_compiler_preserves_manual_intent():
             "confidence": 0.50
         }
     }
-    steps_low, manual_low, non_fixable_low = compile_issues_to_steps(suggestions, rules, sem_schema_low)
+    steps_low, manual_low = compile_issues_to_steps(suggestions, rules, sem_schema_low)
     assert len(steps_low.get("ds1", [])) == 0
     assert len(manual_low) == 1
     assert manual_low[0]["suggested_action"] == "review_manually"
@@ -374,7 +374,7 @@ def test_compiler_preserves_manual_intent():
             "confidence": 0.90
         }
     }
-    steps_high, manual_high, non_fixable_high = compile_issues_to_steps(suggestions, rules, sem_schema_high)
+    steps_high, manual_high = compile_issues_to_steps(suggestions, rules, sem_schema_high)
     assert len(steps_high.get("ds1", [])) == 0
     assert len(manual_high) == 1
     assert manual_high[0]["suggested_action"] == "parse_dates"

@@ -89,7 +89,7 @@ class TestFabricLakehouseConnector(unittest.TestCase):
         # Reset mock before call
         mock_deltalake.write_deltalake.reset_mock()
         df = pd.DataFrame({"id": [1, 2], "val": ["a", "b"]})
-        res = write_to_lakehouse(df, "dbo.Customers_Clean")
+        res = write_to_lakehouse(df, "dbo.Customers_Clean", mode="overwrite")
         
         self.assertTrue(res["ok"])
         self.assertEqual(res["status"], "success")

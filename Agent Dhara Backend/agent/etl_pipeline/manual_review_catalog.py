@@ -141,8 +141,11 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("keep_as_is", "Keep as-is", "noop"),
     ],
     "encoding_corruption": [
-        _opt("regex_replace", "Strip encoding artifacts", "regex_replace", recommended=True, description="Remove mojibake/encoding corruption from text columns."),
-        _opt("keep_as_is", "Keep as-is", "noop"),
+        _opt("regex_replace", "Strip encoding artifacts (best-effort)", 
+             "regex_replace", recommended=True,
+             description="Remove mojibake using regex — partial recovery only."),
+        _opt("exclude_column", "Exclude corrupted column from output", "exclude_column"),
+        _opt("accept_risk", "Accept as-is (acknowledge corruption)", "noop"),
     ],
     "disposable_email": [
         _opt("sanitize_email", "Flag/nullify disposable emails", "sanitize_email", recommended=True, description="Nullify known disposable email domain addresses."),
@@ -158,7 +161,10 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("keep_as_is", "Keep as-is", "noop"),
     ],
     "empty_dataset": [
-        _opt("keep_as_is", "Abort pipeline in orchestration (manual)", "noop", recommended=True),
+        _opt("abort_pipeline", "Abort pipeline for this dataset", 
+             "noop", recommended=True,
+             description="Skip ETL generation for this dataset until source data is available."),
+        _opt("accept_risk", "Generate ETL anyway (empty source risk)", "noop"),
     ],
     "non_nullable_fill": [
         _opt("fill_nulls", "Fill nulls (median/mean)", "fill_nulls_simple", recommended=True),
@@ -224,16 +230,26 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("keep_as_is", "Keep as-is (requires external fix)", "noop", description="Accept the requirement without resolving it in the pipeline (will fail validation)."),
     ],
     "business_key_duplicate": [
-        _opt("deduplicate", "Deduplicate on business key", "deduplicate", recommended=True, description="Add a deduplication step to group by this key and keep the first/last record."),
-        _opt("keep_as_is", "Keep duplicates (allow in output)", "noop", description="Accept duplicates and pass them to target without filtering."),
+        _opt("deduplicate_last", "Deduplicate — keep latest record", 
+             "deduplicate", recommended=True,
+             description="Dedup by business key, keeping the most recent record."),
+        _opt("deduplicate_first", "Deduplicate — keep first record", 
+             "deduplicate", description="Keep oldest record per business key."),
+        _opt("accept_risk", "Allow duplicates (accept business risk)", 
+             "noop", description="Pass duplicate business keys to target — document in runbook."),
     ],
     "high_null_percentage": [
-        _opt("fill_nulls", "Fill nulls (median/mean/mode)", "fill_nulls_simple", recommended=True, description="Impute null values using median, mean, or mode based on column type."),
-        _opt("keep_as_is", "Keep as-is (accept risk)", "noop", description="Allow nulls in the output column."),
+        _opt("fill_nulls", "Fill nulls (median/mean/mode)", 
+             "fill_nulls_simple", recommended=True),
+        _opt("drop_column", "Drop column (>50% null is unreliable)", "drop_column"),
+        _opt("accept_risk", "Accept nulls (pass through as-is)", "noop"),
     ],
     "orphan_foreign_keys": [
-        _opt("reject_orphans", "Validate referential integrity (reject/stage)", "validate_referential_integrity_or_stage", recommended=True, description="Filter out/delete records where foreign key does not exist in target."),
-        _opt("keep_as_is", "Keep raw (allow orphans)", "noop", description="Accept orphan keys and pass them to target."),
+        _opt("reject_orphans", "Reject orphan records (quarantine)", 
+             "validate_referential_integrity_or_stage", recommended=True,
+             description="Route orphan FK rows to a rejects/staging table."),
+        _opt("accept_risk", "Accept risk (document and proceed)", 
+             "noop", description="Acknowledge the FK gap and proceed without enforcement."),
     ],
     "dq_gate_warning": [
         _opt("force_unlock", "Acknowledge and proceed (force unlock)", "force_unlock", recommended=True, description="Override the data quality gate for this dataset to allow phase 2 transformations."),
@@ -354,16 +370,23 @@ def enrich_manual_review_item(
     conflict: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Attach id, resolution_options, default_resolution, status, and optional LLM recommendation or conflict information."""
-    if item.get("id") and item.get("resolution_options"):
-        if not llm_recommendation or any(o.get("id") == "llm_suggested" for o in item.get("resolution_options", [])):
-            if not conflict:
-                return item
-
     out = dict(item)
     iid = out.get("id") or manual_review_item_id(
         out.get("dataset"), out.get("column"), out.get("issue_type")
     )
     out["id"] = iid
+    out.setdefault("risk_tier", "standard")
+    out.setdefault("status", "pending")
+    out.setdefault("selected_resolution", None)
+
+    if (out.get("resolution_options")
+        and not llm_recommendation
+        and not conflict):
+        default = next((o["id"] for o in out["resolution_options"] if o.get("recommended")),
+                       out["resolution_options"][0]["id"] if out["resolution_options"] else "keep_as_is")
+        out.setdefault("default_resolution", default)
+        return out
+
     issue_type = str(out.get("issue_type") or "")
 
     if conflict:
@@ -517,30 +540,42 @@ def _save_dynamic_options_cache(cache: Dict[str, List[ResolutionOption]]):
 _DYNAMIC_OPTIONS_CACHE = _load_dynamic_options_cache()
 
 
-def get_dynamic_resolution_options(issue_type: str, item: Dict[str, Any]) -> List[ResolutionOption]:
+def get_dynamic_resolution_options(
+    issue_type: str,
+    item: Dict[str, Any],
+    *,
+    allow_llm_call: bool = False
+) -> List[ResolutionOption]:
     """
-    Queries LLM to generate resolution options for an unmapped anomaly type.
-    Maps options to standard actions: noop, drop_column, exclude_column, deduplicate,
-    flag_outliers, fill_nulls_simple, zero_to_null, lowercase, uppercase, parse_dates.
+    allow_llm_call=False (default): return cached or fallback immediately.
+    allow_llm_call=True: may make LLM call (only from background worker).
     """
-    import json
-    import os
-    import logging
-    from agent.model_config import load_llm_config
-
     cache_key = issue_type.strip().lower()
     global _DYNAMIC_OPTIONS_CACHE
     _DYNAMIC_OPTIONS_CACHE = _load_dynamic_options_cache()
     if cache_key in _DYNAMIC_OPTIONS_CACHE:
         return _DYNAMIC_OPTIONS_CACHE[cache_key]
 
+    if not allow_llm_call:
+        # Return minimal safe fallback — never block plan build
+        fallback = [
+            _opt("keep_as_is", "Keep as-is (review manually)", "noop",
+                 recommended=True,
+                 description=f"Unknown issue type '{issue_type}' — review with your data team.")
+        ]
+        return fallback
+
+    # LLM call logic (only when allow_llm_call=True)
+    import json
+    import logging
+    from agent.model_config import load_llm_config
+
     opts = [
-        _opt("keep_as_is", "Keep as-is (skip in ETL)", "noop", description="No transform; document in runbook.")
+        _opt("keep_as_is", "Keep as-is (skip in ETL)", "noop", recommended=True, description="No transform; document in runbook.")
     ]
 
     cfg = load_llm_config()
     if not cfg:
-        opts[0]["recommended"] = True
         _DYNAMIC_OPTIONS_CACHE[cache_key] = opts
         _save_dynamic_options_cache(_DYNAMIC_OPTIONS_CACHE)
         return opts
@@ -560,13 +595,11 @@ def get_dynamic_resolution_options(issue_type: str, item: Dict[str, Any]) -> Lis
     except Exception as e:
         logger = logging.getLogger("agent.manual_review_catalog")
         logger.error(f"Failed to initialize OpenAI client: {e}")
-        opts[0]["recommended"] = True
         _DYNAMIC_OPTIONS_CACHE[cache_key] = opts
         _save_dynamic_options_cache(_DYNAMIC_OPTIONS_CACHE)
         return opts
 
     if not client:
-        opts[0]["recommended"] = True
         _DYNAMIC_OPTIONS_CACHE[cache_key] = opts
         _save_dynamic_options_cache(_DYNAMIC_OPTIONS_CACHE)
         return opts
@@ -648,23 +681,31 @@ def get_dynamic_resolution_options(issue_type: str, item: Dict[str, Any]) -> Lis
 
 def action_for_resolution(issue_type: str, resolution_id: str, options: Optional[List[ResolutionOption]] = None) -> Optional[str]:
     rid = str(resolution_id or "").strip()
-    if rid == "skip":
-        if options:
-            for o in options:
-                if o.get("id") in ("keep_as_is", "skip_requirement"):
-                    return str(o.get("action") or "")
-        for o in get_resolution_options(issue_type):
-            if o.get("id") in ("keep_as_is", "skip_requirement"):
-                return str(o.get("action") or "")
-        return "noop"
-
+    
+    # Search provided options first (most specific)
+    search_pools = []
     if options:
-        for o in options:
+        search_pools.append(options)
+    # Then catalog
+    catalog_opts = _CATALOG.get(str(issue_type or "").lower()) or []
+    if catalog_opts:
+        search_pools.append(catalog_opts)
+    # Finally default
+    search_pools.append(_DEFAULT_OPTIONS)
+    
+    for pool in search_pools:
+        for o in pool:
             if o.get("id") == rid:
-                return str(o.get("action") or "")
-    for o in get_resolution_options(issue_type):
-        if o.get("id") == rid:
-            return str(o.get("action") or "")
+                return str(o.get("action") or "noop")
+    
+    # "skip" alias → find first noop/keep_as_is in options
+    if rid == "skip":
+        for pool in search_pools:
+            for o in pool:
+                if o.get("action") in ("noop", "keep_as_is") or o.get("id") in ("keep_as_is", "skip_requirement"):
+                    return str(o.get("action") or "noop")
+        return "noop"
+    
     return None
 
 

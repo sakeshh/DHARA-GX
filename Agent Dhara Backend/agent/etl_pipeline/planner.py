@@ -629,8 +629,6 @@ def build_etl_plan(
                 new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
                 sug_map[new_key] = new_sug
 
-    non_fixable_issues = []
-
     # Run conflict detection on all TaggedRules (Component 11)
     from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
     from agent.etl_pipeline.conflict_detector import detect_conflicts
@@ -724,24 +722,20 @@ def build_etl_plan(
         if conflict_key in resolved_map:
             s["suggested_action"] = resolved_map[conflict_key].action
 
-    # Call the compiler to process suggestions into safe steps, manual review, and non-fixables
+    # Call the compiler to process suggestions into safe steps and manual review
     from agent.etl_pipeline.issue_to_step_compiler import compile_issues_to_steps
-    compiled_steps, compiled_mr, compiled_non_fixable = compile_issues_to_steps(
+    compiled_steps, compiled_mr = compile_issues_to_steps(
         suggestions, rules, sem_schema
     )
 
     logger.info(
-        "Compiler output: %d auto-fix steps across %d datasets, %d manual review, %d non-fixable",
+        "Compiler output: %d auto-fix steps across %d datasets, %d manual review",
         sum(len(s) for s in compiled_steps.values()),
         len(compiled_steps),
         len(compiled_mr),
-        len(compiled_non_fixable),
     )
 
-    # 1. Store non-fixables
-    non_fixable_issues = compiled_non_fixable
-
-    # 2. Add manual review items
+    # Add manual review items
     for mr in compiled_mr:
         manual_review.append(mr)
 
@@ -1007,31 +1001,29 @@ def build_etl_plan(
         it = _clean(m.get("issue_type"))
         in_manual.add((ds, col, it))
 
-    in_non_fixable = set()
-    for nf in non_fixable_issues:
-        ds = _clean(nf.get("dataset"), "_global")
-        col = _clean(nf.get("column"), "*")
-        it = _clean(nf.get("issue_type"))
-        in_non_fixable.add((ds, col, it))
-
-    covered = covered_by_steps | in_manual | in_non_fixable
+    covered = covered_by_steps | in_manual
     uncovered = all_issues - covered
+
+    tier_counts = {"standard": 0, "complex": 0, "non_fixable": 0}
+    for m in manual_review:
+        tier = m.get("risk_tier", "standard")
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
 
     coverage_summary = {
         "total_issues": len(all_issues),
         "covered_by_steps": len(covered_by_steps),
-        "manual_review": len(in_manual),
-        "non_fixable": len(in_non_fixable),
+        "manual_review_total": len(in_manual),
+        "manual_review_by_tier": tier_counts,
         "uncovered": len(uncovered),
         "uncovered_items": [{"dataset": d, "column": c, "issue_type": i} for d, c, i in uncovered],
     }
 
     logger.info(
-        "Plan coverage: total=%d, steps=%d, manual=%d, non_fixable=%d, uncovered=%d",
+        "Plan coverage: total=%d, steps=%d, manual_total=%d, by_tier=%s, uncovered=%d",
         coverage_summary["total_issues"],
         coverage_summary["covered_by_steps"],
-        coverage_summary["manual_review"],
-        coverage_summary["non_fixable"],
+        coverage_summary["manual_review_total"],
+        str(coverage_summary["manual_review_by_tier"]),
         coverage_summary["uncovered"],
     )
 
@@ -1047,7 +1039,6 @@ def build_etl_plan(
         "global_steps": global_steps,
         "manual_review": manual_review,
         "blocked": blocked,
-        "non_fixable": non_fixable_issues,
         "coverage": coverage_summary,
         "invariants": build_plan_invariants(rules),
         "suggestions_summary": sug_pkg.get("summary") or {},
@@ -1068,3 +1059,24 @@ def build_etl_plan(
         plan, _ = apply_manual_resolutions(plan, resolutions, business_rules=rules)
 
     return plan
+
+
+def get_unacknowledged_blockers(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Returns list of manual_review items that MUST be resolved before ETL generates.
+    complex and non_fixable items with status=pending are blockers.
+    """
+    blockers = []
+    for item in (plan.get("manual_review") or []):
+        tier = item.get("risk_tier", "standard")
+        status = item.get("status", "pending")
+        if tier in ("complex", "non_fixable") and status == "pending":
+            blockers.append({
+                "id": item.get("id"),
+                "dataset": item.get("dataset"),
+                "column": item.get("column"),
+                "issue_type": item.get("issue_type"),
+                "risk_tier": tier,
+                "message": item.get("message"),
+            })
+    return blockers
