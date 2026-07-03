@@ -385,6 +385,8 @@ def enrich_manual_review_item(
         default = next((o["id"] for o in out["resolution_options"] if o.get("recommended")),
                        out["resolution_options"][0]["id"] if out["resolution_options"] else "keep_as_is")
         out.setdefault("default_resolution", default)
+        out.setdefault("status", "pending")
+        out.setdefault("selected_resolution", None)
         return out
 
     issue_type = str(out.get("issue_type") or "")
@@ -705,6 +707,25 @@ def action_for_resolution(issue_type: str, resolution_id: str, options: Optional
                 if o.get("action") in ("noop", "keep_as_is") or o.get("id") in ("keep_as_is", "skip_requirement"):
                     return str(o.get("action") or "noop")
         return "noop"
+
+    # Alias map for option IDs that do not match action names
+    _RESOLUTION_ID_FALLBACK: Dict[str, str] = {
+        "deduplicate_last":  "deduplicate",
+        "deduplicate_first": "deduplicate",
+        "fill_nulls":        "fill_nulls_simple",
+        "abort_pipeline":    "noop",
+        "accept_risk":       "noop",
+        "quarantine_all_null": "validate_referential_integrity_or_stage",
+        "reject_orphans":    "validate_referential_integrity_or_stage",
+        "flag_outliers":     "flag_outliers",
+        "flag":              "clip_or_flag",
+        "fill_null":         "fill_or_drop",
+        "force_unlock":      "force_unlock",
+        "skip_requirement":  "skip_requirement",
+        "keep_as_is":        "noop",
+    }
+    if rid in _RESOLUTION_ID_FALLBACK:
+        return _RESOLUTION_ID_FALLBACK[rid]
     
     return None
 
