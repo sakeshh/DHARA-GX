@@ -46,7 +46,21 @@ class ConnectionProxy:
         pass
 
 
+_CONN_MAX_AGE = 300  # 5 minutes
+
+
 def _connect() -> ConnectionProxy:
+    now = time.time()
+    
+    # Recycle if connection is too old
+    conn_age = getattr(_local_conn, "conn_created_at", 0)
+    if hasattr(_local_conn, "conn") and _local_conn.conn and (now - conn_age) > _CONN_MAX_AGE:
+        try:
+            _local_conn.conn.close()
+        except Exception:
+            pass
+        _local_conn.conn = None
+        
     if not hasattr(_local_conn, "conn") or _local_conn.conn is None:
         conn = sqlite3.connect(_db_path(), timeout=30)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -100,6 +114,7 @@ def _connect() -> ConnectionProxy:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_datasets ON pipeline_runs(dataset_names)")
         conn.commit()
         _local_conn.conn = conn
+        _local_conn.conn_created_at = now
         
     return ConnectionProxy(_local_conn.conn)
 
@@ -378,8 +393,9 @@ def get_pipeline_runs_for_datasets(
         clauses = []
         params = []
         for name in dataset_names:
-            clauses.append("dataset_names LIKE ?")
-            params.append(f'%"{name}"%')
+            safe = name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            clauses.append("dataset_names LIKE ? ESCAPE '\\'")
+            params.append(f'%"{safe}"%')
             
         sql = (
             "SELECT id, session_id, run_ts, dataset_names, schema_hash, dq_score, "

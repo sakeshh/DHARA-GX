@@ -153,91 +153,79 @@ def _indent(lines_list: List[str], spaces: int = 8) -> List[str]:
     return [prefix + line if line.strip() else line for line in lines_list]
 
 
-def _classify_column(col_name: str, col_meta: dict, sem_schema: dict = None, ds_name: str = "") -> str:
+def _classify_column(
+    col_name: str,
+    col_meta: dict | None,
+    sem_schema: dict | None = None,
+    ds_name: str = "",
+) -> str:
     """
-    Classify column as 'date', 'id', 'metric', 'categorical', or 'string'.
+    Classify a column into: id | metric | categorical | date | string | metadata
+    Priority: metadata prefix → semantic schema → col_meta tags → dtype → name keywords
     """
-    c_lower = str(col_name).lower().strip()
-    
-    # Priority check: columns with numeric keywords or explicit numeric dtype/target_dtype are always metric
-    dtype = str((col_meta or {}).get("dtype") or (col_meta or {}).get("inferred_type") or "").lower()
-    target_dtype = str((col_meta or {}).get("target_dtype") or "").lower()
-    
-    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")) or \
-       any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
-        return "metric"
-    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count", "score", "grade", "val")):
-        return "metric"
+    c = str(col_name).lower().strip()
+    meta = col_meta or {}
 
-    # 0a. Check semantic_schema (single source of truth)
+    # 1. Metadata columns — always fast-exit
+    if c.startswith("etl_") or c in ("run_id", "_rn", "_dedup_rn"):
+        return "metadata"
+
+    # 2. Compute dtype/target_dtype once
+    dtype = str(meta.get("dtype") or meta.get("inferred_type") or "").lower()
+    tdtype = str(meta.get("target_dtype") or "").lower()
+
+    _ID_SUBTYPES   = {"email","phone","zip_code","ssn","uuid","pk","fk","ip_address","national_id","passport"}
+    _MET_SUBTYPES  = {"currency","amount","age","percentage","quantity","score","rating","balance"}
+    _CAT_SUBTYPES  = {"status_flag","country","gender","boolean_int","flag","category","enum"}
+    _DATE_SUBTYPES = {"date","datetime","timestamp","time","year","month"}
+
+    def _resolve_sub(sub: str, stype: str):
+        if sub in _ID_SUBTYPES:   return "id"
+        if sub in _MET_SUBTYPES:  return "metric"
+        if sub in _CAT_SUBTYPES:  return "categorical"
+        if sub in _DATE_SUBTYPES: return "date"
+        if stype in ("id","metric","categorical","date"): return stype
+        if stype == "text": return "string"
+        return None
+
+    # 3. Semantic schema (highest authority)
     if sem_schema:
-        key = f"{ds_name}.{col_name}"
-        desc = sem_schema.get(key)
-        if desc and isinstance(desc, dict):
-            sub = desc.get("sub_type", "").lower().strip()
-            stype = desc.get("semantic_type", "string").lower().strip()
-            if sub in ("email", "phone", "zip_code", "ssn", "uuid", "pk", "fk", "ip_address"):
-                return "id"
-            if sub in ("currency", "age", "percentage"):
-                return "metric"
-            if sub in ("status_flag", "country", "gender", "boolean_int"):
-                return "categorical"
-            if stype in ("id", "metric", "categorical", "date", "string"):
-                if stype == "text":
-                    return "string"
-                return stype
+        desc = sem_schema.get(f"{ds_name}.{col_name}") or {}
+        result = _resolve_sub(
+            desc.get("sub_type", "").lower(),
+            desc.get("semantic_type", "").lower()
+        )
+        if result:
+            return result
 
-    # 0b. Check approved sub_type/semantic_type first if available in col_meta
-    sub = (col_meta.get("sub_type") or "").lower().strip()
-    if sub:
-        if sub in ("email", "phone", "zip_code", "ssn", "uuid", "pk", "fk", "ip_address"):
-            return "id"
-        if sub in ("currency", "age", "percentage"):
-            return "metric"
-        if sub in ("status_flag", "country", "gender", "boolean_int"):
-            return "categorical"
+    # 4. col_meta semantic tags
+    result = _resolve_sub(
+        meta.get("sub_type", "").lower(),
+        meta.get("semantic_type", "").lower()
+    )
+    if result:
+        return result
 
-    approved_tag = (col_meta.get("semantic_type") or "").lower().strip()
-    if approved_tag in ("id", "metric", "categorical", "date", "text"):
-        if approved_tag == "text":
-            return "string"
-        return approved_tag
-
-    c_lower = str(col_name).lower()
-    
-    # 1. Date checks
-    dtype = str(col_meta.get("dtype") or col_meta.get("inferred_type") or "").lower()
-    target_dtype = str(col_meta.get("target_dtype") or "").lower()
-    
-    if any(x in dtype for x in ("date", "time", "stamp")) or \
-       any(x in target_dtype for x in ("date", "time", "stamp")):
+    # 5. dtype inference
+    if any(x in dtype or x in tdtype for x in ("date","time","stamp")):
         return "date"
-    if any(x in c_lower for x in ("date", "time", "dob", "stamp")) or c_lower.endswith("_at"):
-        return "date"
-        
-    # 2. ID / Identifier checks
-    if any(x in c_lower for x in ("phone", "email", "ssn", "zip", "postal")):
-        return "id"
-    if c_lower.endswith("id") or c_lower.endswith("key") or c_lower.endswith("code") or c_lower.endswith("num"):
-        return "id"
-    if any(x in c_lower for x in ("student_id", "course_id", "instructor_id", "batch_id", "run_id")):
-        return "id"
-        
-    # 3. Metric checks
-    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")) or \
-       any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+    if any(x in dtype or x in tdtype for x in ("int","float","double","decimal","numeric","real","money","bigint","smallint","tinyint")):
         return "metric"
-    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count", "score", "grade", "val")):
-        return "metric"
-            
-    # 4. Categorical checks
-    if any(x in c_lower for x in ("status", "gender", "category", "type", "state", "country", "city", "active", "flag")):
+    if "bool" in dtype or "bit" in tdtype:
         return "categorical"
-        
-    # 5. String check/Fallback
-    if any(x in dtype for x in ("char", "str", "object", "string", "text")):
-        return "string"
-        
+
+    # 6. Column name keywords (last resort)
+    if c.endswith("_at") or any(x in c for x in ("date","time","dob","stamp","_dt","_ts")):
+        return "date"
+    if any(x in c for x in ("phone","email","ssn","zip","postal","npi","ein","tin","passport")):
+        return "id"
+    if c.endswith(("id","key","_key","code","num","_no","_nbr")):
+        return "id"
+    if any(x in c for x in ("amount","price","fee","cost","credit","debit","qty","count","total","score","grade","rate","balance","revenue","salary")):
+        return "metric"
+    if any(x in c for x in ("status","gender","category","type","flag","country","city","state","region","tier","segment","priority","rank")):
+        return "categorical"
+
     return "string"
 
 

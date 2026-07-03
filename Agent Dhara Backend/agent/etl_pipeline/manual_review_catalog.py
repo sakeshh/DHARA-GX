@@ -151,10 +151,6 @@ _CATALOG: Dict[str, List[ResolutionOption]] = {
         _opt("sanitize_email", "Flag/nullify disposable emails", "sanitize_email", recommended=True, description="Nullify known disposable email domain addresses."),
         _opt("keep_as_is", "Keep as-is", "noop"),
     ],
-    "near_duplicate_rows": [
-        _opt("deduplicate", "Deduplicate (keep first)", "deduplicate", recommended=True, description="Remove near-duplicate rows keeping first occurrence."),
-        _opt("keep_as_is", "Keep as-is (allow duplicates)", "noop"),
-    ],
     "very_wide_date_span": [
         _opt("parse_dates", "Parse dates consistently", "parse_dates", recommended=True, description="Normalise mixed date formats across a wide date span."),
         _opt("flag_outliers", "Flag date span outliers", "flag_outliers"),
