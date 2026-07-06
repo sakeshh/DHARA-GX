@@ -32,17 +32,47 @@ _ISSUE_TO_ACTION_MAP.update({
     "sentinel_numeric_value": "zero_to_null",
     "string_length_outlier": "flag_outliers",
     "custom_rule_violation": "review_manually",
+    # String quality
+    "leading_trailing_whitespace":   "trim",
+    "mixed_case":                    "lowercase",
+    "inconsistent_case":             "lowercase",
+    "special_characters":            "regex_replace",
+    "html_tags":                     "regex_replace",
+    "control_characters":            "regex_replace",
+    "unicode_normalization":         "regex_replace",
+    # Numeric
+    "negative_values":               "range_clip",
+    "zero_values":                   "zero_to_null",
+    "impossible_values":             "range_clip",
+    "precision_loss":                "cast_type",
+    # Date/time
+    "future_dates":                  "nullify_future_dates",
+    "dummy_dates":                   "nullify_dummy_dates",
+    "invalid_date_format":           "parse_dates",
+    "date_range_violation":          "nullify_future_dates",
+    # Boolean/categorical
+    "boolean_inconsistency":         "standardize_boolean",
+    "invalid_category":              "replace_values",
+    "enum_violation":                "replace_values",
+    "inconsistent_boolean":          "standardize_boolean",
+    # PII / privacy
+    "pii_email":                     "sanitize_email",
+    "pii_phone":                     "hash_phone",
+    "pii_sensitive":                 "hash_phone",
+    # Structural
+    "schema_drift":                  "cast_type",
+    "column_rename":                 "cast_type",
+    "extra_whitespace_in_name":      "trim",
 })
 
 
-# These issues CANNOT be resolved by any ETL action — must be acknowledged
 _NON_FIXABLE_ISSUE_TYPES = frozenset({
     "missing_required_column",
     "very_wide_table",
     "empty_dataset",
     "orphan_foreign_keys",          # FK violation — needs source fix
     "schema_mismatch",              # target schema incompatible
-    "encoding_corruption",          # when regex cannot recover original
+    # encoding_corruption REMOVED — fixable with regex_replace in most cases
     "referential_integrity_violation",
 })
 
@@ -82,6 +112,14 @@ def _apply_three_pass_overrides(
     # Pass 1: Issue Baseline Mapping
     if not action or action == "noop":
         action = _ISSUE_TO_ACTION_MAP.get(it) or "noop"
+
+    if it == "encoding_corruption":
+        # Try regex fix first; if pattern confidence < 0.5, escalate to manual_review
+        if sug.get("pattern_confidence", 1.0) >= 0.5:
+            action = "regex_replace"
+        else:
+            action = "review_manually"
+
     if action in ("review_manually", "noop"):
         action = "review_manually"
 
