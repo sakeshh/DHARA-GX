@@ -50,7 +50,7 @@ class TestScenarioMatrix(unittest.TestCase):
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
         self.assertTrue(len(sql) > 0)
         
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, f"SQL validation failed: {errs}")
         self.assertIn("A", sql) # grade badge should be high since happy path has no issues
 
@@ -61,7 +61,7 @@ class TestScenarioMatrix(unittest.TestCase):
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
         self.assertTrue(len(sql) > 0)
         
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, f"SQL validation failed: {errs}")
         
         # Verify execution order: Normalize empty strings BEFORE reject checks and type parsing.
@@ -74,7 +74,7 @@ class TestScenarioMatrix(unittest.TestCase):
         df = self._load_fixture("dirty_emails.json")
         res = self._run_pipeline(df, "dbo.dirty_emails")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_wide_table(self):
@@ -88,21 +88,21 @@ class TestScenarioMatrix(unittest.TestCase):
         df = self._load_fixture("null_primary_keys.json")
         res = self._run_pipeline(df, "dbo.null_pks")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_fk_violations(self):
         df = self._load_fixture("fk_violations.json")
         res = self._run_pipeline(df, "dbo.fk_violations")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_encoding_issues(self):
         df = self._load_fixture("encoding_issues.json")
         res = self._run_pipeline(df, "dbo.encoding_issues")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_scd2_pattern(self):
@@ -121,7 +121,7 @@ class TestScenarioMatrix(unittest.TestCase):
         }
         res = self._run_pipeline(df, "dbo.scd2_pattern", rules=rules)
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
         self.assertIn("SCD Type 2", sql)
 
@@ -170,35 +170,35 @@ class TestScenarioMatrix(unittest.TestCase):
         df = self._load_fixture("suspicious_zeros.json")
         res = self._run_pipeline(df, "dbo.suspicious_zeros")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_near_duplicates(self):
         df = self._load_fixture("near_duplicates.json")
         res = self._run_pipeline(df, "dbo.near_duplicates")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_multivariate_outliers(self):
         df = self._load_fixture("multivariate_outliers.json")
         res = self._run_pipeline(df, "dbo.multivariate_outliers")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_boolean_inconsistency(self):
         df = self._load_fixture("boolean_inconsistency.json")
         res = self._run_pipeline(df, "dbo.boolean_inconsistency")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
     def test_sentinel_values(self):
         df = self._load_fixture("sentinel_values.json")
         res = self._run_pipeline(df, "dbo.sentinel_values")
         sql = generate_sql_etl(res["plan"], res["assessment"], dialect="tsql")
-        ok, errs = validate_sql_basic(sql)
+        ok, errs, _ = validate_sql_basic(sql)
         self.assertTrue(ok, errs)
 
 if __name__ == "__main__":

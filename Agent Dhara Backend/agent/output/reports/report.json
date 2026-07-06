@@ -6,505 +6,6 @@
       "data_volume_bytes": 11560,
       "sampling_info": "Full dataset has 20 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.",
       "columns": {
-        "Phone": {
-          "dtype": "object",
-          "dtype_inference": "numeric_like",
-          "type_distribution": {
-            "counts": {
-              "str": 18,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 18
-          },
-          "null_percentage": 0.1,
-          "null_count": 2,
-          "type_confidence": 0.92,
-          "unique_count": 16,
-          "semantic_type": "phone",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "9876543210",
-            "9988776655",
-            "98765-12345",
-            "9123456780",
-            "N/A",
-            "9876543210",
-            "9876543210",
-            "9999999999",
-            "123456789",
-            "8888888888",
-            "7777777777",
-            "6666666666",
-            "55555abcde",
-            "4444444444",
-            "3333333333",
-            "2222222222",
-            "1111111111",
-            "0000000000"
-          ],
-          "duplicate_value_count": 5,
-          "mean": 6220650952.933333,
-          "median": 7777777777.0,
-          "std": 3929802445.771441,
-          "skew": -0.5337,
-          "p5": 86419752.30000001,
-          "p95": 9992143658.2,
-          "server_min": "0000000000",
-          "server_max": "N/A",
-          "sql_data_type": "varchar",
-          "min": "0000000000",
-          "max": "N/A",
-          "llm_hints": {
-            "semantic_type": "contact",
-            "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "high",
-            "outlier_action_hint": null,
-            "format_variants": [],
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E002",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "EmployeeID": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 20,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 20
-          },
-          "null_percentage": 0.0,
-          "null_count": 0,
-          "type_confidence": 0.92,
-          "unique_count": 19,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "E001",
-            "E002",
-            "E003",
-            "E004",
-            "E005",
-            "E006",
-            "E007",
-            "E007",
-            "E008",
-            "E009",
-            "E010",
-            "E011",
-            "E012",
-            "E013",
-            "E014",
-            "E015",
-            "",
-            "E017",
-            "E018",
-            "E019"
-          ],
-          "duplicate_value_count": 2,
-          "server_min": "",
-          "server_max": "E019",
-          "sql_data_type": "varchar",
-          "min": "",
-          "max": "E019",
-          "llm_hints": {
-            "semantic_type": "id",
-            "mixed_formats_suspected": false,
-            "business_importance": "high",
-            "cleaning_priority": "critical",
-            "outlier_action_hint": null
-          }
-        },
-        "EmployeeName": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 18,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "John Smith",
-            " jane doe ",
-            "Michael Johnson",
-            "David Lee",
-            "Priya Sharma",
-            "Rahul Kumar",
-            "Rahul Kumar",
-            "Anita Singh",
-            "Robert Brown",
-            "Emily Davis",
-            "Chris Wilson ",
-            "Aisha Khan",
-            "Vikram Patel",
-            "Neha Verma",
-            "Arjun Reddy",
-            "Unknown",
-            "Sneha Iyer",
-            "Karan Mehta",
-            "Pooja Nair"
-          ],
-          "duplicate_value_count": 2,
-          "server_min": " jane doe ",
-          "server_max": "Vikram Patel",
-          "sql_data_type": "varchar",
-          "min": " jane doe ",
-          "max": "Vikram Patel",
-          "llm_hints": {
-            "semantic_type": "name",
-            "mixed_formats_suspected": false,
-            "business_importance": "high",
-            "cleaning_priority": "high",
-            "outlier_action_hint": null,
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E004",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "Email": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 18,
-          "semantic_type": "email",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "john.smith@company.com",
-            "JANE.DOE@company.com",
-            "mjohnson@company",
-            "sarah.connor@company.com",
-            "",
-            "priya.sharma@company.com",
-            "rahul.kumar@company.com",
-            "rahul.kumar@company.com",
-            "anita.singh@company.com",
-            "emily.davis@company.com",
-            "chris.wilson@company.com",
-            "aisha.khan@company.com",
-            "vikram.patel@company.com",
-            "neha.verma@company.com",
-            "arjun.reddy@company.com",
-            "unknown@company.com",
-            "sneha.iyer@company.com",
-            "karan.mehta@company.com",
-            "pooja.nair@company.com"
-          ],
-          "duplicate_value_count": 2,
-          "server_min": "",
-          "server_max": "vikram.patel@company.com",
-          "sql_data_type": "varchar",
-          "min": "",
-          "max": "vikram.patel@company.com",
-          "llm_hints": {
-            "semantic_type": "email",
-            "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "high",
-            "outlier_action_hint": null,
-            "format_variants": [],
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E009",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "JobTitle": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 15,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "Data Analyst",
-            "HR Executive",
-            "Accountant",
-            "Data Engineer",
-            "Sales Manager",
-            "Data Scientist",
-            "Data Analyst",
-            "Data Analyst",
-            "Marketing Lead",
-            "Manager",
-            "Analyst",
-            "Developer",
-            "Sales Rep",
-            "QA Engineer",
-            "DevOps Engineer",
-            "Intern",
-            "Specialist",
-            "Analyst",
-            "Data Engineer"
-          ],
-          "duplicate_value_count": 7,
-          "server_min": "Accountant",
-          "server_max": "Specialist",
-          "sql_data_type": "varchar",
-          "min": "Accountant",
-          "max": "Specialist",
-          "llm_hints": {
-            "semantic_type": "title",
-            "mixed_formats_suspected": false,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E010",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "Department": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 6,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "IT",
-            "HR",
-            "Finance",
-            "IT",
-            "Sales",
-            "IT",
-            "IT",
-            "IT",
-            "Marketing",
-            "Operations",
-            "HR",
-            "Finance",
-            "IT",
-            "Sales",
-            "IT",
-            "IT",
-            "Marketing",
-            "Finance",
-            "IT"
-          ],
-          "duplicate_value_count": 18,
-          "server_min": "Finance",
-          "server_max": "Sales",
-          "sql_data_type": "varchar",
-          "min": "Finance",
-          "max": "Sales",
-          "llm_hints": {
-            "semantic_type": "department",
-            "mixed_formats_suspected": false,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "Status": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 3,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "Active",
-            "Active",
-            "active",
-            "Active",
-            "Inactive",
-            "Active",
-            "Active",
-            "Active",
-            "Active",
-            "ACTIVE",
-            "Active",
-            "Inactive",
-            "Inactive",
-            "Active",
-            "Resigned",
-            "Active",
-            "active",
-            "Inactive",
-            "Active"
-          ],
-          "duplicate_value_count": 17,
-          "server_min": "Active",
-          "server_max": "Resigned",
-          "sql_data_type": "varchar",
-          "min": "Active",
-          "max": "Resigned",
-          "llm_hints": {
-            "semantic_type": "status",
-            "mixed_formats_suspected": false,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": null,
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E010",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
         "HireDate": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -603,6 +104,508 @@
             }
           }
         },
+        "Phone": {
+          "dtype": "object",
+          "dtype_inference": "numeric_like",
+          "type_distribution": {
+            "counts": {
+              "str": 18,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 18
+          },
+          "null_percentage": 0.1,
+          "null_count": 2,
+          "type_confidence": 0.92,
+          "unique_count": 16,
+          "semantic_type": "phone",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "9876543210",
+            "9988776655",
+            "98765-12345",
+            "9123456780",
+            "N/A",
+            "9876543210",
+            "9876543210",
+            "9999999999",
+            "123456789",
+            "8888888888",
+            "7777777777",
+            "6666666666",
+            "55555abcde",
+            "4444444444",
+            "3333333333",
+            "2222222222",
+            "1111111111",
+            "0000000000"
+          ],
+          "duplicate_value_count": 5,
+          "mean": 6220650952.933333,
+          "median": 7777777777.0,
+          "std": 3929802445.771441,
+          "skew": -0.5337,
+          "p5": 86419752.30000001,
+          "p95": 9992143658.2,
+          "server_min": "0000000000",
+          "server_max": "N/A",
+          "sql_data_type": "varchar",
+          "min": "0000000000",
+          "max": "N/A",
+          "llm_hints": {
+            "semantic_type": "phone",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "high",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E002",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "Email": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 18,
+          "semantic_type": "email",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "john.smith@company.com",
+            "JANE.DOE@company.com",
+            "mjohnson@company",
+            "sarah.connor@company.com",
+            "",
+            "priya.sharma@company.com",
+            "rahul.kumar@company.com",
+            "rahul.kumar@company.com",
+            "anita.singh@company.com",
+            "emily.davis@company.com",
+            "chris.wilson@company.com",
+            "aisha.khan@company.com",
+            "vikram.patel@company.com",
+            "neha.verma@company.com",
+            "arjun.reddy@company.com",
+            "unknown@company.com",
+            "sneha.iyer@company.com",
+            "karan.mehta@company.com",
+            "pooja.nair@company.com"
+          ],
+          "duplicate_value_count": 2,
+          "server_min": "",
+          "server_max": "vikram.patel@company.com",
+          "sql_data_type": "varchar",
+          "min": "",
+          "max": "vikram.patel@company.com",
+          "llm_hints": {
+            "semantic_type": "email",
+            "mixed_formats_suspected": false,
+            "business_importance": "high",
+            "cleaning_priority": "high",
+            "outlier_action_hint": null,
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E009",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "EmployeeName": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 18,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "John Smith",
+            " jane doe ",
+            "Michael Johnson",
+            "David Lee",
+            "Priya Sharma",
+            "Rahul Kumar",
+            "Rahul Kumar",
+            "Anita Singh",
+            "Robert Brown",
+            "Emily Davis",
+            "Chris Wilson ",
+            "Aisha Khan",
+            "Vikram Patel",
+            "Neha Verma",
+            "Arjun Reddy",
+            "Unknown",
+            "Sneha Iyer",
+            "Karan Mehta",
+            "Pooja Nair"
+          ],
+          "duplicate_value_count": 2,
+          "server_min": " jane doe ",
+          "server_max": "Vikram Patel",
+          "sql_data_type": "varchar",
+          "min": " jane doe ",
+          "max": "Vikram Patel",
+          "llm_hints": {
+            "semantic_type": "name",
+            "mixed_formats_suspected": true,
+            "business_importance": "high",
+            "cleaning_priority": "high",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E004",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "EmployeeID": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 20,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 20
+          },
+          "null_percentage": 0.0,
+          "null_count": 0,
+          "type_confidence": 0.92,
+          "unique_count": 19,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "E001",
+            "E002",
+            "E003",
+            "E004",
+            "E005",
+            "E006",
+            "E007",
+            "E007",
+            "E008",
+            "E009",
+            "E010",
+            "E011",
+            "E012",
+            "E013",
+            "E014",
+            "E015",
+            "",
+            "E017",
+            "E018",
+            "E019"
+          ],
+          "duplicate_value_count": 2,
+          "server_min": "",
+          "server_max": "E019",
+          "sql_data_type": "varchar",
+          "min": "",
+          "max": "E019",
+          "llm_hints": {
+            "semantic_type": "id",
+            "mixed_formats_suspected": false,
+            "business_importance": "high",
+            "cleaning_priority": "critical",
+            "outlier_action_hint": null
+          }
+        },
+        "Department": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 6,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "IT",
+            "HR",
+            "Finance",
+            "IT",
+            "Sales",
+            "IT",
+            "IT",
+            "IT",
+            "Marketing",
+            "Operations",
+            "HR",
+            "Finance",
+            "IT",
+            "Sales",
+            "IT",
+            "IT",
+            "Marketing",
+            "Finance",
+            "IT"
+          ],
+          "duplicate_value_count": 18,
+          "server_min": "Finance",
+          "server_max": "Sales",
+          "sql_data_type": "varchar",
+          "min": "Finance",
+          "max": "Sales",
+          "llm_hints": {
+            "semantic_type": "category",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "JobTitle": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 15,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Data Analyst",
+            "HR Executive",
+            "Accountant",
+            "Data Engineer",
+            "Sales Manager",
+            "Data Scientist",
+            "Data Analyst",
+            "Data Analyst",
+            "Marketing Lead",
+            "Manager",
+            "Analyst",
+            "Developer",
+            "Sales Rep",
+            "QA Engineer",
+            "DevOps Engineer",
+            "Intern",
+            "Specialist",
+            "Analyst",
+            "Data Engineer"
+          ],
+          "duplicate_value_count": 7,
+          "server_min": "Accountant",
+          "server_max": "Specialist",
+          "sql_data_type": "varchar",
+          "min": "Accountant",
+          "max": "Specialist",
+          "llm_hints": {
+            "semantic_type": "category",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E010",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "Status": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 3,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "Active",
+            "Active",
+            "active",
+            "Active",
+            "Inactive",
+            "Active",
+            "Active",
+            "Active",
+            "Active",
+            "ACTIVE",
+            "Active",
+            "Inactive",
+            "Inactive",
+            "Active",
+            "Resigned",
+            "Active",
+            "active",
+            "Inactive",
+            "Active"
+          ],
+          "duplicate_value_count": 17,
+          "server_min": "Active",
+          "server_max": "Resigned",
+          "sql_data_type": "varchar",
+          "min": "Active",
+          "max": "Resigned",
+          "llm_hints": {
+            "semantic_type": "status",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E010",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
         "Location": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -662,10 +665,11 @@
           "max": "Pune",
           "llm_hints": {
             "semantic_type": "location",
-            "mixed_formats_suspected": false,
-            "business_importance": "low",
-            "cleaning_priority": "low",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
             "outlier_action_hint": null,
+            "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
@@ -734,8 +738,8 @@
           "llm_hints": {
             "semantic_type": "currency",
             "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "high",
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
             "outlier_action_hint": null,
             "format_variants": [],
             "null_pattern": {
@@ -748,16 +752,16 @@
         }
       },
       "priority_columns": [
-        "Salary",
-        "EmployeeID",
         "JobTitle",
-        "Status",
-        "HireDate",
-        "Phone",
-        "Department",
+        "EmployeeID",
+        "Email",
         "Location",
+        "HireDate",
+        "Status",
+        "Phone",
+        "Salary",
         "EmployeeName",
-        "Email"
+        "Department"
       ],
       "ydata_profile": {
         "row_count": 20,
@@ -2395,6 +2399,6 @@
     }
   },
   "run_metadata": {
-    "generated_at": "2026-07-06T07:03:46.685147+00:00"
+    "generated_at": "2026-07-06T07:40:41.151626+00:00"
   }
 }

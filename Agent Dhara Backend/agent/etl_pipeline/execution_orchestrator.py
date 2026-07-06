@@ -24,7 +24,51 @@ from agent.execution import execute_plan, ExecutionPlan, ExecutionEngine
 
 logger = logging.getLogger("agent.etl_pipeline.execution_orchestrator")
 
-_EXEC_CACHE: Dict[str, dict] = {}
+import os
+import json
+import time
+import tempfile
+
+class FileExecutionCache:
+    def __init__(self, cache_dir: str | None = None, ttl: int = 3600):
+        if cache_dir is None:
+            cache_dir = os.environ.get("EXEC_CACHE_DIR", os.path.join(tempfile.gettempdir(), "dhara_exec_cache"))
+        self.cache_dir = cache_dir
+        self.ttl = ttl
+
+    def _get_path(self, key: str) -> str:
+        return os.path.join(self.cache_dir, f"{key}.json")
+
+    def __contains__(self, key: str) -> bool:
+        path = self._get_path(key)
+        if not os.path.exists(path):
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                rec = json.load(f)
+            if time.time() - rec.get("ts", 0) > self.ttl:
+                os.remove(path)
+                return False
+            return True
+        except Exception:
+            return False
+
+    def __getitem__(self, key: str) -> dict:
+        path = self._get_path(key)
+        with open(path, "r", encoding="utf-8") as f:
+            rec = json.load(f)
+        return rec["data"]
+
+    def __setitem__(self, key: str, value: dict):
+        try:
+            os.makedirs(self.cache_dir, exist_ok=True)
+            path = self._get_path(key)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"ts": time.time(), "data": value}, f)
+        except Exception as e:
+            logger.warning(f"Failed to write to file cache: {e}")
+
+_EXEC_CACHE = FileExecutionCache()
 _REGEN_JOBS: Dict[str, dict] = {}
 
 
@@ -123,7 +167,9 @@ def orchestrate_sql_execution(
         return cached_res
 
     # 1. Validate SQL with validate_sql_basic
-    valid, errors = validate_sql_basic(sql)
+    valid, hard_errors, advisory_warnings = validate_sql_basic(sql)
+    if advisory_warnings:
+        logger.warning(f"[SQL Advisory] {advisory_warnings}")
     if not valid:
         res = {
             "ok": False,
@@ -133,7 +179,7 @@ def orchestrate_sql_execution(
             "session_id": session_id,
             "approved": approved,
             "dry_run": dry_run,
-            "validation_errors": errors,
+            "validation_errors": hard_errors,
             "requires_approval": False,
             "ops_found": [],
             "execution": {},

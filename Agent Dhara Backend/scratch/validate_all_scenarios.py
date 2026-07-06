@@ -61,7 +61,7 @@ def main() -> int:
             elif eng == "pyspark":
                 ok, errs = validate_pyspark_source(code, plan)
             elif eng == "sql":
-                ok, errs = validate_sql_basic(code)
+                ok, errs, _ = validate_sql_basic(code)
             status = "OK" if ok else "FAIL"
             if not ok:
                 failures += 1

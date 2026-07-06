@@ -971,7 +971,7 @@ def _call_llm(
         return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
 
     # Trim payload first before embedding it into user message
-    payload = _trim_payload_for_window(payload, engine_key, force_level=0)
+    payload = _trim_payload_for_codegen(payload, engine_key)
 
     # 1.5 dynamic system prompt injection
     system = SYSTEM_PROMPTS.get(engine_key, SYSTEM_PROMPTS["python"])
@@ -1002,9 +1002,9 @@ def _call_llm(
                     {"role": "system", "content": system},
                     {"role": "user", "content": user_message},
                 ],
-                temperature=0.0,
+                temperature=0,
                 max_tokens=max_tokens,
-                timeout=LLM_REQUEST_TIMEOUT,
+                timeout=120,
             )
             break
         except (RateLimitError, APITimeoutError) as e:
@@ -1082,6 +1082,48 @@ _RETRY_BUDGET: Dict[str, int] = {
 }
 
 
+def _trim_payload_for_codegen(payload: dict, engine_key: str) -> dict:
+    """
+    Trim payload fields to keep total token estimate under 80,000.
+    Priority: keep datasets/steps + business_rules. Trim manual_review, 
+    source_metadata, and narration fields if needed.
+    """
+    import copy
+    p = copy.deepcopy(payload)
+    est = _estimate_tokens(json.dumps(p))
+    TARGET = 80_000
+
+    if est <= TARGET:
+        return p
+
+    # Step 1: strip narration/policy fields first (not needed for codegen)
+    for key in ("plan_narrator_output", "policy_block", "rule_provenance"):
+        p.pop(key, None)
+    if _estimate_tokens(json.dumps(p)) <= TARGET:
+        return p
+
+    # Step 2: slim source_metadata to column names + dtype only
+    for ds, meta in (p.get("source_metadata") or {}).items():
+        if not isinstance(meta, dict):
+            continue
+        cols_dict = meta.get("columns") or {}
+        meta["columns"] = {}
+        for col, cmeta in cols_dict.items():
+            meta["columns"][col] = {
+                "dtype": cmeta.get("dtype") if isinstance(cmeta, dict) else None,
+                "semantic_type": cmeta.get("semantic_type") if isinstance(cmeta, dict) else None,
+            }
+    if _estimate_tokens(json.dumps(p)) <= TARGET:
+        return p
+
+    # Step 3: trim manual_review to top 20 items
+    if len(p.get("manual_review") or []) > 20:
+        p["manual_review"] = p["manual_review"][:20]
+
+    return p
+
+
+
 def generate_etl_with_llm(
     plan: Dict[str, Any],
     assessment: Dict[str, Any],
@@ -1122,6 +1164,7 @@ def generate_etl_with_llm(
     payload = _build_codegen_payload(
         plan, assessment, output_mode=output_mode, output_path=output_path
     )
+    payload = _trim_payload_for_codegen(payload, engine_key)
     prev: Optional[str] = None
     fix_errors = list(validation_errors or [])
     
@@ -1202,6 +1245,7 @@ def generate_adf_with_llm(
     error_message empty on success; on LLM failure error_message is set and first element may be None.
     """
     payload = _build_codegen_payload(plan, assessment)
+    payload = _trim_payload_for_codegen(payload, "adf")
     raw = _call_llm("adf", payload, fix_errors=validation_errors)
     if is_llm_generation_error(raw):
         return None, raw

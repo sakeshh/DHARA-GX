@@ -89,9 +89,11 @@ def enrich_with_catalog(manual_review: List[Dict[str, Any]]) -> List[Dict[str, A
     """
     Attaches catalog_guidance to each manual_review item with in-memory caching.
     """
+    if not manual_review:
+        return []
     from agent.etl_pipeline.manual_review_catalog import get_catalog_guidance
     enriched = []
-    for item in (manual_review or []):
+    for item in manual_review[:15]:
         if not isinstance(item, dict):
             continue
         new_item = dict(item)
