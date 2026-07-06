@@ -218,6 +218,9 @@ _PER_DATASET_ONLY_ACTIONS = frozenset(
         "normalize_phone",
         "hash_phone",
         "mask_phone",
+        "cast_type",
+        "coerce_numeric",
+        "parse_dates",
     }
 )
 

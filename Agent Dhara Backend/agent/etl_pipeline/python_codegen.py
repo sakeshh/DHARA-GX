@@ -510,6 +510,13 @@ def generate_python_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> str
         ds_var = "out"
         lines.append(f"    {ds_var} = df.copy()")
 
+        # Manual review warnings in code (B3)
+        for mr in plan.get("manual_review") or []:
+            if mr.get("dataset") == ds_name:
+                col = mr.get("column")
+                if col:
+                    lines.append(f"    logger.warning('Column {col} requires manual review — skipping automation')")
+
         if required_columns:
             lines.extend([
                 "",

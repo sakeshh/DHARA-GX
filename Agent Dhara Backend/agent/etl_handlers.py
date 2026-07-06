@@ -1301,6 +1301,9 @@ def etl_generate_code(
     code = ""
     generated_by = "template" if mode == "template" else "llm"
 
+    uncovered = plan.get("coverage", {}).get("uncovered_items", [])
+    fix_hints = [f"[{u['dataset']}] {u['column']}: {u['issue_type']} uncovered" for u in uncovered] if uncovered else None
+
     try:
         if mode == "template":
             code, ok, errs = _template_fallback(eng, plan, assess, sql_dialect=sd)
@@ -1313,7 +1316,7 @@ def etl_generate_code(
                 sql_dialect=sd,
                 output_mode=output_mode,
                 output_path=output_path,
-                inject_errors=None,
+                inject_errors=fix_hints,
             )
         else:
             code, ok, errs, generated_by = _generate_for_engine(
@@ -1323,7 +1326,7 @@ def etl_generate_code(
                 sql_dialect=sd,
                 output_mode=output_mode,
                 output_path=output_path,
-                inject_errors=None,
+                inject_errors=fix_hints,
             )
             if not ok and not is_llm_generation_error(code):
                 logger.info(

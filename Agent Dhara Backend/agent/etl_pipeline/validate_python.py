@@ -65,6 +65,7 @@ _ACTION_CODE_MARKERS: Dict[str, List[str]] = {
     "nullify_future_dates": ["Timestamp.now", "nullify_future_dates"],
     "noop": ["no transform", "noop"],
     "at_least_one": ["isna().all(axis=1)", "at_least_one"],
+    "cast_type": ["cast(", "astype(", ".astype", "astype"],
 }
 
 
