@@ -13,6 +13,9 @@ import hashlib
 import concurrent.futures
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import threading
+
+_ORCHESTRATOR_LOCK = threading.Lock()
 
 from agent.etl_pipeline.validate_sql import validate_sql_basic
 from agent.sql_preflight import run_sql_preflight
@@ -151,11 +154,73 @@ def orchestrate_sql_execution(
     assessment: dict | None = None,
     timeout_s: int = 120,
 ) -> dict:
+    with _ORCHESTRATOR_LOCK:
+        return _orchestrate_sql_execution_impl(
+            sql,
+            session_id=session_id,
+            run_id=run_id,
+            approved=approved,
+            dry_run=dry_run,
+            connection_string=connection_string,
+            pre_execution_counts=pre_execution_counts,
+            assessment=assessment,
+            timeout_s=timeout_s,
+        )
+
+
+def _orchestrate_sql_execution_impl(
+    sql: str,
+    *,
+    session_id: str,
+    run_id: str | None = None,
+    approved: bool = False,
+    dry_run: bool = False,
+    connection_string: str | None = None,
+    pre_execution_counts: dict | None = None,
+    assessment: dict | None = None,
+    timeout_s: int = 120,
+) -> dict:
     """
     Coordinate SQL generation output -> approval gate -> execution -> reconciliation.
     """
     rid = run_id or str(uuid.uuid4())
     now_str = datetime.now(timezone.utc).isoformat()
+
+    # Check data quality gate (B2)
+    rules = {}
+    try:
+        from agent.session_store import load_session
+        sess = load_session(session_id)
+        if sess:
+            flow = sess.get("context", {}).get("etl_flow", {}) or {}
+            plan = flow.get("approved_plan") or flow.get("plan") or {}
+            rules = plan.get("business_rules") or {}
+    except Exception:
+        pass
+
+    if assessment:
+        from agent.etl_pipeline.dq_gate import evaluate_dq_gate
+        gate = evaluate_dq_gate(assessment, rules)
+        if gate.get("blocking_issues"):
+            return {
+                "ok": False,
+                "stage": "dq_gate",
+                "error": "DQ gate blocked",
+                "details": gate["blocking_issues"],
+                "run_id": rid,
+                "session_id": session_id,
+                "approved": approved,
+                "dry_run": dry_run,
+                "timestamp_utc": now_str,
+                "post_execution_summary": {
+                    "transaction_committed": False,
+                    "total_rows_affected": 0,
+                    "total_duration_ms": 0.0,
+                    "batch_count": 0,
+                    "row_deltas": {},
+                    "rollback_reason": "DQ gate blocked",
+                },
+            }
 
     # 3.3 Idempotency Cache Guard
     idempotency_key = hashlib.sha256(f"{sql}_{dry_run}".encode("utf-8")).hexdigest()

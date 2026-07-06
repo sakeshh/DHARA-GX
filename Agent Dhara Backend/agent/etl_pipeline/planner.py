@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 import time
+import threading
 from typing import Any, Dict, List, Optional, Tuple
+
+_PLANNER_LOCK = threading.Lock()
 
 from agent.transformation_suggester import suggest_transformations
 from agent.etl_pipeline.business_rules import normalize_business_rules, column_is_excluded
@@ -916,55 +919,7 @@ class PlanBuilder:
         for i, st in enumerate(global_steps, start=1):
             st["order"] = i
 
-        # Baseline column sweep for planner (Gap 1)
-        engine_val = str(engine or "python").lower()
-        if "sql" in engine_val or "tsql" in engine_val or "ansi" in engine_val or "adf" in engine_val:
-            for ds_name in datasets_known:
-                ds_meta = assessment.get("datasets", {}).get(ds_name) or {}
-                cols = ds_meta.get("columns") or {}
-                steps = datasets_out.setdefault(ds_name, [])
-                stepped_cols = {st.get("column") for st in steps if st.get("column")}
-                local_exclude = set(rules.get("exclude_columns") or [])
-                
-                for col_name, col_meta in cols.items():
-                    if col_name in stepped_cols or col_name in local_exclude:
-                        continue
-                        
-                    col_stats = _col_stats_for_step(assessment, ds_name, col_name)
-                    
-                    # Baseline trim
-                    ev_trim = {"why_this_action": "Baseline string trim for clean completeness mandate", "confidence": 1.0}
-                    params_trim = build_step_params("trim", column=col_name, col_stats=col_stats, evidence=ev_trim, rules=rules)
-                    steps.append({
-                        "dataset": ds_name,
-                        "column": col_name,
-                        "action": "trim",
-                        "source_issue_type": "baseline_trim",
-                        "severity": "low",
-                        "estimated_affected_rows": 0,
-                        "priority": _ACTION_PRIORITY.get("trim", 5),
-                        "note": "Baseline string trim",
-                        "params": params_trim,
-                        "evidence": ev_trim,
-                        "message": "Baseline string trim for data completeness",
-                    })
-                    
-                    # Baseline cast_type
-                    ev_cast = {"why_this_action": "Baseline type coercion for clean completeness mandate", "confidence": 1.0}
-                    params_cast = build_step_params("cast_type", column=col_name, col_stats=col_stats, evidence=ev_cast, rules=rules)
-                    steps.append({
-                        "dataset": ds_name,
-                        "column": col_name,
-                        "action": "cast_type",
-                        "source_issue_type": "baseline_cast",
-                        "severity": "low",
-                        "estimated_affected_rows": 0,
-                        "priority": _ACTION_PRIORITY.get("cast_type", 35),
-                        "note": "Baseline type coercion",
-                        "params": params_cast,
-                        "evidence": ev_cast,
-                        "message": "Baseline type coercion for data completeness",
-                    })
+
 
         for ds_name, steps in datasets_out.items():
             steps.sort(key=lambda x: (x["priority"], str(x.get("column") or "")))
@@ -1108,6 +1063,39 @@ class PlanBuilder:
             except Exception as e:
                 self.build_warnings.append(f"auto_resolve_pending failed: {e}")
 
+        # Baseline steps for zero-issue columns (B1)
+        for ds_name, ds_block in plan.get("datasets", {}).items():
+            existing_cols = {s.get("column") for s in (ds_block.get("steps") or []) if s.get("column")}
+            cols_info = _dataset_columns(assessment, ds_name)
+            for col_name, col_meta in cols_info.items():
+                if col_name in existing_cols:
+                    continue
+                dtype = str(col_meta.get("dtype") or "").lower()
+                steps_list = ds_block.setdefault("steps", [])
+                
+                if any(x in dtype for x in ("varchar","nvarchar","char","text","string")):
+                    max_order = max((s.get("order", 0) for s in steps_list), default=0)
+                    steps_list.append({
+                        "column": col_name,
+                        "action": "trim",
+                        "auto_fixable": True,
+                        "params": {},
+                        "evidence": {},
+                        "order": max_order + 1,
+                        "priority": 5,
+                    })
+                
+                max_order = max((s.get("order", 0) for s in steps_list), default=0)
+                steps_list.append({
+                    "column": col_name,
+                    "action": "cast_type",
+                    "auto_fixable": True,
+                    "params": {},
+                    "evidence": {},
+                    "order": max_order + 1,
+                    "priority": 35,
+                })
+
         return plan
 
 
@@ -1124,15 +1112,16 @@ def build_etl_plan(
     """
     Build versioned ETL plan JSON from assessment + normalized business rules.
     """
-    builder = PlanBuilder(
-        assessment, business_rules_raw,
-        engine=engine,
-        source_context=source_context,
-        generation_mode=generation_mode,
-        dq_recommendations=dq_recommendations,
-        semantic_context=semantic_context
-    )
-    return builder.build()
+    with _PLANNER_LOCK:
+        builder = PlanBuilder(
+            assessment, business_rules_raw,
+            engine=engine,
+            source_context=source_context,
+            generation_mode=generation_mode,
+            dq_recommendations=dq_recommendations,
+            semantic_context=semantic_context
+        )
+        return builder.build()
 
 
 def get_unacknowledged_blockers(plan: Dict[str, Any]) -> List[Dict[str, Any]]:

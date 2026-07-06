@@ -1074,6 +1074,33 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 step_lines.append(f"DELETE FROM {tbl_staging} WHERE [{pk_col}] IS NULL;")
                 step_lines.append(f"")
 
+            # Manual review quarantines (B3)
+            if is_clean and dialect == "tsql":
+                for mr in plan.get("manual_review") or []:
+                    if mr.get("dataset") == ds_name:
+                        col = mr.get("column")
+                        if col and col in cols:
+                            it = str(mr.get("issue_type") or "").lower()
+                            where_cond = f"r.[{col}] IS NULL"
+                            if "email" in it:
+                                where_cond = f"r.[{col}] NOT LIKE '%@%'"
+                            elif "numeric" in it or "number" in it or "type" in it:
+                                where_cond = f"TRY_CAST(r.[{col}] AS float) IS NULL AND r.[{col}] IS NOT NULL"
+                            elif "phone" in it:
+                                where_cond = f"LEN(r.[{col}]) < 7 AND r.[{col}] IS NOT NULL"
+                            
+                            step_lines.append(f"-- Manual review quarantine for column [{col}] due to {mr.get('issue_type')}")
+                            step_lines.append(f"INSERT INTO dbo.etl_rejects (process_name, table_name, row_data, error_reason)")
+                            step_lines.append(f"SELECT '{sp_name}', '{tbl_clean}',")
+                            step_lines.append(f"       (SELECT r.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),")
+                            step_lines.append(f"       'manual_review_required: [{col}] - {mr.get('message')}'")
+                            step_lines.append(f"FROM {tbl_staging} r")
+                            step_lines.append(f"WHERE {where_cond};")
+                            step_lines.append("")
+                            if not never_drop:
+                                step_lines.append(f"DELETE FROM {tbl_staging} WHERE {where_cond};")
+                                step_lines.append("")
+
             # Reject non-numeric IDs and decimals/floats
             if dialect == "tsql":
                 for c_name in cols:

@@ -9,7 +9,10 @@ import json
 import os
 import re
 import time
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
+
+_CODEGEN_LOCK = threading.Lock()
 
 try:
     from openai import AzureOpenAI, OpenAI, RateLimitError, APITimeoutError
@@ -1157,6 +1160,30 @@ def _trim_payload_for_codegen(payload: dict, engine_key: str) -> dict:
 
 
 def generate_etl_with_llm(
+    plan: Dict[str, Any],
+    assessment: Dict[str, Any],
+    engine: str = "python",
+    *,
+    sql_dialect: str = "tsql",
+    output_mode: str = "dataframe_only",
+    output_path: Optional[str] = None,
+    validation_errors: Optional[List[str]] = None,
+    validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
+) -> str:
+    with _CODEGEN_LOCK:
+        return _generate_etl_with_llm_impl(
+            plan,
+            assessment,
+            engine,
+            sql_dialect=sql_dialect,
+            output_mode=output_mode,
+            output_path=output_path,
+            validation_errors=validation_errors,
+            validate_fn=validate_fn,
+        )
+
+
+def _generate_etl_with_llm_impl(
     plan: Dict[str, Any],
     assessment: Dict[str, Any],
     engine: str = "python",

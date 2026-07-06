@@ -140,6 +140,19 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
             f"# Nullify dummy dates (e.g. 1900-01-01)",
             f"{df} = {df}.withColumn({c}, F.when(F.to_date(F.col({c})).eqNullSafe(F.lit('1900-01-01')) | (F.month(F.to_date(F.col({c}))) == 1) & (F.dayofmonth(F.to_date(F.col({c}))) == 1), F.lit(None)).otherwise(F.col({c})))"
         ]
+    if act == "range_clip":
+        lo = params.get("min_value") or params.get("lower_bound") or 0
+        hi = params.get("max_value") or params.get("upper_bound")
+        if hi is not None:
+            cond_str = f"(F.col({c}) < {lo}) | (F.col({c}) > {hi})"
+        else:
+            cond_str = f"F.col({c}) < {lo}"
+        return [f"{df} = {df}.withColumn({c}, F.when({cond_str}, F.lit(None)).otherwise(F.col({c})))"]
+    if act == "regex_replace":
+        pattern = params.get("regex_pattern") or params.get("pattern") or r"[^\w\s]"
+        replacement = params.get("replacement") or ""
+        pattern_esc = pattern.replace("\\", "\\\\")
+        return [f"{df} = {df}.withColumn({c}, F.regexp_replace(F.col({c}).cast('string'), {repr(pattern_esc)}, {repr(replacement)}))"]
     if act in ("drop_column", "exclude_column"):
         return [f"{df} = {df}.drop({c})"]
     if act == "noop":
@@ -272,6 +285,14 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         lines.append(f"def {fn}(df: DataFrame, all_dfs: dict | None = None) -> DataFrame:")
         var = "out"
         lines.append(f"    {var} = df")
+
+        # Manual review warnings in code (B3)
+        for mr in plan.get("manual_review") or []:
+            if mr.get("dataset") == ds_name:
+                col = mr.get("column")
+                if col:
+                    lines.append(f"    logger.warning('Column {col} requires manual review — skipping automation')")
+
         for st in sorted(block.get("steps") or [], key=lambda x: int(x.get("order") or 0)):
             for sl in _emit_spark(str(st.get("action")), st.get("column"), var, step_meta=st):
                 lines.append(f"    {sl}")

@@ -6,77 +6,6 @@
       "data_volume_bytes": 11560,
       "sampling_info": "Full dataset has 20 rows. Statistics (nulls, min/max, uniqueness) profiled in-database on 100% of rows.",
       "columns": {
-        "Department": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 6,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "IT",
-            "HR",
-            "Finance",
-            "IT",
-            "Sales",
-            "IT",
-            "IT",
-            "IT",
-            "Marketing",
-            "Operations",
-            "HR",
-            "Finance",
-            "IT",
-            "Sales",
-            "IT",
-            "IT",
-            "Marketing",
-            "Finance",
-            "IT"
-          ],
-          "duplicate_value_count": 18,
-          "server_min": "Finance",
-          "server_max": "Sales",
-          "sql_data_type": "varchar",
-          "min": "Finance",
-          "max": "Sales",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": false,
-            "business_importance": "medium",
-            "cleaning_priority": "low",
-            "outlier_action_hint": null,
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
         "EmployeeName": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -135,11 +64,12 @@
           "min": " jane doe ",
           "max": "Vikram Patel",
           "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": false,
-            "business_importance": "high",
-            "cleaning_priority": "critical",
+            "semantic_type": "string",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
             "outlier_action_hint": null,
+            "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
@@ -148,7 +78,7 @@
             }
           }
         },
-        "Email": {
+        "HireDate": {
           "dtype": "object",
           "dtype_inference": "string",
           "type_distribution": {
@@ -175,118 +105,73 @@
           "null_percentage": 0.05,
           "null_count": 1,
           "type_confidence": 0.92,
-          "unique_count": 18,
-          "semantic_type": "email",
+          "unique_count": 17,
+          "semantic_type": "date",
           "candidate_primary_key": false,
           "raw_samples": [
-            "john.smith@company.com",
-            "JANE.DOE@company.com",
-            "mjohnson@company",
-            "sarah.connor@company.com",
-            "",
-            "priya.sharma@company.com",
-            "rahul.kumar@company.com",
-            "rahul.kumar@company.com",
-            "anita.singh@company.com",
-            "emily.davis@company.com",
-            "chris.wilson@company.com",
-            "aisha.khan@company.com",
-            "vikram.patel@company.com",
-            "neha.verma@company.com",
-            "arjun.reddy@company.com",
-            "unknown@company.com",
-            "sneha.iyer@company.com",
-            "karan.mehta@company.com",
-            "pooja.nair@company.com"
+            "2022-01-15",
+            "15/03/2021",
+            "2020/07/20",
+            "2019-11-01",
+            "01-12-2018",
+            "2023-05-10",
+            "2022-01-15",
+            "2022-01-15",
+            "2024-02-30",
+            "2017-08-18",
+            "2016-04-25",
+            "25-Apr-2020",
+            "2021-13-01",
+            "2018-09-12",
+            "2020-06-31",
+            "2022-10-05",
+            "2025-01-01",
+            "2021-07-19",
+            "2023-08-14"
           ],
-          "duplicate_value_count": 2,
-          "server_min": "",
-          "server_max": "vikram.patel@company.com",
+          "duplicate_value_count": 3,
+          "server_min": "01-12-2018",
+          "server_max": "25-Apr-2020",
           "sql_data_type": "varchar",
-          "min": "",
-          "max": "vikram.patel@company.com",
+          "min": "01-12-2018",
+          "max": "25-Apr-2020",
           "llm_hints": {
-            "semantic_type": "email",
+            "semantic_type": "date",
             "mixed_formats_suspected": true,
             "business_importance": "high",
-            "cleaning_priority": "high",
-            "outlier_action_hint": "validate email format",
-            "format_variants": [],
-            "null_pattern": {
-              "type": "MNAR",
-              "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E009",
-              "fill_strategy_hint": "flag_only"
-            }
-          }
-        },
-        "Location": {
-          "dtype": "object",
-          "dtype_inference": "string",
-          "type_distribution": {
-            "counts": {
-              "str": 19,
-              "int": 0,
-              "float": 0,
-              "bool": 0,
-              "dict": 0,
-              "list": 0,
-              "other": 0
-            },
-            "pct": {
-              "str": 1.0,
-              "int": 0.0,
-              "float": 0.0,
-              "bool": 0.0,
-              "dict": 0.0,
-              "list": 0.0,
-              "other": 0.0
-            },
-            "sample_size": 19
-          },
-          "null_percentage": 0.05,
-          "null_count": 1,
-          "type_confidence": 0.92,
-          "unique_count": 9,
-          "semantic_type": "categorical",
-          "candidate_primary_key": false,
-          "raw_samples": [
-            "Bangalore",
-            "Mumbai",
-            "Delhi",
-            "Chennai",
-            "Hyderabad",
-            "Bangalore",
-            "Bangalore",
-            "Bangalore",
-            "Pune",
-            "Kolkata",
-            "Mumbai",
-            "Delhi",
-            "Chennai",
-            "Ahmedabad",
-            " Bengaluru ",
-            "Hyderabad",
-            "Chennai",
-            "Pune",
-            "Delhi"
-          ],
-          "duplicate_value_count": 16,
-          "server_min": " Bengaluru ",
-          "server_max": "Pune",
-          "sql_data_type": "varchar",
-          "min": " Bengaluru ",
-          "max": "Pune",
-          "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": false,
-            "business_importance": "medium",
-            "cleaning_priority": "low",
+            "cleaning_priority": "critical",
             "outlier_action_hint": null,
+            "format_variants": [
+              {
+                "format": "YYYY-MM-DD",
+                "count": 15,
+                "pct": 0.7895
+              },
+              {
+                "format": "DD/MM/YYYY",
+                "count": 1,
+                "pct": 0.0526
+              },
+              {
+                "format": "MM-DD-YYYY",
+                "count": 1,
+                "pct": 0.0526
+              },
+              {
+                "format": "YYYY/MM/DD",
+                "count": 1,
+                "pct": 0.0526
+              },
+              {
+                "format": "DD-Mon-YYYY",
+                "count": 1,
+                "pct": 0.0526
+              }
+            ],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E019",
+              "concentrated_in_value": "E018",
               "fill_strategy_hint": "flag_only"
             }
           }
@@ -357,6 +242,77 @@
             "outlier_action_hint": null
           }
         },
+        "Email": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 18,
+          "semantic_type": "email",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "john.smith@company.com",
+            "JANE.DOE@company.com",
+            "mjohnson@company",
+            "sarah.connor@company.com",
+            "",
+            "priya.sharma@company.com",
+            "rahul.kumar@company.com",
+            "rahul.kumar@company.com",
+            "anita.singh@company.com",
+            "emily.davis@company.com",
+            "chris.wilson@company.com",
+            "aisha.khan@company.com",
+            "vikram.patel@company.com",
+            "neha.verma@company.com",
+            "arjun.reddy@company.com",
+            "unknown@company.com",
+            "sneha.iyer@company.com",
+            "karan.mehta@company.com",
+            "pooja.nair@company.com"
+          ],
+          "duplicate_value_count": 2,
+          "server_min": "",
+          "server_max": "vikram.patel@company.com",
+          "sql_data_type": "varchar",
+          "min": "",
+          "max": "vikram.patel@company.com",
+          "llm_hints": {
+            "semantic_type": "string",
+            "mixed_formats_suspected": false,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "E009",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
         "JobTitle": {
           "dtype": "object",
           "dtype_inference": "string",
@@ -415,11 +371,12 @@
           "min": "Accountant",
           "max": "Specialist",
           "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": false,
+            "semantic_type": "string",
+            "mixed_formats_suspected": true,
             "business_importance": "medium",
-            "cleaning_priority": "low",
+            "cleaning_priority": "medium",
             "outlier_action_hint": null,
+            "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
@@ -428,7 +385,7 @@
             }
           }
         },
-        "HireDate": {
+        "Location": {
           "dtype": "object",
           "dtype_inference": "string",
           "type_distribution": {
@@ -455,73 +412,47 @@
           "null_percentage": 0.05,
           "null_count": 1,
           "type_confidence": 0.92,
-          "unique_count": 17,
-          "semantic_type": "date",
+          "unique_count": 9,
+          "semantic_type": "categorical",
           "candidate_primary_key": false,
           "raw_samples": [
-            "2022-01-15",
-            "15/03/2021",
-            "2020/07/20",
-            "2019-11-01",
-            "01-12-2018",
-            "2023-05-10",
-            "2022-01-15",
-            "2022-01-15",
-            "2024-02-30",
-            "2017-08-18",
-            "2016-04-25",
-            "25-Apr-2020",
-            "2021-13-01",
-            "2018-09-12",
-            "2020-06-31",
-            "2022-10-05",
-            "2025-01-01",
-            "2021-07-19",
-            "2023-08-14"
+            "Bangalore",
+            "Mumbai",
+            "Delhi",
+            "Chennai",
+            "Hyderabad",
+            "Bangalore",
+            "Bangalore",
+            "Bangalore",
+            "Pune",
+            "Kolkata",
+            "Mumbai",
+            "Delhi",
+            "Chennai",
+            "Ahmedabad",
+            " Bengaluru ",
+            "Hyderabad",
+            "Chennai",
+            "Pune",
+            "Delhi"
           ],
-          "duplicate_value_count": 3,
-          "server_min": "01-12-2018",
-          "server_max": "25-Apr-2020",
+          "duplicate_value_count": 16,
+          "server_min": " Bengaluru ",
+          "server_max": "Pune",
           "sql_data_type": "varchar",
-          "min": "01-12-2018",
-          "max": "25-Apr-2020",
+          "min": " Bengaluru ",
+          "max": "Pune",
           "llm_hints": {
-            "semantic_type": "date",
+            "semantic_type": "string",
             "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "critical",
-            "outlier_action_hint": "standardize date format",
-            "format_variants": [
-              {
-                "format": "YYYY-MM-DD",
-                "count": 15,
-                "pct": 0.7895
-              },
-              {
-                "format": "DD/MM/YYYY",
-                "count": 1,
-                "pct": 0.0526
-              },
-              {
-                "format": "MM-DD-YYYY",
-                "count": 1,
-                "pct": 0.0526
-              },
-              {
-                "format": "YYYY/MM/DD",
-                "count": 1,
-                "pct": 0.0526
-              },
-              {
-                "format": "DD-Mon-YYYY",
-                "count": 1,
-                "pct": 0.0526
-              }
-            ],
+            "business_importance": "low",
+            "cleaning_priority": "low",
+            "outlier_action_hint": null,
+            "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
-              "concentrated_in_value": "E018",
+              "concentrated_in_value": "E019",
               "fill_strategy_hint": "flag_only"
             }
           }
@@ -584,15 +515,88 @@
           "min": "Active",
           "max": "Resigned",
           "llm_hints": {
-            "semantic_type": "text",
-            "mixed_formats_suspected": false,
+            "semantic_type": "string",
+            "mixed_formats_suspected": true,
             "business_importance": "medium",
-            "cleaning_priority": "low",
+            "cleaning_priority": "medium",
             "outlier_action_hint": null,
+            "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
               "concentrated_in_col": "EmployeeID",
               "concentrated_in_value": "E010",
+              "fill_strategy_hint": "flag_only"
+            }
+          }
+        },
+        "Department": {
+          "dtype": "object",
+          "dtype_inference": "string",
+          "type_distribution": {
+            "counts": {
+              "str": 19,
+              "int": 0,
+              "float": 0,
+              "bool": 0,
+              "dict": 0,
+              "list": 0,
+              "other": 0
+            },
+            "pct": {
+              "str": 1.0,
+              "int": 0.0,
+              "float": 0.0,
+              "bool": 0.0,
+              "dict": 0.0,
+              "list": 0.0,
+              "other": 0.0
+            },
+            "sample_size": 19
+          },
+          "null_percentage": 0.05,
+          "null_count": 1,
+          "type_confidence": 0.92,
+          "unique_count": 6,
+          "semantic_type": "categorical",
+          "candidate_primary_key": false,
+          "raw_samples": [
+            "IT",
+            "HR",
+            "Finance",
+            "IT",
+            "Sales",
+            "IT",
+            "IT",
+            "IT",
+            "Marketing",
+            "Operations",
+            "HR",
+            "Finance",
+            "IT",
+            "Sales",
+            "IT",
+            "IT",
+            "Marketing",
+            "Finance",
+            "IT"
+          ],
+          "duplicate_value_count": 18,
+          "server_min": "Finance",
+          "server_max": "Sales",
+          "sql_data_type": "varchar",
+          "min": "Finance",
+          "max": "Sales",
+          "llm_hints": {
+            "semantic_type": "string",
+            "mixed_formats_suspected": true,
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
+            "format_variants": [],
+            "null_pattern": {
+              "type": "MNAR",
+              "concentrated_in_col": "EmployeeID",
+              "concentrated_in_value": "",
               "fill_strategy_hint": "flag_only"
             }
           }
@@ -660,11 +664,11 @@
           "min": "0000000000",
           "max": "N/A",
           "llm_hints": {
-            "semantic_type": "phone",
+            "semantic_type": "string",
             "mixed_formats_suspected": true,
-            "business_importance": "medium",
-            "cleaning_priority": "medium",
-            "outlier_action_hint": "validate phone format",
+            "business_importance": "low",
+            "cleaning_priority": "low",
+            "outlier_action_hint": null,
             "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
@@ -732,11 +736,11 @@
           "min": "-45000.00",
           "max": "120000.00",
           "llm_hints": {
-            "semantic_type": "currency",
+            "semantic_type": "string",
             "mixed_formats_suspected": true,
-            "business_importance": "high",
-            "cleaning_priority": "high",
-            "outlier_action_hint": "check for valid salary values",
+            "business_importance": "medium",
+            "cleaning_priority": "medium",
+            "outlier_action_hint": null,
             "format_variants": [],
             "null_pattern": {
               "type": "MNAR",
@@ -748,15 +752,15 @@
         }
       },
       "priority_columns": [
+        "EmployeeName",
+        "Email",
+        "Salary",
         "HireDate",
+        "EmployeeID",
+        "JobTitle",
+        "Location",
         "Status",
         "Department",
-        "Email",
-        "EmployeeName",
-        "Location",
-        "Salary",
-        "JobTitle",
-        "EmployeeID",
         "Phone"
       ],
       "ydata_profile": {
@@ -2395,6 +2399,6 @@
     }
   },
   "run_metadata": {
-    "generated_at": "2026-07-06T08:39:10.693273+00:00"
+    "generated_at": "2026-07-06T09:40:58.880076+00:00"
   }
 }
