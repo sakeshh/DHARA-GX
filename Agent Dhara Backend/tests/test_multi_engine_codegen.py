@@ -61,7 +61,7 @@ class TestMultiEngineCodegen(unittest.TestCase):
 
     def test_sql_tsql_codegen_valid(self):
         code = generate_sql_etl(self.plan, self.assess, dialect="tsql")
-        ok, errs = validate_sql_basic(code)
+        ok, errs, _ = validate_sql_basic(code)
         self.assertTrue(ok, errs)
         self.assertIn("BEGIN TRY", code)
         self.assertIn("END CATCH", code)

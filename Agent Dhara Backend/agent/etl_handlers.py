@@ -1065,8 +1065,10 @@ def _generate_for_engine(
         )
         if is_llm_generation_error(code):
             return code, False, [code], generated_by
-        ok, errs = validate_sql_basic(code)
-        return code, ok, errs, generated_by
+        ok, hard_errors, warnings = validate_sql_basic(code)
+        if warnings:
+            logger.warning(f"[SQL Advisory] {warnings}")
+        return code, ok, hard_errors, generated_by
 
     if eng in ("spark", "pyspark"):
         code = generate_etl_with_llm(
@@ -1124,7 +1126,10 @@ def _template_fallback(
 
         dialect = "ansi" if eng == "ansi" else (sql_dialect or "tsql")
         code = generate_sql_etl(plan, assess, dialect=dialect)
-        return code, *validate_sql_basic(code)
+        ok, hard_errors, warnings = validate_sql_basic(code)
+        if warnings:
+            logger.warning(f"[SQL Advisory] {warnings}")
+        return code, ok, hard_errors
 
     if eng in ("spark", "pyspark"):
         from agent.etl_pipeline.pyspark_codegen import generate_pyspark_etl

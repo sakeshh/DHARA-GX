@@ -52,27 +52,27 @@ df = pd.DataFrame()
 
 
 def test_sql_valid_passes():
-    ok, errs = validate_sql_basic("SELECT id, name FROM customers WHERE id IS NOT NULL")
+    ok, errs, _ = validate_sql_basic("SELECT id, name FROM customers WHERE id IS NOT NULL")
     assert ok
 
 
 def test_sql_drop_table_blocked():
-    ok, errs = validate_sql_basic("DROP TABLE customers")
+    ok, errs, _ = validate_sql_basic("DROP TABLE customers")
     assert not ok
 
 
 def test_sql_drop_in_comment_allowed():
-    ok, errs = validate_sql_basic("-- DROP TABLE customers (disabled)\nSELECT 1")
+    ok, errs, _ = validate_sql_basic("-- DROP TABLE customers (disabled)\nSELECT 1")
     assert ok
 
 
 def test_sql_truncate_blocked():
-    ok, errs = validate_sql_basic("TRUNCATE TABLE orders")
+    ok, errs, _ = validate_sql_basic("TRUNCATE TABLE orders")
     assert not ok
 
 
 def test_sql_empty():
-    ok, errs = validate_sql_basic("")
+    ok, errs, _ = validate_sql_basic("")
     assert not ok
 
 

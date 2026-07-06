@@ -88,7 +88,7 @@ def test_orchestrate_sql_execution_post_validation(
     mock_execute_plan
 ):
     # Mock validation and approval gates
-    mock_validate_sql.return_value = (True, [])
+    mock_validate_sql.return_value = (True, [], [])
     mock_requires_approval.return_value = {"requires_approval": False, "ops_found": []}
     
     # Mock execution result

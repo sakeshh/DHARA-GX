@@ -207,9 +207,48 @@ def validate_sql_basic_dict(source: str) -> dict:
     }
 
 
-def validate_sql_basic(source: str) -> Tuple[bool, List[str]]:
+def validate_sql_basic(source: str) -> Tuple[bool, List[str], List[str]]:
+    """
+    Returns: (hard_pass, hard_errors, advisory_warnings)
+    hard_pass=False only for security/correctness violations.
+    advisory_warnings are style/quality issues — log but don't block.
+    """
+    # 1. Run the existing comprehensive validation
     result = validate_sql_basic_dict(source)
-    return result["valid"], result["issues"]
+    hard_pass = result["valid"]
+    hard_errors = list(result["issues"])
+    advisory_warnings = list(result["warnings"])
+
+    # 2. Integrate the specific patterns from the audit plan to align perfectly
+    # Strip comments first to avoid false positives (e.g. drop table in comment block)
+    cleaned = re.sub(r"--.*$", "", source, flags=re.MULTILINE)
+    cleaned = re.sub(r"/\*.*?\*/", "", cleaned, flags=re.DOTALL)
+
+    # --- HARD FAILURES (always block) ---
+    SECURITY_PATTERNS = [
+        (r"xp_cmdshell", "Forbidden: xp_cmdshell"),
+        (r"BULK\s+INSERT", "Forbidden: BULK INSERT"),
+        (r"OPENROWSET", "Forbidden: OPENROWSET"),
+        (r"DROP\s+TABLE\s+(?!\s*#|\s*dbo\.etl_)", "Dangerous DROP TABLE on non-temp/non-etl table"),
+        (r"DELETE\s+FROM\s+\w+_Raw", "Forbidden: DELETE on Raw table"),
+    ]
+    for pattern, msg in SECURITY_PATTERNS:
+        if re.search(pattern, cleaned, re.IGNORECASE):
+            if not any(msg in e for e in hard_errors):
+                hard_errors.append(msg)
+                hard_pass = False
+
+    # --- ADVISORY (warn, never block) ---
+    ADVISORY_PATTERNS = [
+        (r"SELECT\s+DISTINCT\s+\*", "Advisory: SELECT DISTINCT * is expensive, prefer key-based ROW_NUMBER dedup"),
+        (r"etl_created_at.*ORDER\s+BY", "Advisory: Avoid etl_created_at in ROW_NUMBER ordering"),
+    ]
+    for pattern, msg in ADVISORY_PATTERNS:
+        if re.search(pattern, cleaned, re.IGNORECASE):
+            if not any(msg in w for w in advisory_warnings):
+                advisory_warnings.append(msg)
+
+    return hard_pass, hard_errors, advisory_warnings
 
 
 def validate_for_execution(sql: str) -> dict:
