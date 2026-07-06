@@ -1436,6 +1436,7 @@ def etl_generate_code(
     }
 
 
+@with_session_lock
 def etl_get_lineage(session_id: str) -> Dict[str, Any]:
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)

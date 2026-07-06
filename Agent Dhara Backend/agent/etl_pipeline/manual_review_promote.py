@@ -203,10 +203,78 @@ def apply_manual_resolutions(
         plan = promote_non_fixable_resolutions(plan, nf_resolutions)
         datasets = plan.get("datasets") or {}
 
+    # ── AUTO-RESOLVE: safe defaults for any items the user did not act on ──
+    import logging as _logging
+    _auto_logger = _logging.getLogger("agent.etl_pipeline.manual_review_promote")
+    DEFAULT_AUTO_RESOLUTION = {
+        "null_heavy":                    "fill_nulls_simple",
+        "high_cardinality_possible_key": "deduplicate",
+        "type_mismatch":                 "cast_type",
+        "invalid_email":                 "sanitize_email",
+        "invalid_phone":                 "normalize_phone",
+        "outlier_detected":              "flag_outliers",
+        "future_date":                   "nullify_future_dates",
+        "zero_as_null":                  "zero_to_null",
+    }
+
+    for item in manual:
+        if str(item.get("status") or "pending") != "pending":
+            continue
+        issue_type = str(item.get("issue_type") or "")
+        default_action = DEFAULT_AUTO_RESOLUTION.get(issue_type)
+        if not default_action:
+            _auto_logger.warning(
+                f"[ManualReview] No auto-default for issue_type={issue_type!r} "
+                f"on {item.get('dataset')}.{item.get('column')} — item left pending"
+            )
+            continue
+        ds = str(item.get("dataset") or "").strip()
+        if not ds or ds == "_global":
+            continue
+        block = datasets.setdefault(ds, {"steps": []})
+        steps = list(block.get("steps") or [])
+        pri = _ACTION_PRIORITY.get(default_action, 80)
+        res_bucket = classify_step_bucket(
+            default_action,
+            severity=str(item.get("severity") or "medium"),
+            never_drop_rows=never_drop,
+        )
+        steps.append({
+            "order": len(steps) + 1,
+            "column": item.get("column"),
+            "action": default_action,
+            "bucket": res_bucket["bucket"],
+            "phase": res_bucket["phase"],
+            "priority": pri,
+            "note": f"Auto-resolved (user did not act): default={default_action}",
+            "evidence": {
+                "why_this_action": "System default — user did not provide resolution",
+                "confidence": 0.70,
+                "rule_override": False,
+                "auto_resolved": True,
+            },
+            "severity": item.get("severity") or "medium",
+            "source_issue_type": issue_type,
+        })
+        steps.sort(
+            key=lambda s: (_ACTION_PRIORITY.get(str(s.get("action") or ""), 80),
+                           str(s.get("column") or ""))
+        )
+        for i, st in enumerate(steps, 1):
+            st["order"] = i
+        block["steps"] = steps
+        datasets[ds] = block
+        item["status"] = "auto_resolved"
+        item["selected_resolution"] = default_action
+        item["resolved_action"] = default_action
+        resolved_log.append({**item, "promoted": True, "auto_resolved": True})
+
+    plan["datasets"] = datasets   # ← update datasets dict before pending_only filter
+
     pending_only = [
         enrich_manual_review_item(m)
         for m in manual
-        if str(m.get("status") or "pending") == "pending"
+        if str(m.get("status") or "pending") not in ("resolved", "skipped", "auto_resolved")
     ]
     plan["manual_review"] = pending_only
     

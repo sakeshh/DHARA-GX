@@ -89,6 +89,17 @@ UNIVERSAL RULES (mandatory):
 5. Add clear comments for manual_review items from the plan.
 6. Production quality: logging.getLogger("agent_dhara"), guards for required columns, no placeholder TODOs for listed actions.
 7. Output ONLY the artifact — no markdown fences, no prose before/after.
+8. DATA COMPLETENESS MANDATE: For EVERY column in the plan, at minimum apply:
+   - Whitespace trim (strings)
+   - Type coercion to target_dtype
+   - Null fill/flag per fill_strategy
+   If a column has issues in the assessment but no explicit step was planned, ADD the
+   most appropriate step from the supported actions list — DO NOT leave the column untouched.
+9. NEVER emit placeholder comments like "# TODO: handle nulls" or "# Add cleaning here".
+   Every step must be executable, production code.
+10. BOOLEAN columns: ALWAYS standardize to 0/1 (int). Map: yes/true/1/y -> 1; no/false/0/n -> 0.
+11. CATEGORY/ENUM columns: if valid_values is provided in business_rules, enforce it — 
+    map unknowns to NULL or a 'Other' category, never leave invalid values in clean output.
 """
 
 SYSTEM_PROMPTS: Dict[str, str] = {
@@ -295,12 +306,20 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 def _safe_max_tokens(prompt_text: str, engine_key: str) -> int:
-    context_window = 128000  # GPT-4o window
-    system_overhead = 6000 if engine_key == "sql-tsql" else 4500  # SQL prompt is very large
+    context_window = 128000
+    # Measured: sql-tsql system prompt ≈ 7500 tokens; python ≈ 4500; pyspark ≈ 5000
+    overhead_map = {
+        "sql-tsql": 8000,
+        "sql-ansi": 8000,
+        "python":   5000,
+        "pyspark":  5500,
+        "adf":      3500,
+    }
+    system_overhead = overhead_map.get(engine_key, 5000)
     input_tokens = _estimate_tokens(prompt_text)
     available = context_window - input_tokens - system_overhead
     cap = 16000 if engine_key != "adf" else 6000
-    return max(1500, min(cap, available))
+    return max(2000, min(cap, available))   # ← raise floor from 1500 to 2000
 
 
 def _classify_column(
@@ -1120,6 +1139,19 @@ def _trim_payload_for_codegen(payload: dict, engine_key: str) -> dict:
     if len(p.get("manual_review") or []) > 20:
         p["manual_review"] = p["manual_review"][:20]
 
+    # Step 4: If still too large, keep only steps + business_rules per dataset
+    # (drop all column-level metadata — LLM uses step params, not column descriptions)
+    if _estimate_tokens(json.dumps(p)) > TARGET:
+        for ds_name, ds_data in (p.get("datasets") or {}).items():
+            if isinstance(ds_data, dict):
+                ds_data.pop("column_descriptions", None)
+                ds_data.pop("semantic_tags", None)
+                ds_data.pop("quality_summary", None)
+                
+    # Also trim source_metadata completely if still over limit
+    if _estimate_tokens(json.dumps(p)) > TARGET:
+        p.pop("source_metadata", None)
+
     return p
 
 
@@ -1199,9 +1231,17 @@ def generate_etl_with_llm(
             import inspect
             sig = inspect.signature(validator)
             if "never_drop_rows" in sig.parameters:
-                ok, errs = validator(code, never_drop_rows=never_drop_rows)
+                res = validator(code, never_drop_rows=never_drop_rows)
             else:
-                ok, errs = validator(code)
+                res = validator(code)
+            
+            if len(res) == 3:
+                ok, errs, warnings = res
+                if warnings:
+                    logger.warning(f"[Validation Advisory] {warnings}")
+            else:
+                ok, errs = res
+
             if ok:
                 _CODE_CACHE[cache_key] = (code, time.time())
                 return code
@@ -1218,9 +1258,17 @@ def generate_etl_with_llm(
                 import inspect
                 sig = inspect.signature(validate_fn)
                 if "never_drop_rows" in sig.parameters:
-                    ok, errs = validate_fn(code, never_drop_rows=never_drop_rows)
+                    res = validate_fn(code, never_drop_rows=never_drop_rows)
                 else:
-                    ok, errs = validate_fn(code)
+                    res = validate_fn(code)
+                
+                if len(res) == 3:
+                    ok, errs, warnings = res
+                    if warnings:
+                        logger.warning(f"[Validation Advisory] {warnings}")
+                else:
+                    ok, errs = res
+
                 if ok:
                     _CODE_CACHE[cache_key] = (code, time.time())
                     return code

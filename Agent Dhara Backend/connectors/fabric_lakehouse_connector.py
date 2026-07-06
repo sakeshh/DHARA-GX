@@ -50,22 +50,18 @@ def is_fabric_mirror_enabled() -> bool:
 def get_fabric_storage_options() -> Dict[str, str]:
     """
     Build the storage options dictionary for delta-rs.
-    If FABRIC_AUTH_MODE is set to 'service_principal', execute SP auth only.
-    Otherwise, fall back to DefaultAzureCredential.
+    If FABRIC_SERVICE_PRINCIPAL_ID (or FABRIC_CLIENT_ID) is set, use service principal only.
+    Otherwise, fall back to DefaultAzureCredential. Do not mix them.
     """
     tenant_id = _clean_env_value(os.getenv("FABRIC_TENANT_ID"))
-    client_id = _clean_env_value(os.getenv("FABRIC_CLIENT_ID"))
+    client_id = _clean_env_value(os.getenv("FABRIC_SERVICE_PRINCIPAL_ID") or os.getenv("FABRIC_CLIENT_ID"))
     client_secret = _clean_env_value(os.getenv("FABRIC_CLIENT_SECRET"))
-    default_auth_mode = "service_principal" if (client_id and client_secret) else "default"
-    auth_mode = str(os.getenv("FABRIC_AUTH_MODE") or default_auth_mode).strip().lower()
 
     options = {
         "use_fabric_endpoint": "true"
     }
 
-    if auth_mode == "service_principal":
-        if not (client_id and client_secret):
-            raise ValueError("FABRIC_AUTH_MODE is set to service_principal, but FABRIC_CLIENT_ID/SECRET is not configured.")
+    if client_id and client_secret:
         logger.info("Using Service Principal authentication for Fabric OneLake.")
         options["client_id"] = client_id
         options["client_secret"] = client_secret

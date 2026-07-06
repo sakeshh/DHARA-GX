@@ -6,22 +6,22 @@ def test_codegen_validator():
     from agent.etl_pipeline.codegen_validator import validate_python, validate_tsql, validate_pyspark, validate_adf
     
     # Python
-    ok, errs = validate_python("def transform_data(df):\n    df = df.copy()\n    import logging\n    logger = logging.getLogger()\n    return df\n")
+    ok, errs, _ = validate_python("def transform_data(df):\n    df = df.copy()\n    import logging\n    logger = logging.getLogger()\n    return df\n")
     assert ok, f"Python validation failed: {errs}"
     
-    ok, errs = validate_python("eval('1+1')")
+    ok, errs, _ = validate_python("eval('1+1')")
     assert not ok
     assert any("eval() is forbidden" in e for e in errs)
     
     # TSQL
-    ok, errs = validate_tsql("CREATE TABLE dbo.ETL_LOG (id INT);\nCREATE TABLE dbo.ETL_REJECTS (id INT);\nBEGIN TRY\nSELECT SCOPE_IDENTITY();\nBEGIN TRANSACTION;\nCOMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\nROLLBACK;\nEND CATCH;\n")
+    ok, errs, _ = validate_tsql("CREATE TABLE dbo.ETL_LOG (id INT);\nCREATE TABLE dbo.ETL_REJECTS (id INT);\nBEGIN TRY\nSELECT SCOPE_IDENTITY();\nBEGIN TRANSACTION;\nCOMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\nROLLBACK;\nEND CATCH;\n")
     assert ok, f"TSQL validation failed: {errs}"
     
-    ok, errs = validate_tsql("CREATE TABLE IF NOT EXISTS dbo.test (id INT)")
+    ok, errs, _ = validate_tsql("CREATE TABLE IF NOT EXISTS dbo.test (id INT)")
     assert not ok
     
     # PySpark
-    ok, errs = validate_pyspark("from pyspark.sql import SparkSession\nspark = SparkSession.builder.getOrCreate()\ndef _resolve_data_path(x): return x\n")
+    ok, errs, _ = validate_pyspark("from pyspark.sql import SparkSession\nspark = SparkSession.builder.getOrCreate()\ndef _resolve_data_path(x): return x\n")
     assert ok, f"PySpark validation failed: {errs}"
 
 # 2. Test Token Trimming
