@@ -231,17 +231,19 @@ def chat_confirm_etl_plan(
 
 def chat_capture_business_rules(session_id: str, rules_text: str) -> str:
     from agent.etl_pipeline.business_rules import normalize_business_rules
+    from agent.session_store import get_session_lock
 
-    sess = load_session(session_id)
-    ctx = sess.setdefault("context", {})
-    rules = normalize_business_rules(rules_text)
-    ctx["pending_business_rules"] = rules
-    save_session(sess)
-    return (
-        "✅ Business rules captured.\n\n"
-        f"Rules: `{rules}`\n\n"
-        "Say **'build ETL plan'** to create a plan with these rules, then approve and generate."
-    )
+    with get_session_lock(session_id):
+        sess = load_session(session_id)
+        ctx = sess.setdefault("context", {})
+        rules = normalize_business_rules(rules_text)
+        ctx["pending_business_rules"] = rules
+        save_session(sess)
+        return (
+            "✅ Business rules captured.\n\n"
+            f"Rules: `{rules}`\n\n"
+            "Say **'build ETL plan'** to create a plan with these rules, then approve and generate."
+        )
 
 
 def chat_download_etl_code(session_id: str) -> str:

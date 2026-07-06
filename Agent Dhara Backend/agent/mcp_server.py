@@ -308,29 +308,30 @@ def api_etl_regen_status(job_id: str) -> Dict[str, Any]:
 
 @app.get("/etl/plan/{plan_id}/narrative", tags=["etl"])
 def api_etl_plan_narrative(plan_id: str, session_id: str = "default") -> Dict[str, Any]:
-    from agent.session_store import load_session, save_session
+    from agent.session_store import load_session, save_session, get_session_lock
     from agent.etl_pipeline.plan_narrator import narrate_plan
     
-    sess = load_session(session_id)
-    ctx = sess.setdefault("context", {})
-    flow = ctx.setdefault("etl_flow", {})
-    
-    plan = flow.get("approved_plan") or flow.get("plan")
-    if not plan or str(plan.get("plan_id")) != plan_id:
-        raise HTTPException(status_code=404, detail="Plan not found or plan_id mismatch")
+    with get_session_lock(session_id):
+        sess = load_session(session_id)
+        ctx = sess.setdefault("context", {})
+        flow = ctx.setdefault("etl_flow", {})
         
-    cache_key = f"narr_{plan_id}_{plan.get('assessment_signature')}"
-    cached = (flow.get("narration_cache") or {}).get(cache_key)
-    if isinstance(cached, dict) and cached.get("engine_explanation"):
-        return {"ok": True, "narration": cached}
+        plan = flow.get("approved_plan") or flow.get("plan")
+        if not plan or str(plan.get("plan_id")) != plan_id:
+            raise HTTPException(status_code=404, detail="Plan not found or plan_id mismatch")
+            
+        cache_key = f"narr_{plan_id}_{plan.get('assessment_signature')}"
+        cached = (flow.get("narration_cache") or {}).get(cache_key)
+        if isinstance(cached, dict) and cached.get("engine_explanation"):
+            return {"ok": True, "narration": cached}
+            
+        narr_mode = os.getenv("ETL_NARRATOR_MODE", "fallback").strip().lower()
+        use_llm_full = narr_mode in ("llm", "full") or os.getenv("ETL_NARRATOR_USE_LLM", "0").strip().lower() in ("1", "true", "yes")
         
-    narr_mode = os.getenv("ETL_NARRATOR_MODE", "fallback").strip().lower()
-    use_llm_full = narr_mode in ("llm", "full") or os.getenv("ETL_NARRATOR_USE_LLM", "0").strip().lower() in ("1", "true", "yes")
-    
-    narration = narrate_plan(plan, mode=narr_mode, use_llm=use_llm_full)
-    flow.setdefault("narration_cache", {})[cache_key] = narration
-    save_session(sess)
-    return {"ok": True, "narration": narration}
+        narration = narrate_plan(plan, mode=narr_mode, use_llm=use_llm_full)
+        flow.setdefault("narration_cache", {})[cache_key] = narration
+        save_session(sess)
+        return {"ok": True, "narration": narration}
 
 
 @app.exception_handler(Exception)
@@ -534,11 +535,12 @@ def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
     )
     
     session_id = payload.session_id or "default"
-    from agent.session_store import load_session, save_session
-    sess = load_session(session_id)
-    sess["session_state"] = "assessed"
-    sess.setdefault("context", {})["last_assessment_result"] = result
-    save_session(sess)
+    from agent.session_store import load_session, save_session, get_session_lock
+    with get_session_lock(session_id):
+        sess = load_session(session_id)
+        sess["session_state"] = "assessed"
+        sess.setdefault("context", {})["last_assessment_result"] = result
+        save_session(sess)
 
     try:
         from agent.session_store import save_pipeline_run
@@ -619,18 +621,19 @@ def api_update_session_context(payload: SessionContextPayload) -> Dict[str, Any]
     Merge arbitrary keys into a session's context.
     Used by the UI to persist uploaded report text and other user artifacts.
     """
-    from agent.session_store import load_session, save_session
+    from agent.session_store import load_session, save_session, get_session_lock
 
     sid = (payload.session_id or "default").strip() or "default"
-    sess = load_session(sid)
-    ctx = sess.setdefault("context", {})
-    if not isinstance(ctx, dict):
-        ctx = {}
-        sess["context"] = ctx
-    for k, v in (payload.context or {}).items():
-        ctx[str(k)] = v
-    save_session(sess)
-    return {"ok": True, "session_id": sid, "context_keys": list(ctx.keys())}
+    with get_session_lock(sid):
+        sess = load_session(sid)
+        ctx = sess.setdefault("context", {})
+        if not isinstance(ctx, dict):
+            ctx = {}
+            sess["context"] = ctx
+        for k, v in (payload.context or {}).items():
+            ctx[str(k)] = v
+        save_session(sess)
+        return {"ok": True, "session_id": sid, "context_keys": list(ctx.keys())}
 
 
 @app.post("/etl/infer-semantics")
@@ -802,7 +805,7 @@ def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) 
 def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload) -> Dict[str, Any]:
     """Enrich dynamic resolution options for an unmapped anomaly type in the plan using the LLM."""
     from agent.etl_pipeline.manual_review_catalog import get_dynamic_resolution_options, enrich_manual_review_item
-    from agent.session_store import load_session, save_session
+    from agent.session_store import load_session, save_session, get_session_lock
     import logging
 
     logger = logging.getLogger("agent.mcp_server")
@@ -810,20 +813,21 @@ def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload) -> Dic
     
     sid = (payload.session_id or "default").strip() or "default"
     try:
-        sess = load_session(sid)
-        if sess and "context" in sess and "etl_flow" in sess["context"]:
-            flow = sess["context"]["etl_flow"]
-            plan = flow.get("plan")
-            if plan and "manual_review" in plan:
-                updated_mr = []
-                for mr in plan["manual_review"]:
-                    if mr.get("issue_type") == payload.issue_type and mr.get("column") == payload.item.get("column") and mr.get("dataset") == payload.item.get("dataset"):
-                        mr["resolution_options"] = opts
-                        mr = enrich_manual_review_item(mr)
-                    updated_mr.append(mr)
-                plan["manual_review"] = updated_mr
-                flow["plan"] = plan
-                save_session(sess)
+        with get_session_lock(sid):
+            sess = load_session(sid)
+            if sess and "context" in sess and "etl_flow" in sess["context"]:
+                flow = sess["context"]["etl_flow"]
+                plan = flow.get("plan")
+                if plan and "manual_review" in plan:
+                    updated_mr = []
+                    for mr in plan["manual_review"]:
+                        if mr.get("issue_type") == payload.issue_type and mr.get("column") == payload.item.get("column") and mr.get("dataset") == payload.item.get("dataset"):
+                            mr["resolution_options"] = opts
+                            mr = enrich_manual_review_item(mr)
+                        updated_mr.append(mr)
+                    plan["manual_review"] = updated_mr
+                    flow["plan"] = plan
+                    save_session(sess)
     except Exception as e:
         logger.warning(f"Failed to update session plan with enriched options: {e}")
         
@@ -1147,53 +1151,54 @@ def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
 
 @app.post("/etl/update-code")
 def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
-    from agent.session_store import load_session, save_session
+    from agent.session_store import load_session, save_session, get_session_lock
     sid = (payload.session_id or "default").strip() or "default"
-    sess = load_session(sid)
-    ctx = sess.setdefault("context", {})
-    flow = ctx.setdefault("etl_flow", {})
+    with get_session_lock(sid):
+        sess = load_session(sid)
+        ctx = sess.setdefault("context", {})
+        flow = ctx.setdefault("etl_flow", {})
 
-    eng = (flow.get("target_engine") or "sql").lower()
+        eng = (flow.get("target_engine") or "sql").lower()
 
-    # Save code to specific phase
-    phase = str(payload.phase).strip().lower()
-    if phase == "phase1":
-        flow["code_cleanse"] = payload.code
-    elif phase == "phase2":
-        flow["code_transform"] = payload.code
+        # Save code to specific phase
+        phase = str(payload.phase).strip().lower()
+        if phase == "phase1":
+            flow["code_cleanse"] = payload.code
+        elif phase == "phase2":
+            flow["code_transform"] = payload.code
 
-    # Recombine
-    cleanse_code = flow.get("code_cleanse") or ""
-    transform_code = flow.get("code_transform") or ""
+        # Recombine
+        cleanse_code = flow.get("code_cleanse") or ""
+        transform_code = flow.get("code_transform") or ""
 
-    if eng in ("sql", "tsql", "ansi"):
-        if cleanse_code and transform_code:
-            combined = cleanse_code + "\nGO\n\n" + transform_code
+        if eng in ("sql", "tsql", "ansi"):
+            if cleanse_code and transform_code:
+                combined = cleanse_code + "\nGO\n\n" + transform_code
+            else:
+                combined = cleanse_code or transform_code
         else:
-            combined = cleanse_code or transform_code
-    else:
-        if cleanse_code and transform_code:
-            combined = cleanse_code + "\n\n# ============================================================\n# Phase 2: Transform\n# ============================================================\n\n" + transform_code
-        else:
-            combined = cleanse_code or transform_code
+            if cleanse_code and transform_code:
+                combined = cleanse_code + "\n\n# ============================================================\n# Phase 2: Transform\n# ============================================================\n\n" + transform_code
+            else:
+                combined = cleanse_code or transform_code
 
-    flow["code"] = combined
+        flow["code"] = combined
 
-    # Write to physical file if it exists
-    rel_path = flow.get("artifact_rel_path")
-    if rel_path:
-        try:
-            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            abs_path = os.path.join(root, rel_path)
-            if os.path.exists(abs_path):
-                with open(abs_path, "w", encoding="utf-8") as f:
-                    f.write(combined)
-        except Exception as e:
-            import logging
-            logging.getLogger("mcp_server").warning(f"Failed to write updated code to file: {e}")
+        # Write to physical file if it exists
+        rel_path = flow.get("artifact_rel_path")
+        if rel_path:
+            try:
+                root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                abs_path = os.path.join(root, rel_path)
+                if os.path.exists(abs_path):
+                    with open(abs_path, "w", encoding="utf-8") as f:
+                        f.write(combined)
+            except Exception as e:
+                import logging
+                logging.getLogger("mcp_server").warning(f"Failed to write updated code to file: {e}")
 
-    save_session(sess)
-    return {"ok": True, "session_id": sid, "message": "Code updated successfully"}
+        save_session(sess)
+        return {"ok": True, "session_id": sid, "message": "Code updated successfully"}
 
 
 @app.post("/etl/run-full")
@@ -1235,17 +1240,18 @@ def api_etl_test_connection(payload: TestConnectionPayload) -> Dict[str, Any]:
 
 @app.post("/etl/execution-approval")
 def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, Any]:
-    from agent.session_store import load_session, save_session
+    from agent.session_store import load_session, save_session, get_session_lock
     sid = (payload.session_id or "default").strip() or "default"
-    sess = load_session(sid)
-    flow = sess.setdefault("context", {}).setdefault("etl_flow", {})
-    flow["execution_approved"] = bool(payload.approved)
-    save_session(sess)
-    return {
-        "ok": True,
-        "session_id": sid,
-        "approved": bool(payload.approved)
-    }
+    with get_session_lock(sid):
+        sess = load_session(sid)
+        flow = sess.setdefault("context", {}).setdefault("etl_flow", {})
+        flow["execution_approved"] = bool(payload.approved)
+        save_session(sess)
+        return {
+            "ok": True,
+            "session_id": sid,
+            "approved": bool(payload.approved)
+        }
 
 
 @app.get("/pipeline/history/{session_id}")

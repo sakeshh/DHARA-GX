@@ -1403,6 +1403,18 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 if has_cast_type:
                     col_clean = str(col_name).replace("'", "''")
                     update_clauses.append(f"[{col_clean}_int] = TRY_CAST([{col_name}] AS BIGINT)")
+
+            # Baseline column sweep for columns with no steps (Fix 2)
+            stepped_cols = {s.get("column") for s in steps if s.get("column")}
+            for col_name, col_meta in cols_info.items():
+                if col_name in stepped_cols or col_name in local_excluded_columns:
+                    continue
+                dtype = str(col_meta.get("dtype") or col_meta.get("target_dtype") or "").lower()
+                if any(x in dtype for x in ("varchar", "nvarchar", "char", "text", "string")):
+                    update_clauses.append(f"[{col_name}] = LTRIM(RTRIM(NULLIF([{col_name}], '')))")
+                elif any(x in dtype for x in ("int", "float", "decimal", "numeric", "bigint")):
+                    cast_type = get_sql_cast_type(dtype, col_name)
+                    update_clauses.append(f"[{col_name}] = TRY_CAST([{col_name}] AS {cast_type})")
                 
             if update_clauses:
                 step_lines.append(f"-- Single-Pass expression updates on {tbl_staging}")
