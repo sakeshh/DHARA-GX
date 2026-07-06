@@ -9,7 +9,7 @@ import json
 import re
 from typing import Tuple, List, Dict, Any, Callable
 
-def validate_python(code: str) -> Tuple[bool, List[str]]:
+def validate_python(code: str, never_drop_rows: bool = False) -> Tuple[bool, List[str]]:
     errors = []
     try:
         ast.parse(code)
@@ -36,9 +36,16 @@ def validate_python(code: str) -> Tuple[bool, List[str]]:
     for pattern, msg in forbidden:
         if re.search(pattern, code):
             errors.append(msg)
+            
+    if never_drop_rows:
+        if ".dropna(" in code:
+            errors.append("Validation failed: '.dropna()' is forbidden when never_drop_rows is enabled.")
+        if ".drop(" in code and ("axis=0" in code or "index=" in code):
+            errors.append("Validation failed: Row dropping '.drop()' is forbidden when never_drop_rows is enabled.")
+            
     return len(errors) == 0, errors
 
-def validate_tsql(code: str) -> Tuple[bool, List[str]]:
+def validate_tsql(code: str, never_drop_rows: bool = False) -> Tuple[bool, List[str]]:
     errors = []
     upper = code.upper()
     
@@ -65,9 +72,14 @@ def validate_tsql(code: str) -> Tuple[bool, List[str]]:
     for keyword, msg in required:
         if keyword not in upper:
             errors.append(msg)
+            
+    if never_drop_rows:
+        if "DELETE FROM" in upper or "TRUNCATE TABLE" in upper:
+            errors.append("Validation failed: DELETE/TRUNCATE is forbidden when never_drop_rows is enabled.")
+            
     return len(errors) == 0, errors
 
-def validate_pyspark(code: str) -> Tuple[bool, List[str]]:
+def validate_pyspark(code: str, never_drop_rows: bool = False) -> Tuple[bool, List[str]]:
     errors = []
     try:
         ast.parse(code)
@@ -81,15 +93,32 @@ def validate_pyspark(code: str) -> Tuple[bool, List[str]]:
         errors.append("Missing _resolve_data_path helper")
     if "SparkSession" not in code:
         errors.append("Missing SparkSession creation")
+        
+    if never_drop_rows:
+        if ".dropna(" in code or "dropna" in code:
+            errors.append("Validation failed: '.dropna()' is forbidden when never_drop_rows is enabled.")
+            
     return len(errors) == 0, errors
 
-def validate_adf(obj: dict) -> Tuple[bool, List[str]]:
+def validate_adf(obj: dict, never_drop_rows: bool = False) -> Tuple[bool, List[str]]:
     errors = []
     if not isinstance(obj, dict):
         errors.append("ADF output is not a JSON object")
         return False, errors
     if "flows" not in obj and "pipeline" not in obj:
         errors.append("ADF output missing 'flows' or 'pipeline' key")
+        
+    if never_drop_rows:
+        # Check if ADF has any delete or filter transforms that discard rows
+        flows = obj.get("flows") or []
+        for flow in flows:
+            for transform in flow.get("transformations") or []:
+                if transform.get("type") in ("filter", "alterRow"):
+                    # Check if delete is enabled on alterRow
+                    props = transform.get("typeProperties") or {}
+                    if props.get("delete") or transform.get("type") == "filter":
+                        errors.append(f"Validation failed: transformation '{transform.get('name')}' uses filtering/deletion which is forbidden when never_drop_rows is enabled.")
+                        
     return len(errors) == 0, errors
 
 VALIDATORS: Dict[str, Callable[[Any], Tuple[bool, List[str]]]] = {
@@ -100,5 +129,8 @@ VALIDATORS: Dict[str, Callable[[Any], Tuple[bool, List[str]]]] = {
     "adf": validate_adf,
 }
 
-def get_validator(engine_key: str) -> Callable[[Any], Tuple[bool, List[str]]] | None:
-    return VALIDATORS.get(engine_key)
+def get_validator(engine_key: str) -> Callable[[Any], Tuple[bool, List[str]]]:
+    val = VALIDATORS.get(engine_key)
+    if not val:
+        raise ValueError(f"Unrecognized codegen engine key: '{engine_key}'. Valid engines: {list(VALIDATORS.keys())}")
+    return val

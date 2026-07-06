@@ -56,7 +56,7 @@ def _plan_id() -> str:
 
 def _assessment_signature(assessment: Dict[str, Any]) -> str:
     try:
-        blob = json.dumps(assessment, sort_keys=True, default=str)[:500_000]
+        blob = json.dumps(assessment, sort_keys=True, default=str)
     except Exception:
         blob = str(assessment)
     return hashlib.sha256(blob.encode("utf-8", errors="ignore")).hexdigest()[:16]
@@ -340,69 +340,83 @@ def _steps_from_business_notes(
     assessment: Dict[str, Any],
 ) -> List[Tuple[str, str, str, str]]:
     """
-    Promote explicit business-note instructions into plan steps (e.g. hash phone on data_1.xml).
-    Returns (dataset, column, action, note) tuples.
+    Promote explicit business-note instructions into plan steps, sentence-by-sentence.
+    Explicitly ignore matches if a sentence contains a negation pattern.
     """
-    notes = (rules.get("notes") or "").lower()
+    import re
+    notes = str(rules.get("notes") or "")
+    sentences = re.split(r'\.(?=\s|$)|[\;\!\n]+', notes)
     
-    # Identify which privacy categories are mentioned in notes
-    targets_keywords = []
-    if "phone" in notes:
-        targets_keywords.append("phone")
-    if "email" in notes:
-        targets_keywords.append("email")
-    if "ssn" in notes:
-        targets_keywords.append("ssn")
-    if "credit card" in notes or "creditcard" in notes or "cc " in notes or " cc" in notes:
-        targets_keywords.append("credit card")
-
-    if not targets_keywords:
-        return []
-    if not any(w in notes for w in ("hash", "mask", "privacy")):
-        return []
-        
-    use_hash = "hash" in notes
-    use_mask = "mask" in notes and not use_hash
-    # We map general privacy steps to the standard hash_phone / mask_phone actions 
-    # since these operations work on any string values in all codegen engines.
-    action = "hash_phone" if use_hash else ("mask_phone" if use_mask else "hash_phone")
-
-    ds_names = list((assessment.get("datasets") or {}).keys())
-    targets: List[str] = []
-    for ds in ds_names:
-        dsl = ds.lower()
-        if dsl in notes or dsl.replace("_", "") in notes.replace("_", "").replace(" ", ""):
-            targets.append(ds)
-    if not targets:
-        for ds in ds_names:
-            if ".xml" in ds.lower() and "xml" in notes:
-                targets.append(ds)
-    if not targets and len(ds_names) == 1:
-        targets = ds_names
-
     out: List[Tuple[str, str, str, str]] = []
-    for ds in targets:
-        for col in _dataset_columns(assessment, ds).keys():
-            col_lower = str(col).lower()
-            matched_kw = None
-            if "phone" in targets_keywords and "phone" in col_lower:
-                matched_kw = "phone"
-            elif "email" in targets_keywords and "email" in col_lower:
-                matched_kw = "email"
-            elif "ssn" in targets_keywords and "ssn" in col_lower:
-                matched_kw = "ssn"
-            elif "credit card" in targets_keywords and ("credit" in col_lower and ("card" in col_lower or "cc" in col_lower)):
-                matched_kw = "credit card"
-                
-            if matched_kw:
-                out.append(
-                    (
-                        ds,
-                        col,
-                        action,
-                        f"business_rules.notes: {'hash' if use_hash else 'mask'} {matched_kw} for privacy",
+    ds_names = list((assessment.get("datasets") or {}).keys())
+    
+    negation_patterns = [r"don't", r"do not", r"never", r"no ", r"avoid", r"without", r"skip"]
+    
+    for sentence in sentences:
+        sentence_clean = sentence.strip().lower()
+        if not sentence_clean:
+            continue
+            
+        # Check if this sentence contains negation
+        is_negated = any(re.search(pat, sentence_clean) for pat in negation_patterns)
+        if is_negated:
+            continue
+            
+        # Check privacy targets
+        targets_keywords = []
+        if "phone" in sentence_clean:
+            targets_keywords.append("phone")
+        if "email" in sentence_clean:
+            targets_keywords.append("email")
+        if "ssn" in sentence_clean:
+            targets_keywords.append("ssn")
+        if "credit card" in sentence_clean or "creditcard" in sentence_clean or "cc " in sentence_clean or " cc" in sentence_clean:
+            targets_keywords.append("credit card")
+            
+        if not targets_keywords:
+            continue
+        if not any(w in sentence_clean for w in ("hash", "mask", "privacy", "secure", "protect")):
+            continue
+            
+        use_hash = "hash" in sentence_clean
+        use_mask = "mask" in sentence_clean and not use_hash
+        action = "hash_phone" if use_hash else ("mask_phone" if use_mask else "hash_phone")
+        
+        # Match datasets in this sentence
+        targets = []
+        for ds in ds_names:
+            dsl = ds.lower()
+            if dsl in sentence_clean or dsl.replace("_", "") in sentence_clean.replace("_", "").replace(" ", ""):
+                targets.append(ds)
+        if not targets:
+            for ds in ds_names:
+                if ".xml" in ds.lower() and "xml" in sentence_clean:
+                    targets.append(ds)
+        if not targets and len(ds_names) == 1:
+            targets = ds_names
+            
+        for ds in targets:
+            for col in _dataset_columns(assessment, ds).keys():
+                col_lower = str(col).lower()
+                matched_kw = None
+                if "phone" in targets_keywords and "phone" in col_lower:
+                    matched_kw = "phone"
+                elif "email" in targets_keywords and "email" in col_lower:
+                    matched_kw = "email"
+                elif "ssn" in targets_keywords and "ssn" in col_lower:
+                    matched_kw = "ssn"
+                elif "credit card" in targets_keywords and ("credit" in col_lower and ("card" in col_lower or "cc" in col_lower)):
+                    matched_kw = "credit card"
+                    
+                if matched_kw:
+                    out.append(
+                        (
+                            ds,
+                            col,
+                            action,
+                            f"business_rules.notes: {'hash' if use_hash else 'mask'} {matched_kw} for privacy",
+                        )
                     )
-                )
     return out
 
 
@@ -419,6 +433,633 @@ def _apply_rules_to_action(
     return action, None
 
 
+_SUGGESTION_CACHE: Dict[str, dict] = {}
+
+
+class PlanBuilder:
+    def __init__(self, assessment: Dict[str, Any], business_rules_raw: Any, **kwargs):
+        self.assessment = assessment
+        self.business_rules_raw = business_rules_raw
+        self.kwargs = kwargs
+        self.build_warnings = []
+
+    def build(self) -> Dict[str, Any]:
+        import logging
+        logger = logging.getLogger("agent.etl_pipeline.planner")
+
+        assessment = self.assessment
+        business_rules_raw = self.business_rules_raw
+        engine = self.kwargs.get("engine", "python")
+        source_context = self.kwargs.get("source_context")
+        generation_mode = self.kwargs.get("generation_mode", "full")
+        dq_recommendations = self.kwargs.get("dq_recommendations")
+        semantic_context = self.kwargs.get("semantic_context")
+
+        if not isinstance(assessment, dict) or not assessment.get("datasets"):
+            raise ValueError("Invalid assessment: missing datasets")
+
+        rules = normalize_business_rules(business_rules_raw)
+        exclude = set(rules.get("exclude_columns") or [])
+
+        # Build explicit semantic schema layer
+        sem_schema = {}
+        from agent.etl_pipeline.semantic_classifier import classify_column_semantic, SemanticDescriptor
+        from agent.etl_pipeline.semantic_llm_enricher import enrich_low_confidence_columns
+
+        low_conf_cols = {}
+        for ds_name, ds_meta in (assessment.get("datasets") or {}).items():
+            if isinstance(ds_meta, dict):
+                cols = ds_meta.get("columns") or {}
+                for col_name, col in cols.items():
+                    if isinstance(col, dict):
+                        descriptor = classify_column_semantic(col_name, col)
+                        key = f"{ds_name}.{col_name}"
+                        sem_schema[key] = descriptor
+                        if descriptor["confidence"] < 0.75:
+                            low_conf_cols[key] = {
+                                "col_name": col_name,
+                                "col_meta": col,
+                                "descriptor": descriptor
+                            }
+
+        # Layer 2: Optional LLM enrichment
+        if low_conf_cols and os.getenv("ETL_PLAN_SEMANTIC_LLM", "").strip().lower() in ("1", "true", "yes"):
+            try:
+                enriched = enrich_low_confidence_columns(low_conf_cols)
+                for key, enriched_desc in enriched.items():
+                    sem_schema[key] = SemanticDescriptor(enriched_desc)
+            except Exception as e:
+                self.build_warnings.append(f"Semantic LLM enrichment failed: {e}")
+
+        # Layer 3: User overrides from rules.get("semantic_overrides")
+        overrides = rules.get("semantic_overrides") or {}
+        for override_key, override_val in overrides.items():
+            if not isinstance(override_val, dict):
+                continue
+            for key in list(sem_schema.keys()):
+                if key == override_key or key.endswith(f".{override_key}"):
+                    desc_dict = dict(sem_schema[key])
+                    desc_dict.update(override_val)
+                    desc_dict["inferred_by"] = "user_override"
+                    desc_dict["confidence"] = 1.0
+                    sem_schema[key] = SemanticDescriptor(desc_dict)
+
+        # Layer 3b: Governance semantic_context
+        sem_ctx_pkg = assessment.get("semantic_context") or {}
+        for ds_name, ctx in (sem_ctx_pkg.get("by_dataset") or {}).items():
+            if not isinstance(ctx, dict):
+                continue
+            base_conf = float(ctx.get("semantic_confidence") or 0.75)
+            for col_name, term in (ctx.get("business_terms") or {}).items():
+                key = f"{ds_name}.{col_name}"
+                desc = {
+                    "semantic_type": "string",
+                    "sub_type": "",
+                    "confidence": min(0.98, base_conf + 0.05),
+                    "inferred_by": "governance_semantic_context",
+                    "description": str(term)[:500],
+                }
+                if key not in sem_schema:
+                    sem_schema[key] = SemanticDescriptor(desc)
+                elif float(sem_schema[key].get("confidence") or 0) < 0.82:
+                    sem_schema[key]["description"] = str(term)[:500]
+                    sem_schema[key]["inferred_by"] = "governance_semantic_context"
+
+        if semantic_context is None:
+            semantic_context = assessment.get("semantic_context") or {}
+
+        from agent.semantic_context import SemanticCleaningPlan
+        semantic_plan = None
+        if semantic_context:
+            sem_model = semantic_context.get("semantic_model")
+            if isinstance(sem_model, dict) and "entities" in sem_model:
+                try:
+                    semantic_plan = SemanticCleaningPlan(
+                        entities=sem_model.get("entities") or {},
+                        relationships=sem_model.get("relationships") or [],
+                    )
+                except Exception:
+                    pass
+            if semantic_plan is None and "entities" in semantic_context:
+                try:
+                    semantic_plan = SemanticCleaningPlan(
+                        entities=semantic_context.get("entities") or {},
+                        relationships=semantic_context.get("relationships") or [],
+                    )
+                except Exception:
+                    pass
+
+        # 4.7 Cache suggestion package
+        assess_sig = _assessment_signature(assessment)
+        if assess_sig in _SUGGESTION_CACHE:
+            sug_pkg = _SUGGESTION_CACHE[assess_sig]
+        else:
+            try:
+                sug_pkg = suggest_transformations(assessment, semantic_plan=semantic_plan)
+                _SUGGESTION_CACHE[assess_sig] = sug_pkg
+            except Exception as e:
+                self.build_warnings.append(f"suggest_transformations failed: {e}")
+                sug_pkg = {"suggested_transformations": [], "summary": {}}
+
+        suggestions: List[Dict[str, Any]] = list(sug_pkg.get("suggested_transformations") or [])
+        if source_context and "suggestions" in source_context:
+            suggestions.extend(source_context["suggestions"])
+
+        # Load business rules as TaggedRules
+        from agent.etl_pipeline.business_rules import to_tagged_rules
+        business_tagged_rules = []
+        datasets_known = list(assessment.get("datasets") or {})
+        for ds_name in datasets_known:
+            try:
+                business_tagged_rules.extend(to_tagged_rules(rules, ds_name, assessment=assessment))
+            except Exception as e:
+                self.build_warnings.append(f"to_tagged_rules failed for dataset {ds_name}: {e}")
+
+        # Append business rules not in suggestions
+        for r in business_tagged_rules:
+            exists = False
+            for s in suggestions:
+                if s.get("dataset") == r.dataset and s.get("column") == r.column and s.get("suggested_action") == r.action:
+                    exists = True
+                    break
+            if not exists:
+                suggestions.append({
+                    "dataset": r.dataset,
+                    "column": r.column,
+                    "issue_type": r.issue_type,
+                    "severity": "medium",
+                    "message": f"Business rule contract: {r.source_detail}",
+                    "suggested_action": r.action,
+                    "manual_guidance": "",
+                    "row_count_affected": None,
+                    "auto_fixable": True,
+                })
+
+        # Merge LLM recommendations
+        if dq_recommendations:
+            try:
+                from agent.etl_pipeline.llm_rec_mapper import map_llm_recommendation_to_action, compute_llm_confidence
+                recs_list = []
+                if isinstance(dq_recommendations, dict):
+                    recs_list = dq_recommendations.get("recommendations") or []
+                elif isinstance(dq_recommendations, list):
+                    recs_list = dq_recommendations
+
+                def _norm(v):
+                    return str(v or "").strip().lower()
+
+                sug_map = {}
+                for sug in suggestions:
+                    k = (_norm(sug.get("dataset")), _norm(sug.get("column")), _norm(sug.get("issue_type")))
+                    sug_map[k] = sug
+
+                for rec in recs_list:
+                    if not isinstance(rec, dict):
+                        continue
+                    ds = rec.get("dataset")
+                    col = rec.get("column")
+                    it = rec.get("issue_type")
+
+                    mapped_action = map_llm_recommendation_to_action(rec)
+                    confidence = compute_llm_confidence(rec)
+
+                    matched_sug = None
+                    key = (_norm(ds), _norm(col), _norm(it))
+                    if key in sug_map:
+                        matched_sug = sug_map[key]
+                    else:
+                        candidates = [
+                            sug for sug in suggestions
+                            if _norm(sug.get("dataset")) == _norm(ds) and _norm(sug.get("column")) == _norm(col)
+                        ]
+                        if len(candidates) == 1:
+                            matched_sug = candidates[0]
+                        elif len(candidates) > 1:
+                            for cand in candidates:
+                                cit = _norm(cand.get("issue_type"))
+                                rit = _norm(it)
+                                if rit in cit or cit in rit:
+                                    matched_sug = cand
+                                    break
+                            if not matched_sug:
+                                matched_sug = candidates[0]
+
+                    if matched_sug:
+                        matched_sug["llm_recommendation"] = rec
+                        matched_sug["llm_confidence"] = confidence
+                        if confidence >= 0.80 and mapped_action and mapped_action != "noop":
+                            matched_sug["suggested_action"] = mapped_action
+                            matched_sug["auto_fixable"] = True
+                    else:
+                        new_sug = {
+                            "dataset": ds,
+                            "column": col,
+                            "issue_type": it or "llm_inferred_issue",
+                            "severity": rec.get("severity") or "medium",
+                            "message": rec.get("why_it_matters") or rec.get("suggested_fix") or "LLM Inferred Issue",
+                            "suggested_action": mapped_action or "noop",
+                            "manual_guidance": rec.get("suggested_fix") or "",
+                            "row_count_affected": None,
+                            "auto_fixable": confidence >= 0.80 and mapped_action not in ("noop", None),
+                            "llm_recommendation": rec,
+                            "llm_confidence": confidence,
+                        }
+                        suggestions.append(new_sug)
+                        new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
+                        sug_map[new_key] = new_sug
+            except Exception as e:
+                self.build_warnings.append(f"dq_recommendations merge failed: {e}")
+
+        # Run conflict detection on all TaggedRules
+        from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
+        from agent.etl_pipeline.conflict_detector import detect_conflicts
+        
+        all_tagged_rules = []
+        all_tagged_rules.extend(business_tagged_rules)
+        
+        if semantic_plan:
+            try:
+                all_tagged_rules.extend(semantic_plan.to_tagged_rules())
+            except Exception:
+                pass
+                
+        existing_rule_keys = set()
+        for r in all_tagged_rules:
+            existing_rule_keys.add((r.dataset, r.column, r.issue_type, r.action))
+            
+        for s in suggestions:
+            ds = s.get("dataset") or ""
+            col = s.get("column") or ""
+            it = s.get("issue_type") or ""
+            act = s.get("suggested_action")
+            if act and act != "review_manually":
+                key = (ds, col, it, act)
+                if key not in existing_rule_keys:
+                    all_tagged_rules.append(TaggedRule(
+                        dataset=ds,
+                        column=col,
+                        issue_type=it,
+                        action=act,
+                        provenance=RuleProvenance.AUTO_DETECTED,
+                        source_detail=s.get("message") or "Auto-detected DQ rule"
+                    ))
+                    existing_rule_keys.add(key)
+                    
+        # Detect conflicts and resolve them
+        resolved_rules, conflicts = detect_conflicts(all_tagged_rules)
+        
+        resolved_map = {}
+        for r in resolved_rules:
+            resolved_map[(r.dataset, r.column, r.issue_type)] = r.action
+            
+        # 5.2 Cache evaluate_dq_gate result
+        # Compute dq_gate_summary at plan build time and store it on the plan
+        dq_gate_summary = {"blocking_issues": [], "passed": True}
+        threshold = float(rules.get("dq_threshold", 70.0))
+        if generation_mode == "full":
+            from agent.etl_pipeline.dq_gate import check_dq_gate
+            gate_issues = []
+            gate_passed = True
+            for ds_name in datasets_known:
+                try:
+                    gate_res = check_dq_gate(
+                        assessment, ds_name, 
+                        threshold=threshold, 
+                        force_unlock=ds_name in rules.get("force_unlock", []), 
+                        sem_schema=sem_schema
+                    )
+                    if not gate_res["passed"]:
+                        gate_passed = False
+                        gate_issues.append({
+                            "dataset": ds_name,
+                            "reason": f"Data quality score ({gate_res['score']}) below threshold ({threshold})",
+                            "score": gate_res.get("score")
+                        })
+                except Exception as e:
+                    self.build_warnings.append(f"check_dq_gate failed for {ds_name}: {e}")
+            dq_gate_summary = {"blocking_issues": gate_issues, "passed": gate_passed}
+
+        # Build steps
+        # Compile suggestions to steps
+        from agent.etl_pipeline.issue_to_step_compiler import compile_issues_to_steps
+        
+        # Apply resolved conflict actions back to suggestions
+        for s in suggestions:
+            ds = s.get("dataset") or ""
+            col = s.get("column") or ""
+            it = s.get("issue_type") or ""
+            if (ds, col, it) in resolved_map:
+                s["suggested_action"] = resolved_map[(ds, col, it)]
+
+        datasets_steps, manual_review = compile_issues_to_steps(suggestions, rules, sem_schema)
+        
+        # Check for missing required columns and append to manual_review
+        req_cols = rules.get("required_columns") or []
+        for rc in req_cols:
+            found = False
+            for ds_name in datasets_known:
+                cols_lower = {c.lower() for c in _dataset_columns(assessment, ds_name).keys()}
+                if str(rc).lower() in cols_lower:
+                    found = True
+                    break
+            if not found:
+                manual_review.append(
+                    enrich_manual_review_item({
+                        "dataset": "global",
+                        "column": rc,
+                        "issue_type": "missing_required_column",
+                        "severity": "high",
+                        "message": f"Required column '{rc}' not found in any assessed dataset.",
+                        "guidance": "Provide the column in the source data or remove/correct it in business rules.",
+                    })
+                )
+
+        blocked = []
+
+        step_map = {}
+        for ds_name, steps in datasets_steps.items():
+            for st in steps:
+                col = st.get("column")
+                action = st.get("action")
+                it = st.get("source_issue_type")
+                sev = st.get("severity") or "medium"
+                row_est = st.get("estimated_affected_rows")
+                pri = _ACTION_PRIORITY.get(action, 80)
+                key = (ds_name, col, action, it)
+
+                sug_dict = {
+                    "dataset": ds_name,
+                    "column": col,
+                    "issue_type": it,
+                    "severity": sev,
+                    "message": st.get("message"),
+                    "row_count_affected": row_est,
+                }
+                col_stats = _col_stats_for_step(assessment, ds_name, col)
+                evidence = _build_evidence(sug_dict, col_stats, action, rules)
+                if st.get("llm_recommendation"):
+                    evidence["llm_recommendation"] = st["llm_recommendation"]
+
+                params = build_step_params(
+                    action,
+                    column=col,
+                    col_stats=col_stats,
+                    evidence=evidence,
+                    rules=rules,
+                    issue_type=it,
+                )
+
+                if st.get("params"):
+                    params.update(st["params"])
+
+                entry = {
+                    "dataset": ds_name or "_global",
+                    "column": col,
+                    "action": action,
+                    "source_issue_type": it,
+                    "severity": sev,
+                    "estimated_affected_rows": row_est,
+                    "priority": pri,
+                    "note": st.get("note"),
+                    "params": params,
+                    "evidence": evidence,
+                    "message": st.get("message"),
+                }
+                if st.get("llm_recommendation"):
+                    entry["llm_recommendation"] = st["llm_recommendation"]
+
+                prev = step_map.get(key)
+                if not prev or (row_est and (prev.get("estimated_affected_rows") or 0) < (row_est or 0)):
+                    step_map[key] = entry
+
+        for ds, col, act, note in _steps_from_business_notes(rules, assessment):
+            if column_is_excluded(col, exclude):
+                continue
+            key = (ds, col, act, "business_notes")
+            if key not in step_map:
+                cstats = _col_stats_for_step(assessment, ds, col)
+                if ds and col:
+                    col_key = f"{ds}.{col}"
+                    desc = sem_schema.get(col_key)
+                    if desc:
+                        cstats = dict(cstats)
+                        cstats["semantic_type"] = desc.get("semantic_type")
+                        cstats["sub_type"] = desc.get("sub_type")
+                        cstats["pii_level"] = desc.get("pii_level")
+                        cstats["fill_strategy"] = desc.get("fill_strategy")
+                ev = {"why_this_action": note, "confidence": 0.9}
+                step_map[key] = {
+                    "dataset": ds,
+                    "column": col,
+                    "action": act,
+                    "source_issue_type": "business_notes",
+                    "severity": "medium",
+                    "priority": _ACTION_PRIORITY.get(act, 56),
+                    "note": note,
+                    "params": build_step_params(act, column=col, col_stats=cstats, evidence=ev, rules=rules),
+                    "evidence": ev,
+                    "message": note,
+                }
+
+        # Per-dataset ordered steps
+        datasets_out: Dict[str, Any] = {}
+        global_steps: List[Dict[str, Any]] = []
+
+        for key, st in step_map.items():
+            ds_name = key[0]
+            if not ds_name or ds_name == "_global":
+                global_steps.append(
+                    {
+                        "order": st["priority"],
+                        "column": st.get("column"),
+                        "action": st["action"],
+                        "estimated_affected_rows": st.get("estimated_affected_rows"),
+                        "note": st.get("note"),
+                    }
+                )
+                continue
+            datasets_out.setdefault(ds_name, []).append(st)
+
+        rel_plan = build_relationship_plan(assessment)
+        if rules.get("never_drop_rows"):
+            for j in rel_plan.get("joins") or []:
+                if str(j.get("join_type") or "").lower() == "inner":
+                    j["join_type"] = "left"
+                    j["note"] = (
+                        (j.get("note") or "")
+                        + " Upgraded inner→left: never_drop_rows business rule."
+                    ).strip()
+        for rstep in rel_plan.get("relationship_steps") or []:
+            act = str(rstep.get("action") or "")
+            if act == "validate_referential_integrity_or_stage":
+                ds = rstep.get("dataset") or "_global"
+                col = rstep.get("column")
+                key = (ds, (col or "*"), act, "relationship")
+                if key not in step_map:
+                    ri_ev = rstep.get("evidence") or {}
+                    step_map[key] = {
+                        "dataset": ds,
+                        "column": col,
+                        "action": act,
+                        "severity": "high",
+                        "estimated_affected_rows": rstep.get("estimated_affected_rows"),
+                        "priority": _ACTION_PRIORITY.get(act, 300),
+                        "note": f"FK to {rstep.get('related_dataset')}.{rstep.get('related_column')}",
+                        "params": build_ri_step_params(rstep, rules),
+                        "evidence": ri_ev,
+                        "message": ri_ev.get("why_this_action"),
+                    }
+                    datasets_out.setdefault(ds, []).append(step_map[key])
+
+        global_steps.sort(key=lambda x: x.get("order") or 0)
+        for i, st in enumerate(global_steps, start=1):
+            st["order"] = i
+
+        for ds_name, steps in datasets_out.items():
+            steps.sort(key=lambda x: (x["priority"], str(x.get("column") or "")))
+            enriched_steps: List[Dict[str, Any]] = []
+            for i, st in enumerate(steps, start=1):
+                st["order"] = i
+                col = st.get("column")
+                cstats = _col_stats_for_step(assessment, ds_name, col)
+                null_pct = None
+                if cstats.get("null_percentage") is not None:
+                    try:
+                        null_pct = float(cstats["null_percentage"]) * 100.0
+                    except (TypeError, ValueError):
+                        pass
+                res = classify_step_bucket(
+                    str(st.get("action") or ""),
+                    severity=str(st.get("severity") or "medium"),
+                    null_percentage=null_pct,
+                    never_drop_rows=bool(rules.get("never_drop_rows")),
+                )
+                st["bucket"] = res["bucket"]
+                st["phase"] = res["phase"]
+                enriched_steps.append(st)
+            datasets_out[ds_name] = finalize_dataset_steps(enriched_steps, assessment, rules)
+
+        rel_plan = enrich_relationship_plan_joins(rel_plan, rules)
+
+        engine_rec = _recommend_engine(source_context, assessment)
+        if rel_plan.get("join_count", 0) > 0 and engine_rec.get("engine") == "python":
+            ds_count = len(datasets_known)
+            if ds_count > 1:
+                engine_rec = dict(engine_rec)
+                engine_rec["reason"] = (
+                    str(engine_rec.get("reason", ""))
+                    + f" Multi-dataset ({ds_count} sources, {rel_plan['join_count']} join(s) detected)."
+                )
+
+        # Append DQ warning blocker if failed
+        if not dq_gate_summary["passed"]:
+            for blocking_ds in dq_gate_summary["blocking_issues"]:
+                ds_name = blocking_ds["dataset"]
+                score_str = f" ({blocking_ds['score']})" if blocking_ds.get("score") is not None else ""
+                manual_review.append(
+                    enrich_manual_review_item({
+                        "dataset": ds_name,
+                        "column": None,
+                        "issue_type": "dq_gate_warning",
+                        "severity": "high",
+                        "message": f"Data quality score{score_str} is below threshold ({threshold}). Phase 2 transformations are blocked for dataset '{ds_name}'. Please resolve errors in Phase 1 (cleanse) first.",
+                        "guidance": "Resolve data quality issues or lower/override the threshold in business rules.",
+                    })
+                )
+
+        # Build coverage report
+        def _clean(val: Any, default: str = "") -> str:
+            if val is None or str(val).strip() == "":
+                return default
+            return str(val).strip()
+
+        all_issues = set()
+        for s in suggestions:
+            ds = _clean(s.get("dataset"), "_global")
+            col = _clean(s.get("column"), "*")
+            it = _clean(s.get("issue_type"))
+            all_issues.add((ds, col, it))
+
+        covered_by_steps = set()
+        for ds_name, steps in datasets_out.items():
+            for st in steps:
+                col = _clean(st.get("column"), "*")
+                it = _clean(st.get("source_issue_type"))
+                covered_by_steps.add((_clean(ds_name), col, it))
+
+        in_manual = set()
+        for m in manual_review:
+            ds = _clean(m.get("dataset"), "_global")
+            col = _clean(m.get("column"), "*")
+            it = _clean(m.get("issue_type"))
+            in_manual.add((ds, col, it))
+
+        covered = covered_by_steps | in_manual
+        uncovered = all_issues - covered
+
+        tier_counts = {"standard": 0, "complex": 0, "non_fixable": 0}
+        for m in manual_review:
+            tier = m.get("risk_tier", "standard")
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+
+        coverage_summary = {
+            "total_issues": len(all_issues),
+            "covered_by_steps": len(covered_by_steps),
+            "manual_review_total": len(in_manual),
+            "manual_review_by_tier": tier_counts,
+            "uncovered": len(uncovered),
+            "uncovered_items": [{"dataset": d, "column": c, "issue_type": i} for d, c, i in uncovered],
+        }
+
+        logger.info(
+            "Plan coverage: total=%d, steps=%d, manual_total=%d, by_tier=%s, uncovered=%d",
+            coverage_summary["total_issues"],
+            coverage_summary["covered_by_steps"],
+            coverage_summary["manual_review_total"],
+            str(coverage_summary["manual_review_by_tier"]),
+            coverage_summary["uncovered"],
+        )
+
+        plan = {
+            "plan_version": 1,
+            "plan_id": _plan_id(),
+            "engine": (engine or "python").lower(),
+            "generation_mode": generation_mode or "full",
+            "created_at": time.time(),
+            "assessment_signature": _assessment_signature(assessment),
+            "business_rules": rules,
+            "datasets": {k: {"steps": v} for k, v in datasets_out.items()},
+            "global_steps": global_steps,
+            "manual_review": manual_review,
+            "blocked": blocked,
+            "coverage": coverage_summary,
+            "invariants": build_plan_invariants(rules),
+            "suggestions_summary": sug_pkg.get("summary") or {},
+            "engine_recommendation": engine_rec,
+            "source_context": source_context or {},
+            "relationships": rel_plan,
+            "semantic_schema": {k: v for k, v in sem_schema.items()},
+            "dq_gate_summary": dq_gate_summary,
+            "build_warnings": self.build_warnings,
+        }
+
+        # 4.4 Resolution errors for auto_resolve_pending
+        if rules.get("auto_resolve_pending") and plan.get("manual_review"):
+            try:
+                from agent.etl_pipeline.manual_review_promote import apply_manual_resolutions
+                resolutions = []
+                for m in plan["manual_review"]:
+                    resolutions.append({
+                        "item_id": m.get("id"),
+                        "resolution_id": m.get("default_resolution")
+                    })
+                plan, _ = apply_manual_resolutions(plan, resolutions, business_rules=rules)
+            except Exception as e:
+                self.build_warnings.append(f"auto_resolve_pending failed: {e}")
+
+        return plan
+
+
 def build_etl_plan(
     assessment: Dict[str, Any],
     business_rules_raw: Any,
@@ -432,633 +1073,15 @@ def build_etl_plan(
     """
     Build versioned ETL plan JSON from assessment + normalized business rules.
     """
-    import logging
-    logger = logging.getLogger("agent.etl_pipeline.planner")
-
-    if not isinstance(assessment, dict) or not assessment.get("datasets"):
-        raise ValueError("Invalid assessment: missing datasets")
-
-    rules = normalize_business_rules(business_rules_raw)
-    exclude = set(rules.get("exclude_columns") or [])
-
-    # Build explicit semantic schema layer
-    sem_schema = {}
-    from agent.etl_pipeline.semantic_classifier import classify_column_semantic, SemanticDescriptor
-    from agent.etl_pipeline.semantic_llm_enricher import enrich_low_confidence_columns
-
-    low_conf_cols = {}
-    for ds_name, ds_meta in (assessment.get("datasets") or {}).items():
-        if isinstance(ds_meta, dict):
-            cols = ds_meta.get("columns") or {}
-            for col_name, col in cols.items():
-                if isinstance(col, dict):
-                    descriptor = classify_column_semantic(col_name, col)
-                    key = f"{ds_name}.{col_name}"
-                    sem_schema[key] = descriptor
-                    if descriptor["confidence"] < 0.75:
-                        low_conf_cols[key] = {
-                            "col_name": col_name,
-                            "col_meta": col,
-                            "descriptor": descriptor
-                        }
-
-    # Layer 2: Optional LLM enrichment for low-confidence columns (adds latency + cost).
-    # Enable explicitly with ETL_PLAN_SEMANTIC_LLM=1 when you need semantic hints from the model.
-    if low_conf_cols and os.getenv("ETL_PLAN_SEMANTIC_LLM", "").strip().lower() in ("1", "true", "yes"):
-        enriched = enrich_low_confidence_columns(low_conf_cols)
-        for key, enriched_desc in enriched.items():
-            sem_schema[key] = SemanticDescriptor(enriched_desc)
-
-    # Layer 3: User overrides from rules.get("semantic_overrides")
-    overrides = rules.get("semantic_overrides") or {}
-    for override_key, override_val in overrides.items():
-        if not isinstance(override_val, dict):
-            continue
-        for key in list(sem_schema.keys()):
-            if key == override_key or key.endswith(f".{override_key}"):
-                sem_schema[key].update(override_val)
-                sem_schema[key]["inferred_by"] = "user_override"
-                sem_schema[key]["confidence"] = 1.0
-
-    # Layer 3b: Governance semantic_context (manifest / glossary hints)
-    sem_ctx_pkg = assessment.get("semantic_context") or {}
-    for ds_name, ctx in (sem_ctx_pkg.get("by_dataset") or {}).items():
-        if not isinstance(ctx, dict):
-            continue
-        base_conf = float(ctx.get("semantic_confidence") or 0.75)
-        for col_name, term in (ctx.get("business_terms") or {}).items():
-            key = f"{ds_name}.{col_name}"
-            desc = {
-                "semantic_type": "string",
-                "sub_type": "",
-                "confidence": min(0.98, base_conf + 0.05),
-                "inferred_by": "governance_semantic_context",
-                "description": str(term)[:500],
-            }
-            if key not in sem_schema:
-                sem_schema[key] = SemanticDescriptor(desc)
-            elif float(sem_schema[key].get("confidence") or 0) < 0.82:
-                sem_schema[key]["description"] = str(term)[:500]
-                sem_schema[key]["inferred_by"] = "governance_semantic_context"
-
-    if semantic_context is None:
-        semantic_context = assessment.get("semantic_context") or {}
-
-    from agent.semantic_context import SemanticCleaningPlan
-    semantic_plan = None
-    if semantic_context:
-        sem_model = semantic_context.get("semantic_model")
-        if isinstance(sem_model, dict) and "entities" in sem_model:
-            try:
-                semantic_plan = SemanticCleaningPlan(
-                    entities=sem_model.get("entities") or {},
-                    relationships=sem_model.get("relationships") or [],
-                )
-            except Exception:
-                pass
-        if semantic_plan is None and "entities" in semantic_context:
-            try:
-                semantic_plan = SemanticCleaningPlan(
-                    entities=semantic_context.get("entities") or {},
-                    relationships=semantic_context.get("relationships") or [],
-                )
-            except Exception:
-                pass
-
-    sug_pkg = suggest_transformations(assessment, semantic_plan=semantic_plan)
-    suggestions: List[Dict[str, Any]] = list(sug_pkg.get("suggested_transformations") or [])
-    if source_context and "suggestions" in source_context:
-        suggestions.extend(source_context["suggestions"])
-
-    # Load business rules as TaggedRules
-    from agent.etl_pipeline.business_rules import to_tagged_rules
-    business_tagged_rules = []
-    datasets_known = list(assessment.get("datasets") or {})
-    for ds_name in datasets_known:
-        business_tagged_rules.extend(to_tagged_rules(rules, ds_name, assessment=assessment))
-
-    # Append any business rules that aren't in suggestions already
-    for r in business_tagged_rules:
-        exists = False
-        for s in suggestions:
-            if s.get("dataset") == r.dataset and s.get("column") == r.column and s.get("suggested_action") == r.action:
-                exists = True
-                break
-        if not exists:
-            suggestions.append({
-                "dataset": r.dataset,
-                "column": r.column,
-                "issue_type": r.issue_type,
-                "severity": "medium",
-                "message": f"Business rule contract: {r.source_detail}",
-                "suggested_action": r.action,
-                "manual_guidance": "",
-                "row_count_affected": None,
-                "auto_fixable": True,
-            })
-
-    # Merge LLM recommendations into suggestions
-    if dq_recommendations:
-        from agent.etl_pipeline.llm_rec_mapper import map_llm_recommendation_to_action, compute_llm_confidence
-        recs_list = []
-        if isinstance(dq_recommendations, dict):
-            recs_list = dq_recommendations.get("recommendations") or []
-        elif isinstance(dq_recommendations, list):
-            recs_list = dq_recommendations
-
-        def _norm(v):
-            return str(v or "").strip().lower()
-
-        sug_map = {}
-        for sug in suggestions:
-            k = (_norm(sug.get("dataset")), _norm(sug.get("column")), _norm(sug.get("issue_type")))
-            sug_map[k] = sug
-
-        for rec in recs_list:
-            if not isinstance(rec, dict):
-                continue
-            ds = rec.get("dataset")
-            col = rec.get("column")
-            it = rec.get("issue_type")
-
-            mapped_action = map_llm_recommendation_to_action(rec)
-            confidence = compute_llm_confidence(rec)
-
-            matched_sug = None
-            key = (_norm(ds), _norm(col), _norm(it))
-            if key in sug_map:
-                matched_sug = sug_map[key]
-            else:
-                candidates = [
-                    sug for sug in suggestions
-                    if _norm(sug.get("dataset")) == _norm(ds) and _norm(sug.get("column")) == _norm(col)
-                ]
-                if len(candidates) == 1:
-                    matched_sug = candidates[0]
-                elif len(candidates) > 1:
-                    for cand in candidates:
-                        cit = _norm(cand.get("issue_type"))
-                        rit = _norm(it)
-                        if rit in cit or cit in rit:
-                            matched_sug = cand
-                            break
-                    if not matched_sug:
-                        matched_sug = candidates[0]
-
-            if matched_sug:
-                matched_sug["llm_recommendation"] = rec
-                matched_sug["llm_confidence"] = confidence
-                if confidence >= 0.80 and mapped_action and mapped_action != "noop":
-                    matched_sug["suggested_action"] = mapped_action
-                    matched_sug["auto_fixable"] = True
-            else:
-                new_sug = {
-                    "dataset": ds,
-                    "column": col,
-                    "issue_type": it or "llm_inferred_issue",
-                    "severity": rec.get("severity") or "medium",
-                    "message": rec.get("why_it_matters") or rec.get("suggested_fix") or "LLM Inferred Issue",
-                    "suggested_action": mapped_action or "noop",
-                    "manual_guidance": rec.get("suggested_fix") or "",
-                    "row_count_affected": None,
-                    "auto_fixable": confidence >= 0.80 and mapped_action not in ("noop", None),
-                    "llm_recommendation": rec,
-                    "llm_confidence": confidence,
-                }
-                suggestions.append(new_sug)
-                new_key = (_norm(ds), _norm(col), _norm(it or "llm_inferred_issue"))
-                sug_map[new_key] = new_sug
-
-    # Run conflict detection on all TaggedRules (Component 11)
-    from agent.etl_pipeline.rule_provenance import TaggedRule, RuleProvenance
-    from agent.etl_pipeline.conflict_detector import detect_conflicts
-    
-    all_tagged_rules = []
-    
-    # 1. Business rules
-    all_tagged_rules.extend(business_tagged_rules)
-    
-    # 2. Semantic rules
-    if semantic_plan:
-        try:
-            all_tagged_rules.extend(semantic_plan.to_tagged_rules())
-        except Exception:
-            pass
-            
-    # 3. Auto-detected rules from suggestions
-    existing_rule_keys = set()
-    for r in all_tagged_rules:
-        existing_rule_keys.add((r.dataset, r.column, r.issue_type, r.action))
-        
-    for s in suggestions:
-        ds = s.get("dataset") or ""
-        col = s.get("column") or ""
-        it = s.get("issue_type") or ""
-        act = s.get("suggested_action")
-        if act and act != "review_manually":
-            key = (ds, col, it, act)
-            if key not in existing_rule_keys:
-                all_tagged_rules.append(TaggedRule(
-                    dataset=ds,
-                    column=col,
-                    issue_type=it,
-                    action=act,
-                    provenance=RuleProvenance.AUTO_DETECTED,
-                    source_detail=s.get("message") or "Auto-detected DQ rule"
-                ))
-                existing_rule_keys.add(key)
-                
-    # Detect conflicts and resolve them
-    resolved_rules, conflicts = detect_conflicts(all_tagged_rules)
-    
-    resolved_map = {}
-    for r in resolved_rules:
-        resolved_map[(r.dataset, r.column, r.issue_type)] = r
-        
-    conflicts_map = {}
-    for c in conflicts:
-        conflicts_map[(c.dataset, c.column, c.issue_type)] = c
-
-    manual_review: List[Dict[str, Any]] = []
-    blocked: List[Dict[str, Any]] = []
-    # (dataset, column, action, issue_type) -> step record
-    step_map: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
-
-    datasets_known = set((assessment.get("datasets") or {}).keys())
-
-    for req_col in rules.get("required_columns") or []:
-        rc = str(req_col).strip()
-        if not rc:
-            continue
-        found = False
-        for ds_name in datasets_known:
-            cols = _dataset_columns(assessment, ds_name)
-            for ck in cols.keys():
-                if ck.lower() == rc.lower():
-                    found = True
-                    break
-            if found:
-                break
-        if not found:
-            manual_review.append(
-                enrich_manual_review_item(
-                    {
-                        "dataset": "global",
-                        "column": rc,
-                        "issue_type": "missing_required_column",
-                        "severity": "HIGH",
-                        "message": f"Required column '{rc}' not found in any assessed dataset.",
-                        "guidance": "Provide the column in a source dataset or choose 'skip_requirement' to remove it from requirements.",
-                    }
-                )
-            )
-
-    # Map conflict detector resolutions back to suggestions
-    for s in suggestions:
-        ds = s.get("dataset") or ""
-        col = s.get("column")
-        issue_type = s.get("issue_type") or ""
-        conflict_key = (ds, col, issue_type)
-        if conflict_key in resolved_map:
-            s["suggested_action"] = resolved_map[conflict_key].action
-
-    # Call the compiler to process suggestions into safe steps and manual review
-    from agent.etl_pipeline.issue_to_step_compiler import compile_issues_to_steps
-    compiled_steps, compiled_mr = compile_issues_to_steps(
-        suggestions, rules, sem_schema
+    builder = PlanBuilder(
+        assessment, business_rules_raw,
+        engine=engine,
+        source_context=source_context,
+        generation_mode=generation_mode,
+        dq_recommendations=dq_recommendations,
+        semantic_context=semantic_context
     )
-
-    logger.info(
-        "Compiler output: %d auto-fix steps across %d datasets, %d manual review",
-        sum(len(s) for s in compiled_steps.values()),
-        len(compiled_steps),
-        len(compiled_mr),
-    )
-
-    # Add manual review items
-    for mr in compiled_mr:
-        manual_review.append(mr)
-
-    # Append any conflict warnings to manual review
-    added_conflicts = set()
-    for s in suggestions:
-        ds = s.get("dataset") or ""
-        col = s.get("column")
-        issue_type = s.get("issue_type") or ""
-        conflict_key = (ds, col, issue_type)
-        if conflict_key in conflicts_map:
-            if conflict_key not in added_conflicts:
-                added_conflicts.add(conflict_key)
-                conflict = conflicts_map[conflict_key]
-                conflict_item = {
-                    "dataset": ds or None,
-                    "column": col,
-                    "issue_type": issue_type,
-                    "severity": "high",
-                    "message": f"Conflict detected on '{col}' ({issue_type}): competing rules exist.",
-                    "guidance": "Please select which rule action to apply. The highest priority rule action is pre-selected.",
-                }
-                manual_review.append(
-                    enrich_manual_review_item(
-                        conflict_item,
-                        conflict=conflict
-                    )
-                )
-
-    # 3. Populate step_map from compiled steps
-    for ds_name, steps in compiled_steps.items():
-        for st in steps:
-            col = st["column"]
-            action = st["action"]
-            it = st["source_issue_type"]
-            sev = st["severity"]
-            row_est = st["estimated_affected_rows"]
-            pri = st["priority"]
-
-            if ds_name and ds_name != "_global" and column_is_excluded(col, exclude):
-                continue
-
-            key = (ds_name or "_global", (col or "*"), action, it or "")
-            col_stats = _col_stats_for_step(assessment, ds_name or "", col)
-            if ds_name and col:
-                col_key = f"{ds_name}.{col}"
-                desc = sem_schema.get(col_key)
-                if desc:
-                    col_stats = dict(col_stats)
-                    col_stats["semantic_type"] = desc.get("semantic_type")
-                    col_stats["sub_type"] = desc.get("sub_type")
-                    col_stats["pii_level"] = desc.get("pii_level")
-                    col_stats["fill_strategy"] = desc.get("fill_strategy")
-
-            sug_dict = {
-                "dataset": ds_name,
-                "column": col,
-                "issue_type": it,
-                "message": st.get("message"),
-                "llm_recommendation": st.get("llm_recommendation"),
-            }
-            evidence = _build_evidence(sug_dict, col_stats, action, rules)
-            if st.get("llm_recommendation"):
-                evidence["llm_recommendation"] = st["llm_recommendation"]
-
-            params = build_step_params(
-                action,
-                column=col,
-                col_stats=col_stats,
-                evidence=evidence,
-                rules=rules,
-                issue_type=it,
-            )
-
-            # Merge any params supplied by the compiler (e.g. fill value, clip bounds)
-            if st.get("params"):
-                params.update(st["params"])
-
-            entry = {
-                "dataset": ds_name or "_global",
-                "column": col,
-                "action": action,
-                "source_issue_type": it,
-                "severity": sev,
-                "estimated_affected_rows": row_est,
-                "priority": pri,
-                "note": st.get("note"),
-                "params": params,
-                "evidence": evidence,
-                "message": st.get("message"),
-            }
-            if st.get("llm_recommendation"):
-                entry["llm_recommendation"] = st["llm_recommendation"]
-
-            prev = step_map.get(key)
-            if not prev or (row_est and (prev.get("estimated_affected_rows") or 0) < (row_est or 0)):
-                step_map[key] = entry
-
-    for ds, col, act, note in _steps_from_business_notes(rules, assessment):
-        if column_is_excluded(col, exclude):
-            continue
-        key = (ds, col, act, "business_notes")
-        if key not in step_map:
-            cstats = _col_stats_for_step(assessment, ds, col)
-            if ds and col:
-                col_key = f"{ds}.{col}"
-                desc = sem_schema.get(col_key)
-                if desc:
-                    cstats = dict(cstats)
-                    cstats["semantic_type"] = desc.get("semantic_type")
-                    cstats["sub_type"] = desc.get("sub_type")
-                    cstats["pii_level"] = desc.get("pii_level")
-                    cstats["fill_strategy"] = desc.get("fill_strategy")
-            ev = {"why_this_action": note, "confidence": 0.9}
-            step_map[key] = {
-                "dataset": ds,
-                "column": col,
-                "action": act,
-                "source_issue_type": "business_notes",
-                "severity": "medium",
-                "priority": _ACTION_PRIORITY.get(act, 56),
-                "note": note,
-                "params": build_step_params(act, column=col, col_stats=cstats, evidence=ev, rules=rules),
-                "evidence": ev,
-                "message": note,
-            }
-
-    # Per-dataset ordered steps
-    datasets_out: Dict[str, Any] = {}
-    global_steps: List[Dict[str, Any]] = []
-
-    for key, st in step_map.items():
-        ds_name = key[0]
-        # Route to global if sentinel or empty string
-        if not ds_name or ds_name == "_global":
-            global_steps.append(
-                {
-                    "order": st["priority"],
-                    "column": st.get("column"),
-                    "action": st["action"],
-                    "estimated_affected_rows": st.get("estimated_affected_rows"),
-                    "note": st.get("note"),
-                }
-            )
-            continue
-        datasets_out.setdefault(ds_name, []).append(st)
-
-    rel_plan = build_relationship_plan(assessment)
-    if rules.get("never_drop_rows"):
-        for j in rel_plan.get("joins") or []:
-            if str(j.get("join_type") or "").lower() == "inner":
-                j["join_type"] = "left"
-                j["note"] = (
-                    (j.get("note") or "")
-                    + " Upgraded inner→left: never_drop_rows business rule."
-                ).strip()
-    for rstep in rel_plan.get("relationship_steps") or []:
-        act = str(rstep.get("action") or "")
-        if act == "validate_referential_integrity_or_stage":
-            ds = rstep.get("dataset") or "_global"
-            col = rstep.get("column")
-            key = (ds, (col or "*"), act, "relationship")
-            if key not in step_map:
-                ri_ev = rstep.get("evidence") or {}
-                step_map[key] = {
-                    "dataset": ds,
-                    "column": col,
-                    "action": act,
-                    "severity": "high",
-                    "estimated_affected_rows": rstep.get("estimated_affected_rows"),
-                    "priority": _ACTION_PRIORITY.get(act, 300),
-                    "note": f"FK to {rstep.get('related_dataset')}.{rstep.get('related_column')}",
-                    "params": build_ri_step_params(rstep, rules),
-                    "evidence": ri_ev,
-                    "message": ri_ev.get("why_this_action"),
-                }
-                datasets_out.setdefault(ds, []).append(step_map[key])
-
-    global_steps.sort(key=lambda x: x.get("order") or 0)
-    for i, st in enumerate(global_steps, start=1):
-        st["order"] = i
-
-    for ds_name, steps in datasets_out.items():
-        steps.sort(key=lambda x: (x["priority"], str(x.get("column") or "")))
-        enriched_steps: List[Dict[str, Any]] = []
-        for i, st in enumerate(steps, start=1):
-            st["order"] = i
-            col = st.get("column")
-            cstats = _col_stats_for_step(assessment, ds_name, col)
-            null_pct = None
-            if cstats.get("null_percentage") is not None:
-                try:
-                    null_pct = float(cstats["null_percentage"]) * 100.0
-                except (TypeError, ValueError):
-                    pass
-            res = classify_step_bucket(
-                str(st.get("action") or ""),
-                severity=str(st.get("severity") or "medium"),
-                null_percentage=null_pct,
-                never_drop_rows=bool(rules.get("never_drop_rows")),
-            )
-            st["bucket"] = res["bucket"]
-            st["phase"] = res["phase"]
-            enriched_steps.append(st)
-        datasets_out[ds_name] = finalize_dataset_steps(enriched_steps, assessment, rules)
-
-    rel_plan = enrich_relationship_plan_joins(rel_plan, rules)
-
-    engine_rec = _recommend_engine(source_context, assessment)
-    if rel_plan.get("join_count", 0) > 0 and engine_rec.get("engine") == "python":
-        ds_count = len(datasets_known)
-        if ds_count > 1:
-            engine_rec = dict(engine_rec)
-            engine_rec["reason"] = (
-                str(engine_rec.get("reason", ""))
-                + f" Multi-dataset ({ds_count} sources, {rel_plan['join_count']} join(s) detected)."
-            )
-
-    # Semantic schema is already built at the top of the function and contains rich descriptors
-
-    # S2-MOD-03: Update planner.py to support generation_mode and DQ gate checks
-    if (generation_mode or "full").lower() == "full":
-        from agent.etl_pipeline.dq_gate import check_dq_gate
-        threshold = float(rules.get("dq_threshold", 70.0))
-        for ds_name in datasets_known:
-            gate_res = check_dq_gate(assessment, ds_name, threshold=threshold, force_unlock=ds_name in rules.get("force_unlock", []), sem_schema=sem_schema)
-            if not gate_res["passed"]:
-                manual_review.append(
-                    enrich_manual_review_item({
-                        "dataset": ds_name,
-                        "column": None,
-                        "issue_type": "dq_gate_warning",
-                        "severity": "high",
-                        "message": f"Data quality score ({gate_res['score']}) is below threshold ({threshold}). Phase 2 transformations are blocked for dataset '{ds_name}'. Please resolve errors in Phase 1 (cleanse) first.",
-                        "guidance": "Resolve data quality issues or lower/override the threshold in business rules.",
-                    })
-                )
-
-    # Build coverage report
-    def _clean(val: Any, default: str = "") -> str:
-        if val is None or str(val).strip() == "":
-            return default
-        return str(val).strip()
-
-    all_issues = set()
-    for s in suggestions:
-        ds = _clean(s.get("dataset"), "_global")
-        col = _clean(s.get("column"), "*")
-        it = _clean(s.get("issue_type"))
-        all_issues.add((ds, col, it))
-
-    covered_by_steps = set()
-    for ds_name, steps in datasets_out.items():
-        for st in steps:
-            col = _clean(st.get("column"), "*")
-            it = _clean(st.get("source_issue_type"))
-            covered_by_steps.add((_clean(ds_name), col, it))
-
-    in_manual = set()
-    for m in manual_review:
-        ds = _clean(m.get("dataset"), "_global")
-        col = _clean(m.get("column"), "*")
-        it = _clean(m.get("issue_type"))
-        in_manual.add((ds, col, it))
-
-    covered = covered_by_steps | in_manual
-    uncovered = all_issues - covered
-
-    tier_counts = {"standard": 0, "complex": 0, "non_fixable": 0}
-    for m in manual_review:
-        tier = m.get("risk_tier", "standard")
-        tier_counts[tier] = tier_counts.get(tier, 0) + 1
-
-    coverage_summary = {
-        "total_issues": len(all_issues),
-        "covered_by_steps": len(covered_by_steps),
-        "manual_review_total": len(in_manual),
-        "manual_review_by_tier": tier_counts,
-        "uncovered": len(uncovered),
-        "uncovered_items": [{"dataset": d, "column": c, "issue_type": i} for d, c, i in uncovered],
-    }
-
-    logger.info(
-        "Plan coverage: total=%d, steps=%d, manual_total=%d, by_tier=%s, uncovered=%d",
-        coverage_summary["total_issues"],
-        coverage_summary["covered_by_steps"],
-        coverage_summary["manual_review_total"],
-        str(coverage_summary["manual_review_by_tier"]),
-        coverage_summary["uncovered"],
-    )
-
-    plan = {
-        "plan_version": 1,
-        "plan_id": _plan_id(),
-        "engine": (engine or "python").lower(),
-        "generation_mode": generation_mode or "full",
-        "created_at": time.time(),
-        "assessment_signature": _assessment_signature(assessment),
-        "business_rules": rules,
-        "datasets": {k: {"steps": v} for k, v in datasets_out.items()},
-        "global_steps": global_steps,
-        "manual_review": manual_review,
-        "blocked": blocked,
-        "coverage": coverage_summary,
-        "invariants": build_plan_invariants(rules),
-        "suggestions_summary": sug_pkg.get("summary") or {},
-        "engine_recommendation": engine_rec,
-        "source_context": source_context or {},
-        "relationships": rel_plan,
-        "semantic_schema": {k: v for k, v in sem_schema.items()},
-    }
-
-    if rules.get("auto_resolve_pending") and plan.get("manual_review"):
-        from agent.etl_pipeline.manual_review_promote import apply_manual_resolutions
-        resolutions = []
-        for m in plan["manual_review"]:
-            resolutions.append({
-                "item_id": m.get("id"),
-                "resolution_id": m.get("default_resolution")
-            })
-        plan, _ = apply_manual_resolutions(plan, resolutions, business_rules=rules)
-
-    return plan
+    return builder.build()
 
 
 def get_unacknowledged_blockers(plan: Dict[str, Any]) -> List[Dict[str, Any]]:

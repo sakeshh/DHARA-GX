@@ -24,7 +24,53 @@ def _parent_child_from_rel(rel: Dict[str, Any]) -> Optional[Tuple[str, str, str,
     return None
 
 
-def _build_join_evidence(rel: Dict[str, Any], orphan_count: int = 0) -> Dict[str, Any]:
+def calculate_join_confidence(rel: Dict[str, Any], assessment: Dict[str, Any]) -> float:
+    overlap = float(rel.get("overlap_count") or 0)
+    card = str(rel.get("cardinality") or "").lower()
+    
+    ds_a = rel.get("dataset_a")
+    ds_b = rel.get("dataset_b")
+    
+    row_count_a = 1
+    row_count_b = 1
+    if assessment and isinstance(assessment, dict):
+        datasets = assessment.get("datasets") or {}
+        row_count_a = float(datasets.get(ds_a, {}).get("row_count") or 1)
+        row_count_b = float(datasets.get(ds_b, {}).get("row_count") or 1)
+        
+    max_rows = max(row_count_a, row_count_b, 1)
+    overlap_ratio = overlap / max_rows
+    
+    confidence = 0.5
+    
+    if overlap > 0:
+        confidence += min(0.3, overlap_ratio * 0.3)
+        if overlap > 100:
+            confidence += 0.1
+            
+    col_a = str(rel.get("column_a") or "").lower()
+    col_b = str(rel.get("column_b") or "").lower()
+    if col_a == col_b:
+        confidence += 0.15
+    else:
+        suffixes = ["_id", "id", "_key", "key", "_code", "code", "_num", "num"]
+        shares_suffix = False
+        for s in suffixes:
+            if col_a.endswith(s) and col_b.endswith(s):
+                shares_suffix = True
+                break
+        if shares_suffix:
+            confidence += 0.08
+            
+    if card in ("one_to_many", "many_to_one", "one_to_one"):
+        confidence += 0.05
+    elif card == "many_to_many":
+        confidence -= 0.15
+        
+    return round(max(0.1, min(1.0, confidence)), 2)
+
+
+def _build_join_evidence(rel: Dict[str, Any], assessment: Dict[str, Any], orphan_count: int = 0) -> Dict[str, Any]:
     why = [
         rel.get("summary") or "",
         f"{rel.get('overlap_count', 0):,} overlapping key values",
@@ -39,7 +85,11 @@ def _build_join_evidence(rel: Dict[str, Any], orphan_count: int = 0) -> Dict[str
         alts.append("Left join + orphan quarantine table to preserve child rows")
     else:
         alts.append("Inner join if only matching keys should survive")
-    conf = 0.88 if orphan_count == 0 and card in ("one_to_many", "many_to_one", "one_to_one") else 0.62
+        
+    conf = calculate_join_confidence(rel, assessment)
+    if orphan_count > 0:
+        conf = max(0.1, conf - 0.15)
+        
     return {
         "why_this_action": " | ".join(x for x in why if x),
         "alternatives": [a for a in alts if a],
@@ -104,7 +154,7 @@ def build_relationship_plan(assessment: Dict[str, Any]) -> Dict[str, Any]:
                     "bridge_name": bname,
                     "cardinality": "many_to_many",
                     "overlap_count": rel.get("overlap_count"),
-                    "evidence": _build_join_evidence(rel),
+                    "evidence": _build_join_evidence(rel, assessment),
                     "recommended_action": "model_many_to_many",
                     "resolution_options": [
                         "bridge_table",
@@ -123,7 +173,7 @@ def build_relationship_plan(assessment: Dict[str, Any]) -> Dict[str, Any]:
                     "join_type": "review",
                     "cardinality": "many_to_many",
                     "overlap_count": rel.get("overlap_count"),
-                    "evidence": _build_join_evidence(rel),
+                    "evidence": _build_join_evidence(rel, assessment),
                     "note": "M:N — use bridge table codegen, not direct join",
                     "auto_fixable": False,
                     "bridge_name": bname,
@@ -142,7 +192,7 @@ def build_relationship_plan(assessment: Dict[str, Any]) -> Dict[str, Any]:
                     "join_type": "review",
                     "cardinality": rel.get("cardinality"),
                     "overlap_count": rel.get("overlap_count"),
-                    "evidence": _build_join_evidence(rel),
+                    "evidence": _build_join_evidence(rel, assessment),
                     "note": "Ambiguous cardinality — review before joining",
                     "auto_fixable": False,
                 }
@@ -169,7 +219,7 @@ def build_relationship_plan(assessment: Dict[str, Any]) -> Dict[str, Any]:
                 "from_a_to_b": rel.get("from_a_to_b"),
                 "overlap_count": rel.get("overlap_count"),
                 "orphan_row_count": orphan or None,
-                "evidence": _build_join_evidence(rel, orphan_count=orphan),
+                "evidence": _build_join_evidence(rel, assessment, orphan_count=orphan),
                 "recommended_action": "join_after_cleaning",
                 "auto_fixable": True,
             }

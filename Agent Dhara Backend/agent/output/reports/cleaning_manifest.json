@@ -1,26 +1,26 @@
 {
   "manifest_version": "1.0",
-  "generated_at": "2026-07-02T08:39:27.873076Z",
-  "verdict": "NEEDS_WORK",
-  "overall_dq_score": 48.8,
+  "generated_at": "2026-07-03T10:59:16.903998Z",
+  "verdict": "READY",
+  "overall_dq_score": 73.7,
   "total_datasets": 1,
   "summary": {
-    "high": 14,
-    "medium": 13,
-    "low": 6
+    "high": 1,
+    "medium": 8,
+    "low": 19
   },
   "datasets": {
     "dbo.EmployeeData": {
       "source_file": "dbo.EmployeeData",
       "row_count": 20,
       "column_count": 10,
-      "dq_score": 48.8,
-      "readiness": "NEEDS_WORK",
-      "total_issues": 33,
+      "dq_score": 73.7,
+      "readiness": "READY",
+      "total_issues": 28,
       "issues_by_severity": {
-        "high": 14,
-        "medium": 13,
-        "low": 6
+        "high": 1,
+        "medium": 8,
+        "low": 19
       },
       "issues": [
         {
@@ -42,382 +42,60 @@
           "manual_guidance": ""
         },
         {
-          "column": "EmployeeName",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            3
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_nulls_simple",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
           "column": "Email",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
+          "issue_type": "invalid_email",
+          "severity": "medium",
+          "rows_affected": 2,
           "row_indexes": [
-            9
+            2,
+            4
           ],
           "sample_bad_values": [
-            "None"
+            "mjohnson@company",
+            ""
           ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_nulls_simple",
+          "message": "2 invalid email(s)",
+          "recommended_action": "sanitize_email",
           "auto_fixable": true,
           "manual_guidance": ""
         },
         {
           "column": "Phone",
-          "issue_type": "nulls",
-          "severity": "high",
+          "issue_type": "invalid_phone",
+          "severity": "medium",
           "rows_affected": 2,
           "row_indexes": [
-            1,
-            13
+            5,
+            14
           ],
           "sample_bad_values": [
-            "None",
-            "None"
+            "N/A",
+            "55555abcde"
           ],
-          "message": "2 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Department",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            16
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "JobTitle",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            10
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
+          "message": "2 invalid phone number(s)",
+          "recommended_action": "normalize_phone",
           "auto_fixable": true,
           "manual_guidance": ""
         },
         {
           "column": "HireDate",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            18
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Salary",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            4
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Location",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            19
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Status",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            10
-          ],
-          "sample_bad_values": [
-            "None"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "EmployeeID",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            16
-          ],
-          "sample_bad_values": [
-            ""
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "EmployeeName",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            16
-          ],
-          "sample_bad_values": [
-            "Unknown"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_nulls_simple",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Email",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            4
-          ],
-          "sample_bad_values": [
-            ""
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_nulls_simple",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Phone",
-          "issue_type": "nulls",
-          "severity": "high",
-          "rows_affected": 1,
-          "row_indexes": [
-            5
-          ],
-          "sample_bad_values": [
-            "N/A"
-          ],
-          "message": "1 null/placeholder",
-          "recommended_action": "fill_or_drop",
-          "auto_fixable": true,
-          "manual_guidance": ""
-        },
-        {
-          "column": "Department",
-          "issue_type": "invalid_lookup_value",
+          "issue_type": "invalid_date_format",
           "severity": "medium",
-          "rows_affected": 1,
+          "rows_affected": 3,
           "row_indexes": [
-            9
-          ],
-          "sample_bad_values": [
-            "Operations"
-          ],
-          "message": "Value not in allowed lookup list for Department (1 invalid value(s))",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "EmployeeID",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
-          "row_indexes": [
-            16
-          ],
-          "sample_bad_values": [
-            "{'EmployeeID': ''}"
-          ],
-          "message": "EmployeeID must follow the standard format (E followed by digits).",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Email",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 20,
-          "row_indexes": [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
             8,
-            9,
-            10,
-            11,
             12,
-            13,
-            14,
-            15,
-            16,
-            17,
-            18,
-            19
-          ],
-          "sample_bad_values": [
-            "{'Email': 'john.smith@company.com'}",
-            "{'Email': 'JANE.DOE@company.com'}",
-            "{'Email': 'mjohnson@company'}",
-            "{'Email': 'sarah.connor@company.com'}",
-            "{'Email': ''}"
-          ],
-          "message": "Email must belong to an approved company domain.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Phone",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 6,
-          "row_indexes": [
-            1,
-            3,
-            5,
-            9,
-            13,
             14
           ],
           "sample_bad_values": [
-            "{'Phone': None}",
-            "{'Phone': '98765-12345'}",
-            "{'Phone': 'N/A'}",
-            "{'Phone': '123456789'}",
-            "{'Phone': None}"
+            "2024-02-30",
+            "2021-13-01",
+            "2020-06-31"
           ],
-          "message": "Phone must contain exactly 10 numeric digits.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "EmployeeName",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
-          "row_indexes": [
-            3
-          ],
-          "sample_bad_values": [
-            "{'EmployeeName': None}"
-          ],
-          "message": "EmployeeName length must be between 3 and 100 characters.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "EmployeeName",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 1,
-          "row_indexes": [
-            3
-          ],
-          "sample_bad_values": [
-            "{'EmployeeName': None}"
-          ],
-          "message": "EmployeeName must contain only valid alphabetic characters and spaces.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Department",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 2,
-          "row_indexes": [
-            9,
-            16
-          ],
-          "sample_bad_values": [
-            "{'Department': 'Operations'}",
-            "{'Department': None}"
-          ],
-          "message": "Department must match an approved department list.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
-        },
-        {
-          "column": "Status",
-          "issue_type": "custom_rule_violation",
-          "severity": "medium",
-          "rows_affected": 4,
-          "row_indexes": [
-            2,
-            9,
-            10,
-            17
-          ],
-          "sample_bad_values": [
-            "{'Status': 'active'}",
-            "{'Status': 'ACTIVE'}",
-            "{'Status': None}",
-            "{'Status': 'active'}"
-          ],
-          "message": "Status must be one of the approved status values.",
-          "recommended_action": "review_manually",
-          "auto_fixable": false,
-          "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
+          "message": "3 bad date(s) (failed parsing)",
+          "recommended_action": "parse_dates",
+          "auto_fixable": true,
+          "manual_guidance": ""
         },
         {
           "column": "[Row-level]",
@@ -520,6 +198,152 @@
           "manual_guidance": "Review manually before writing ETL logic for this column/dataset."
         },
         {
+          "column": "EmployeeName",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            3
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Email",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            9
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Phone",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 2,
+          "row_indexes": [
+            1,
+            13
+          ],
+          "sample_bad_values": [
+            "None",
+            "None"
+          ],
+          "message": "2 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Department",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "JobTitle",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            10
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "HireDate",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            18
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Salary",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Location",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            19
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Status",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            10
+          ],
+          "sample_bad_values": [
+            "None"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
           "column": "EmployeeID",
           "issue_type": "whitespace",
           "severity": "low",
@@ -582,6 +406,70 @@
           ],
           "message": "1 leading/trailing spaces",
           "recommended_action": "trim",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "EmployeeID",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "EmployeeName",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            16
+          ],
+          "sample_bad_values": [
+            "Unknown"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Email",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            4
+          ],
+          "sample_bad_values": [
+            ""
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_nulls_simple",
+          "auto_fixable": true,
+          "manual_guidance": ""
+        },
+        {
+          "column": "Phone",
+          "issue_type": "nulls",
+          "severity": "low",
+          "rows_affected": 1,
+          "row_indexes": [
+            5
+          ],
+          "sample_bad_values": [
+            "N/A"
+          ],
+          "message": "1 null/placeholder",
+          "recommended_action": "fill_or_drop",
           "auto_fixable": true,
           "manual_guidance": ""
         },

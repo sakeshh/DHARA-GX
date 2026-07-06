@@ -161,6 +161,12 @@ def _route_after_plan(state: ETLState) -> str:
 def _route_after_confirm(state: ETLState) -> str:
     if not state.get("ok"):
         return END
+    plan = state.get("plan") or {}
+    from agent.etl_pipeline.planner import get_unacknowledged_blockers
+    blockers = get_unacknowledged_blockers(plan)
+    if blockers:
+        logger.info(f"Transition to 'generate' blocked: {len(blockers)} unacknowledged manual review items exist.")
+        return END
     return "generate"
 
 def _route_after_generate(state: ETLState) -> str:

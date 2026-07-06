@@ -71,10 +71,16 @@ def _connect() -> ConnectionProxy:
               session_id TEXT PRIMARY KEY,
               created_at REAL NOT NULL,
               updated_at REAL NOT NULL,
+              version INTEGER DEFAULT 1,
               payload_json TEXT NOT NULL
             )
             """
         )
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(sessions)")
+        columns = [r[1] for r in cursor.fetchall()]
+        if "version" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN version INTEGER DEFAULT 1")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS experiences (
@@ -145,19 +151,21 @@ def load_session(session_id: str) -> Dict[str, Any]:
     now = time.time()
     conn = _connect()
     try:
-        row = conn.execute("SELECT payload_json FROM sessions WHERE session_id = ?", (sid,)).fetchone()
+        row = conn.execute("SELECT payload_json, version FROM sessions WHERE session_id = ?", (sid,)).fetchone()
         if not row:
             # Brand-new session — persist immediately with correct defaults
             payload = dict(_DEFAULT_SESSION_PAYLOAD)
             payload["session_id"] = sid
+            payload["_version"] = 1
             conn.execute(
-                "INSERT INTO sessions (session_id, created_at, updated_at, payload_json) VALUES (?,?,?,?)",
-                (sid, now, now, json.dumps(payload, cls=SessionJSONEncoder)),
+                "INSERT INTO sessions (session_id, created_at, updated_at, version, payload_json) VALUES (?,?,?,?,?)",
+                (sid, now, now, 1, json.dumps(payload, cls=SessionJSONEncoder)),
             )
             conn.commit()
             return payload
         payload = json.loads(row[0])
         payload["session_id"] = sid
+        payload["_version"] = row[1] if row[1] is not None else 1
         # Back-fill missing last_step for sessions created before this fix
         if payload.get("last_step") in (None, "", "unknown") and not payload.get("selected_source"):
             payload["last_step"] = "awaiting_source_selection"
@@ -175,18 +183,30 @@ def save_session(session_id_or_payload: str | Dict[str, Any], payload: Optional[
         if payload is None:
             payload = {}
 
+    loaded_version = payload.pop("_version", None)
     now = time.time()
     conn = _connect()
     try:
-        conn.execute(
-            """
-            INSERT INTO sessions (session_id, created_at, updated_at, payload_json)
-            VALUES (?,?,?,?)
-            ON CONFLICT(session_id) DO UPDATE SET updated_at=excluded.updated_at,
-                                                   payload_json=excluded.payload_json
-            """,
-            (sid, now, now, json.dumps(payload, cls=SessionJSONEncoder)),
-        )
+        row = conn.execute("SELECT version FROM sessions WHERE session_id = ?", (sid,)).fetchone()
+        if not row:
+            payload["_version"] = 1
+            conn.execute(
+                "INSERT INTO sessions (session_id, created_at, updated_at, version, payload_json) VALUES (?,?,?,?,?)",
+                (sid, now, now, 1, json.dumps(payload, cls=SessionJSONEncoder)),
+            )
+        else:
+            current_version = row[0] if row[0] is not None else 1
+            if loaded_version is not None and loaded_version != current_version:
+                raise RuntimeError(
+                    f"Concurrency conflict: Session '{sid}' has been modified by another request (loaded: {loaded_version}, current: {current_version}). Please reload."
+                )
+            
+            new_version = current_version + 1
+            payload["_version"] = new_version
+            conn.execute(
+                "UPDATE sessions SET updated_at = ?, version = ?, payload_json = ? WHERE session_id = ?",
+                (now, new_version, json.dumps(payload, cls=SessionJSONEncoder), sid)
+            )
         conn.commit()
     finally:
         conn.close()

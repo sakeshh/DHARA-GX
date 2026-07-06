@@ -174,7 +174,7 @@ def test_orchestrate_approval_required():
 def test_build_pre_execution_counts(mock_connect):
     mock_conn = MagicMock()
     mock_cursor = MagicMock()
-    mock_cursor.fetchone.return_value = [100]
+    mock_cursor.fetchall.return_value = [("dbo.customers", 100), ("orders", 100)]
     mock_conn.cursor.return_value = mock_cursor
     mock_connect.return_value = mock_conn
 
@@ -182,10 +182,10 @@ def test_build_pre_execution_counts(mock_connect):
     assert counts == {"dbo.customers": 100, "orders": 100}
     
     # Check that brackets were added
-    args1 = mock_cursor.execute.call_args_list[0][0][0]
-    args2 = mock_cursor.execute.call_args_list[1][0][0]
-    assert "[dbo].[customers]" in args1
-    assert "[orders]" in args2
+    mock_cursor.execute.assert_called_once()
+    query = mock_cursor.execute.call_args[0][0]
+    assert "[dbo].[customers]" in query
+    assert "[orders]" in query
 
 
 @patch("pyodbc.connect")

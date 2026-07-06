@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import uuid
 import logging
+import hashlib
+import concurrent.futures
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +23,38 @@ from agent.azure_sql_executor import (
 from agent.execution import execute_plan, ExecutionPlan, ExecutionEngine
 
 logger = logging.getLogger("agent.etl_pipeline.execution_orchestrator")
+
+_EXEC_CACHE: Dict[str, dict] = {}
+_REGEN_JOBS: Dict[str, dict] = {}
+
+
+def start_regen_job(
+    job_id: str,
+    post_validation_report: dict,
+    original_plan: dict,
+    assessment: dict,
+    engine: str,
+    connection_string: str | None = None,
+):
+    _REGEN_JOBS[job_id] = {"status": "running", "result": None, "error": None}
+    
+    def run():
+        try:
+            patched = post_etl_regen_if_needed(
+                post_validation_report,
+                original_plan,
+                assessment,
+                engine,
+                connection_string
+            )
+            _REGEN_JOBS[job_id] = {"status": "succeeded", "result": patched, "error": None}
+        except Exception as e:
+            _REGEN_JOBS[job_id] = {"status": "failed", "result": None, "error": str(e)}
+
+    import threading
+    t = threading.Thread(target=run)
+    t.daemon = True
+    t.start()
 
 
 def post_etl_regen_if_needed(
@@ -79,12 +113,22 @@ def orchestrate_sql_execution(
     rid = run_id or str(uuid.uuid4())
     now_str = datetime.now(timezone.utc).isoformat()
 
+    # 3.3 Idempotency Cache Guard
+    idempotency_key = hashlib.sha256(f"{sql}_{dry_run}".encode("utf-8")).hexdigest()
+    if idempotency_key in _EXEC_CACHE:
+        logger.info(f"Returning cached execution result for key: {idempotency_key}")
+        cached_res = dict(_EXEC_CACHE[idempotency_key])
+        cached_res["run_id"] = rid
+        cached_res["timestamp_utc"] = now_str
+        return cached_res
+
     # 1. Validate SQL with validate_sql_basic
     valid, errors = validate_sql_basic(sql)
     if not valid:
-        return {
+        res = {
             "ok": False,
             "stage": "validation",
+            "failure_class": "retryable_pregate",
             "run_id": rid,
             "session_id": session_id,
             "approved": approved,
@@ -99,18 +143,26 @@ def orchestrate_sql_execution(
                 "total_duration_ms": 0.0,
                 "batch_count": 0,
                 "row_deltas": {},
-                "rollback_reason": "SQL basic validation failed",
+                "rollback_reason": None,
             },
             "timestamp_utc": now_str,
         }
+        return res
 
-    # 1b. T-SQL preflight (NEW GATE)
-    preflight = run_sql_preflight(sql)
+    # 1b. T-SQL preflight with 3.5 hard 15s timeout
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(run_sql_preflight, sql)
+        try:
+            preflight = future.result(timeout=15.0)
+        except concurrent.futures.TimeoutError:
+            preflight = {"passed": False, "errors": ["SQL preflight validation timed out (15s limit)"]}
+
     if not preflight.get("passed", True):
         preflight_errors = preflight.get("errors") or []
-        return {
+        res = {
             "ok": False,
             "stage": "preflight",
+            "failure_class": "retryable_pregate",
             "run_id": rid,
             "session_id": session_id,
             "approved": approved,
@@ -125,15 +177,16 @@ def orchestrate_sql_execution(
                 "total_duration_ms": 0.0,
                 "batch_count": 0,
                 "row_deltas": {},
-                "rollback_reason": "SQL preflight validation failed",
+                "rollback_reason": None,
             },
             "timestamp_utc": now_str,
         }
+        return res
 
     # 2. Check approval requirement via check_requires_approval()
     app_check = check_requires_approval(sql)
     if app_check["requires_approval"] and not approved and not dry_run:
-        return {
+        res = {
             "ok": False,
             "stage": "approval_required",
             "run_id": rid,
@@ -154,6 +207,7 @@ def orchestrate_sql_execution(
             },
             "timestamp_utc": now_str,
         }
+        return res
 
     # 3. Call execution registry
     plan = ExecutionPlan(
@@ -219,9 +273,8 @@ def orchestrate_sql_execution(
         except Exception as e:
             logger.debug(f"Post-ETL validation run failed: {e}")
 
-    # Attempt regen on regressions
-    regen_patch_available = False
-    regen_patch_sql = None
+    # Attempt regen on regressions asynchronously
+    regen_patch_job_id = None
     if not post_validation_report.get("ok", True) and assessment:
         try:
             from agent.session_store import load_session
@@ -231,18 +284,17 @@ def orchestrate_sql_execution(
             original_plan = flow.get("approved_plan") or flow.get("plan")
             engine = flow.get("codegen_engine") or "sql"
             if original_plan:
-                patched = post_etl_regen_if_needed(
+                regen_patch_job_id = str(uuid.uuid4())
+                start_regen_job(
+                    regen_patch_job_id,
                     post_validation_report,
                     original_plan,
                     assessment,
                     engine,
                     connection_string
                 )
-                if patched:
-                    regen_patch_available = True
-                    regen_patch_sql = patched
         except Exception as e:
-            logger.debug(f"Regen patch attempt failed: {e}")
+            logger.debug(f"Regen patch queue failed: {e}")
 
     post_execution_summary = {
         "transaction_committed": committed,
@@ -252,11 +304,10 @@ def orchestrate_sql_execution(
         "row_deltas": row_deltas,
         "rollback_reason": rollback_reason,
         "post_etl_validation": post_validation_report,
-        "regen_patch_available": regen_patch_available,
-        "regen_patch_sql": regen_patch_sql,
+        "regen_patch_job_id": regen_patch_job_id,
     }
 
-    return {
+    final_res = {
         "ok": exec_res.get("ok", False),
         "stage": "execution",
         "run_id": rid,
@@ -270,6 +321,11 @@ def orchestrate_sql_execution(
         "post_execution_summary": post_execution_summary,
         "timestamp_utc": now_str,
     }
+
+    if final_res["ok"] and not dry_run:
+        _EXEC_CACHE[idempotency_key] = final_res
+
+    return final_res
 
 
 def _safe_bracket_quote(name: str) -> str:
@@ -296,24 +352,37 @@ def build_pre_execution_counts(
 ) -> dict:
     """
     Run SELECT COUNT(*) FROM <table> for each table_name.
-    Return {"table_name": count_or_None, ...}. Never raise.
+    Uses a batched UNION ALL query for single roundtrip, falling back to iterative query on error.
     """
-    counts = {}
+    counts = {t: None for t in table_names}
     if not table_names:
         return counts
+
+    union_parts = []
+    for t in table_names:
+        safe_table = _safe_bracket_quote(t)
+        union_parts.append(f"SELECT {repr(t)} AS tbl, COUNT(*) AS cnt FROM {safe_table}")
+    query = "\nUNION ALL\n".join(union_parts)
 
     conn = None
     try:
         conn = get_connection(connection_string)
         cursor = conn.cursor()
-        for table in table_names:
-            safe_table = _safe_bracket_quote(table)
-            try:
-                cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
-                row = cursor.fetchone()
-                counts[table] = row[0] if row else None
-            except Exception:
-                counts[table] = None
+        try:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            for row in rows:
+                counts[row[0]] = row[1]
+        except Exception as e:
+            logger.warning(f"Batched pre-execution counting failed, falling back to iterative query: {e}")
+            for table in table_names:
+                safe_table = _safe_bracket_quote(table)
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM {safe_table}")
+                    row = cursor.fetchone()
+                    counts[table] = row[0] if row else None
+                except Exception:
+                    counts[table] = None
     except Exception:
         for table in table_names:
             counts[table] = None

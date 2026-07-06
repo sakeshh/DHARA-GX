@@ -1,6 +1,16 @@
 from typing import Any, Dict, List, Tuple, Optional
 from agent.etl_pipeline.rule_provenance import TaggedRule, RuleConflict, RuleProvenance
 
+def _has_potential_conflicts(rules: List[TaggedRule]) -> bool:
+    seen = set()
+    for r in rules:
+        k = (r.dataset or "", r.column or "", r.issue_type or "")
+        if k in seen:
+            return True
+        seen.add(k)
+    return False
+
+
 def detect_conflicts(rules: List[TaggedRule]) -> Tuple[List[TaggedRule], List[RuleConflict]]:
     """
     Groups TaggedRules by (dataset, column, issue_type).
@@ -11,6 +21,9 @@ def detect_conflicts(rules: List[TaggedRule]) -> Tuple[List[TaggedRule], List[Ru
     Returns:
       (resolved_rules, conflicts)
     """
+    if not _has_potential_conflicts(rules):
+        return rules, []
+
     # Group by key: (dataset, column, issue_type)
     groups: Dict[Tuple[str, str, str], List[TaggedRule]] = {}
     for r in rules:

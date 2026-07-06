@@ -111,11 +111,11 @@ def test_orchestrate_sql_execution_post_validation(
     mock_conn.cursor.return_value = mock_cursor
     
     # Pre-execution counts and post-execution counts queries
-    mock_cursor.fetchall.return_value = [("id", "NO")]
-    mock_cursor.fetchone.side_effect = [
-        (105,),  # SELECT COUNT(*) for post-execution count build (after = 105, before = 100 -> delta = 5)
-        (0,),    # SELECT COUNT(*) for id null count query
+    mock_cursor.fetchall.side_effect = [
+        [("sales", 105)],  # post-execution count union query (after = 105)
+        [("id", "NO")],   # columns query in run_post_etl_validation
     ]
+    mock_cursor.fetchone.return_value = (0,)  # SELECT COUNT(*) for id null count query
     
     res = orchestrate_sql_execution(
         sql="UPDATE sales SET amount = 10",

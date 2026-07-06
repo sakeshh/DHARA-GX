@@ -160,6 +160,7 @@ def compile_issues_to_steps(
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Dict[str, Any]]]:
     datasets_steps = {}
     manual_review = []
+    seen_mr = set()
     
     from agent.etl_pipeline.manual_review_catalog import enrich_manual_review_item, manual_review_item_id
     
@@ -173,8 +174,10 @@ def compile_issues_to_steps(
             sug, sug.get("suggested_action"), rules, sem_schema
         )
         
+        is_noop = (action == "noop")
+        
         # Save step or route to manual_review/non_fixable
-        if auto_fixable and action != "review_manually":
+        if auto_fixable and action != "review_manually" and not is_noop:
             # Add to steps
             datasets_steps.setdefault(ds, [])
             max_order = max((s.get("order", 0) for s in datasets_steps[ds]), default=0)
@@ -197,6 +200,18 @@ def compile_issues_to_steps(
                 "message": sug.get("message"),
             })
         else:
+            # For noops, only retain if they have associated validation/LLM context or severity is not trivial
+            if is_noop:
+                has_context = bool(sug.get("llm_recommendation") or sug.get("validation_errors") or sug.get("message"))
+                if not has_context:
+                    continue
+
+            # Uniqueness check based on (dataset, column, issue_type, action)
+            mr_key = (ds, col, it, action)
+            if mr_key in seen_mr:
+                continue
+            seen_mr.add(mr_key)
+
             # Determine risk tier
             if it in _NON_FIXABLE_ISSUE_TYPES:
                 risk_tier = "non_fixable"
@@ -212,7 +227,7 @@ def compile_issues_to_steps(
                 "dataset": ds if ds != "global" else None,
                 "column": col,
                 "issue_type": it,
-                "risk_tier": risk_tier,          # ← NEW unified field
+                "risk_tier": risk_tier,
                 "severity": sug.get("severity") or "medium",
                 "message": sug.get("message") or f"Review required for {it}",
                 "guidance": sug.get("manual_guidance") or f"Configure action for {col}",

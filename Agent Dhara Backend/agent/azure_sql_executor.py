@@ -195,6 +195,14 @@ def execute_sql_batch(
         cursor.execute(sql)
         rows = cursor.rowcount
 
+        # Consume all result sets to ensure any errors raised inside stored procedures
+        # are surfaced immediately rather than deferred to commit/next query.
+        try:
+            while cursor.nextset() is True:
+                pass
+        except pyodbc.Error as nextset_err:
+            raise nextset_err
+
         messages = []
         if hasattr(cursor, "messages"):
             raw_msgs = getattr(cursor, "messages") or []
@@ -326,7 +334,10 @@ def run_transactional_sql(
             if batch_res["error"] is not None:
                 # Rollback on failure (only if not in autocommit mode)
                 if not conn.autocommit:
-                    conn.rollback()
+                    try:
+                        conn.rollback()
+                    except Exception as rollback_ex:
+                        logger.warning(f"Failed to rollback transaction: {rollback_ex}")
                 return {
                     "ok": False,
                     "run_id": rid,

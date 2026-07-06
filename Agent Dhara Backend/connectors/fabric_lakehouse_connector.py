@@ -50,19 +50,22 @@ def is_fabric_mirror_enabled() -> bool:
 def get_fabric_storage_options() -> Dict[str, str]:
     """
     Build the storage options dictionary for delta-rs.
-    If Service Principal credentials are provided in env, use them.
-    Otherwise, fall back to DefaultAzureCredential (e.g. Azure CLI 'az login' credentials).
+    If FABRIC_AUTH_MODE is set to 'service_principal', execute SP auth only.
+    Otherwise, fall back to DefaultAzureCredential.
     """
     tenant_id = _clean_env_value(os.getenv("FABRIC_TENANT_ID"))
     client_id = _clean_env_value(os.getenv("FABRIC_CLIENT_ID"))
     client_secret = _clean_env_value(os.getenv("FABRIC_CLIENT_SECRET"))
+    default_auth_mode = "service_principal" if (client_id and client_secret) else "default"
+    auth_mode = str(os.getenv("FABRIC_AUTH_MODE") or default_auth_mode).strip().lower()
 
     options = {
         "use_fabric_endpoint": "true"
     }
 
-    # If Service Principal is configured, use it
-    if client_id and client_secret:
+    if auth_mode == "service_principal":
+        if not (client_id and client_secret):
+            raise ValueError("FABRIC_AUTH_MODE is set to service_principal, but FABRIC_CLIENT_ID/SECRET is not configured.")
         logger.info("Using Service Principal authentication for Fabric OneLake.")
         options["client_id"] = client_id
         options["client_secret"] = client_secret
@@ -70,8 +73,8 @@ def get_fabric_storage_options() -> Dict[str, str]:
             options["tenant_id"] = tenant_id
         return options
 
-    # Fallback: Try fetching bearer token using DefaultAzureCredential (e.g. Azure CLI)
-    logger.info("Service Principal credentials not fully configured. Attempting token-based authentication via DefaultAzureCredential...")
+    # Default authentication path
+    logger.info("Executing token-based authentication via DefaultAzureCredential...")
     try:
         from azure.identity import DefaultAzureCredential
         if tenant_id:
@@ -88,6 +91,36 @@ def get_fabric_storage_options() -> Dict[str, str]:
                        f"Please ensure you have configured Azure CLI and executed 'az login' in your shell.")
 
     return options
+
+
+def _write_chunk_with_retry(
+    target_uri: str, 
+    chunk: pd.DataFrame, 
+    mode: str, 
+    storage_options: dict, 
+    schema_mode: Optional[str] = None,
+    max_attempts: int = 3
+):
+    import time
+    from deltalake import write_deltalake
+    backoff = 2.0
+    for attempt in range(max_attempts):
+        try:
+            write_deltalake(
+                target_uri,
+                chunk,
+                mode=mode,
+                storage_options=storage_options,
+                schema_mode=schema_mode
+            )
+            return
+        except Exception as e:
+            if attempt == max_attempts - 1:
+                raise e
+            logger.warning(f"Fabric OneLake write attempt {attempt + 1} failed: {e}. Retrying in {backoff}s...")
+            time.sleep(backoff)
+            backoff *= 2.0
+
 
 def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append", schema_mode: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -130,7 +163,7 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append", 
         logger.warning(f"DataFrame size ({len(df)} rows) exceeds maximum row threshold ({max_rows}). Chunking writes...")
 
     try:
-        from deltalake import write_deltalake
+        from deltalake import write_deltalake, DeltaTable
     except ImportError as ie:
         err_msg = "The 'deltalake' library is not installed. Run 'pip install deltalake'."
         logger.error(err_msg, exc_info=ie)
@@ -138,10 +171,47 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append", 
 
     storage_options = get_fabric_storage_options()
 
+    # Meta check & strict schema validation
+    table_exists = False
+    existing_schema = None
+    try:
+        dt = DeltaTable(target_uri, storage_options=storage_options)
+        table_exists = True
+        existing_schema = dt.schema()
+    except Exception:
+        pass
+
+    try:
+        if table_exists and existing_schema:
+            existing_cols = {f.name for f in existing_schema.fields}
+            new_cols = set(df.columns)
+            
+            if mode == "append":
+                if new_cols != existing_cols:
+                    logger.warning(f"Schema mismatch on append write to {table_name}. Existing columns: {existing_cols}, New columns: {new_cols}.")
+                    if schema_mode not in ("merge", "overwrite"):
+                        raise ValueError(f"Schema mismatch on append to table '{table_name}' without schema evolution mode enabled.")
+            
+            elif mode == "overwrite":
+                # Enforce non-nullable constraint checks
+                for field in existing_schema.fields:
+                    if not field.nullable and field.name in df.columns:
+                        if df[field.name].isnull().any():
+                            raise ValueError(f"Constraint violation: Column '{field.name}' is non-nullable in target schema, but overwrite data contains null values.")
+    except Exception as e:
+        logger.error(f"Gating validation failed for {safe_table_name}: {e}")
+        return {
+            "ok": False,
+            "error": "SCHEMA_VALIDATION_FAILED",
+            "message": str(e),
+            "table": safe_table_name,
+            "uri": target_uri
+        }
+
     actual_schema_mode = schema_mode or ("overwrite" if mode == "overwrite" else "merge")
     try:
         if len(df) <= chunk_size:
-            write_deltalake(
+            _write_chunk_with_retry(
                 target_uri,
                 df,
                 mode=mode,
@@ -154,7 +224,7 @@ def write_to_lakehouse(df: pd.DataFrame, table_name: str, mode: str = "append", 
                 chunk = df.iloc[i : i + chunk_size]
                 chunk_mode = mode if first else "append"
                 chunk_schema_mode = actual_schema_mode if chunk_mode == mode else "merge"
-                write_deltalake(
+                _write_chunk_with_retry(
                     target_uri,
                     chunk,
                     mode=chunk_mode,

@@ -64,6 +64,10 @@ def emit_python_load_and_join(
             jname = f"joined_{_safe(p)}_{_safe(c)}"
             lines.append(f"    if {repr(p)} in dfs and {repr(c)} in dfs:")
             lines.append(f"        _right = _prefix_columns_python(dfs[{repr(c)}], {repr(sfx)}, [{repr(ck)}])")
+            lines.append(f"        if dfs[{repr(p)}][{repr(pk)}].isnull().any():")
+            lines.append(f"            raise ValueError({repr(f'Null key values found in parent dataset {p} column {pk} before join.')})")
+            lines.append(f"        if _right[{repr(ck)}].isnull().any():")
+            lines.append(f"            raise ValueError({repr(f'Null key values found in child dataset {c} column {ck} before join.')})")
             lines.append(
                 f"        dfs[{repr(jname)}] = dfs[{repr(p)}].merge("
                 f"_right, left_on={repr(pk)}, right_on={repr(ck)}, "
