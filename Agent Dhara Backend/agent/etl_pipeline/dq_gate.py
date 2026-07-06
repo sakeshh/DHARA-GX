@@ -168,3 +168,20 @@ def evaluate_dq_gate(
         "warnings": warnings,
     }
 
+
+def check_dq_gate_post_cleanse(
+    post_cleanse_assessment: Dict[str, Any],
+    ds_name: str,
+    threshold: float = 70.0,
+    force_unlock: bool = False,
+    sem_schema: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Determines if a dataset passes the DQ gate for Phase 2 using post-cleanse metrics."""
+    return check_dq_gate(
+        post_cleanse_assessment,
+        ds_name,
+        threshold=threshold,
+        force_unlock=force_unlock,
+        sem_schema=sem_schema
+    )
+

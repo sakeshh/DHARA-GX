@@ -1135,10 +1135,10 @@ button.dataset-toggle:active {
 <header class="masthead">
   <div class="tagline">Intelligent data assessment</div>
   <h1>Assessment report</h1>
-  <div class="sub">Generated 2026-07-02 14:09:27</div>
+  <div class="sub">Generated 2026-07-03 16:29:16</div>
 </header>
 </div>
-<section id="dq-scorecard" class="dq-scorecard-section"><div class="scorecard-banner scorecard-needs"><div class="scorecard-verdict-row"><span class="v-ico">⚠️</span> <span class="v-text">Data quality verdict: <strong>NEEDS WORK</strong></span></div><div class="scorecard-metrics">Overall DQ score: <strong>48.8</strong> / 100 · High severity issues: <strong>14</strong> · Rows affected by HIGH: <strong>16</strong> · <span title="Based on summed HIGH issue counts; same row may be counted multiple times — value is clamped 0–100%.">Approx. row share unaffected by HIGH (UI estimate): <strong>20.0%</strong></span></div><div class="scorecard-bar-list"><div class="ds-score-row"><span class="ds-name">dbo.EmployeeData</span><div class="score-bar"><div class="score-fill score-fill-med" style="width:48.8%"></div></div><span class="score-value">48.8/100</span><span class="badge badge-needs">⚠️ NEEDS_WORK</span></div></div></div><div class="manifest-callout"><strong>Machine-readable manifest</strong> — export run writes <code>cleaning_manifest.json</code> next to <code>report.html</code>. Use it when implementing ETL: issues, row indexes, samples, and recommended actions.</div></section>
+<section id="dq-scorecard" class="dq-scorecard-section"><div class="scorecard-banner scorecard-ready"><div class="scorecard-verdict-row"><span class="v-ico">✅</span> <span class="v-text">Data quality verdict: <strong>READY</strong></span></div><div class="scorecard-metrics">Overall DQ score: <strong>73.7</strong> / 100 · High severity issues: <strong>1</strong> · Rows affected by HIGH: <strong>2</strong> · <span title="Based on summed HIGH issue counts; same row may be counted multiple times — value is clamped 0–100%.">Approx. row share unaffected by HIGH (UI estimate): <strong>90.0%</strong></span></div><div class="scorecard-bar-list"><div class="ds-score-row"><span class="ds-name">dbo.EmployeeData</span><div class="score-bar"><div class="score-fill score-fill-high" style="width:73.7%"></div></div><span class="score-value">73.7/100</span><span class="badge badge-ready">✅ READY</span></div></div></div><div class="manifest-callout"><strong>Machine-readable manifest</strong> — export run writes <code>cleaning_manifest.json</code> next to <code>report.html</code>. Use it when implementing ETL: issues, row indexes, samples, and recommended actions.</div></section>
 <section id="overview">
 <h2>Overview</h2>
 <p class="section-lead">Aggregate view of assessed datasets: volume, shape, and footprint.</p>
@@ -1176,11 +1176,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.EmployeeName</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1192,11 +1192,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Email</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1208,11 +1208,27 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-medium">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">dbo.EmployeeData.Email</span>
+                <span class="pill-sev badge sev-medium">MEDIUM</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>invalid_email</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 2 invalid email(s)</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Phone</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1224,11 +1240,27 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-medium">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">dbo.EmployeeData.Phone</span>
+                <span class="pill-sev badge sev-medium">MEDIUM</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>invalid_phone</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Standardize phone format (e.g. E.164); check for missing country codes or area codes.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 2 invalid phone number(s)</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Department</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1240,11 +1272,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.JobTitle</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1256,11 +1288,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.HireDate</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1272,11 +1304,27 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-medium">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">dbo.EmployeeData.HireDate</span>
+                <span class="pill-sev badge sev-medium">MEDIUM</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>invalid_date_format</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 3 bad date(s) (failed parsing)</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Salary</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1288,11 +1336,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Location</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1304,11 +1352,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Status</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1384,11 +1432,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.EmployeeID</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1400,11 +1448,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.EmployeeName</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1416,11 +1464,11 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Email</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
@@ -1432,144 +1480,16 @@ button.dataset-toggle:active {
               </div>
             </div>
             
-            <div class="rec-card border-sev-high">
+            <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
                 <span class="pill-dataset">dbo.EmployeeData.Phone</span>
-                <span class="pill-sev badge sev-high">HIGH</span>
+                <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
                 <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
                 <p class="rec-why-text"><strong>Why it matters:</strong> 1 null/placeholder</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.Department</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>invalid_lookup_value</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Value not in allowed lookup list for Department (1 invalid value(s))</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.EmployeeID</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> EmployeeID must follow the standard format (E followed by digits).</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.Email</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Email must belong to an approved company domain.</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.Phone</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Phone must contain exactly 10 numeric digits.</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.EmployeeName</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> EmployeeName length must be between 3 and 100 characters.</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.EmployeeName</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> EmployeeName must contain only valid alphabetic characters and spaces.</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.Department</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Department must match an approved department list.</p>
-                
-                
-                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
-              </div>
-            </div>
-            
-            <div class="rec-card border-sev-medium">
-              <div class="rec-header">
-                <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">dbo.EmployeeData.Status</span>
-                <span class="pill-sev badge sev-medium">MEDIUM</span>
-              </div>
-              <div class="rec-body">
-                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
-                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> Status must be one of the approved status values.</p>
                 
                 
                 <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
@@ -1718,20 +1638,20 @@ button.dataset-toggle:active {
               <h3>dbo.EmployeeData</h3>
               <div class="toggle-sub">Profile &amp; data quality</div>
             </div>
-            <div class="dataset-stats-inline"><span>20 rows</span><span>10 cols</span><span class='badge sev-medium'>DQ 48.8/100</span></div>
+            <div class="dataset-stats-inline"><span>20 rows</span><span>10 cols</span><span class='badge sev-low'>DQ 73.7/100</span></div>
           </button>
           <div class="dataset-body" id="dbc-0">
             <div class='path-inset disk'><span class='path-inset-label'>Filesystem path</span><span class='path-inset-value'>__database__:SQL data</span><button type='button' class='btn-mini btn-copy-path' data-path="__database__:SQL data">Copy</button></div>
-            <aside class="dataset-clean-summary" aria-label="Remediation row estimates"><p class="clean-summary-intro">These counts are computed from overlapping HIGH/MEDIUM rows in this scan (see <a href="#dq-scorecard">DQ verdict</a> for context).</p><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH</strong>-severity finding</span><span class="clean-est-value">8</span><span class="clean-est-tail"> <span class="muted">(of 20 sampled rows)</span> <span class="muted">≈ 40.0% unaffected by HIGH severity</span></span></div><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH nor MEDIUM</strong> finding</span><span class="clean-est-value">0</span><span class="clean-est-tail"> <span class="muted">(of 20 sampled rows)</span> <span class="muted">≈ 0.0% unaffected after HIGH+MEDIUM remediation</span></span></div></aside>
+            <aside class="dataset-clean-summary" aria-label="Remediation row estimates"><p class="clean-summary-intro">These counts are computed from overlapping HIGH/MEDIUM rows in this scan (see <a href="#dq-scorecard">DQ verdict</a> for context).</p><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH</strong>-severity finding</span><span class="clean-est-value">18</span><span class="clean-est-tail"> <span class="muted">(of 20 sampled rows)</span> <span class="muted">≈ 90.0% unaffected by HIGH severity</span></span></div><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH nor MEDIUM</strong> finding</span><span class="clean-est-value">2</span><span class="clean-est-tail"> <span class="muted">(of 20 sampled rows)</span> <span class="muted">≈ 10.0% unaffected after HIGH+MEDIUM remediation</span></span></div></aside>
             <h4 class="block-title">Profile</h4>
-            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>Email</strong></td><td>object (string)</td><td>5.0%</td><td>18</td><td>email</td><td>false</td></tr><tr><td><strong>EmployeeName</strong></td><td>object (string)</td><td>5.0%</td><td>18</td><td>categorical</td><td>false</td></tr><tr><td><strong>EmployeeID</strong></td><td>object (string)</td><td>0.0%</td><td>19</td><td>categorical</td><td>false</td></tr><tr><td><strong>JobTitle</strong></td><td>object (string)</td><td>5.0%</td><td>15</td><td>categorical</td><td>false</td></tr><tr><td><strong>HireDate</strong></td><td>object (string)</td><td>5.0%</td><td>17</td><td>date</td><td>false</td></tr><tr><td><strong>Department</strong></td><td>object (string)</td><td>5.0%</td><td>6</td><td>categorical</td><td>false</td></tr><tr><td><strong>Location</strong></td><td>object (string)</td><td>5.0%</td><td>9</td><td>categorical</td><td>false</td></tr><tr><td><strong>Phone</strong></td><td>object (numeric_like)</td><td>10.0%</td><td>16</td><td>phone</td><td>false</td></tr><tr><td><strong>Status</strong></td><td>object (string)</td><td>5.0%</td><td>3</td><td>categorical</td><td>false</td></tr><tr><td><strong>Salary</strong></td><td>object (mixed)</td><td>5.0%</td><td>17</td><td>categorical</td><td>false</td></tr></tbody></table></div>
+            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>Department</strong></td><td>object (string)</td><td>5.0%</td><td>6</td><td>categorical</td><td>false</td></tr><tr><td><strong>HireDate</strong></td><td>object (string)</td><td>5.0%</td><td>17</td><td>date</td><td>false</td></tr><tr><td><strong>Email</strong></td><td>object (string)</td><td>5.0%</td><td>18</td><td>email</td><td>false</td></tr><tr><td><strong>JobTitle</strong></td><td>object (string)</td><td>5.0%</td><td>15</td><td>categorical</td><td>false</td></tr><tr><td><strong>EmployeeID</strong></td><td>object (string)</td><td>0.0%</td><td>19</td><td>categorical</td><td>false</td></tr><tr><td><strong>Location</strong></td><td>object (string)</td><td>5.0%</td><td>9</td><td>categorical</td><td>false</td></tr><tr><td><strong>EmployeeName</strong></td><td>object (string)</td><td>5.0%</td><td>18</td><td>categorical</td><td>false</td></tr><tr><td><strong>Phone</strong></td><td>object (numeric_like)</td><td>10.0%</td><td>16</td><td>phone</td><td>false</td></tr><tr><td><strong>Status</strong></td><td>object (string)</td><td>5.0%</td><td>3</td><td>categorical</td><td>false</td></tr><tr><td><strong>Salary</strong></td><td>object (mixed)</td><td>5.0%</td><td>17</td><td>categorical</td><td>false</td></tr></tbody></table></div>
             <h4 class="block-title">Data quality</h4>
             <details class="dq-issue-details" open>
-              <summary class="dq-issue-summary">dbo.EmployeeData — 33 issues (14 HIGH · 13 MEDIUM · 6 LOW)</summary>
+              <summary class="dq-issue-summary">dbo.EmployeeData — 28 issues (1 HIGH · 8 MEDIUM · 19 LOW)</summary>
               <div class="dq-issue-body">
-            <h4 class='block-title'>High severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>[Row-level]</td><td><code>duplicate_primary_key</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-not_fixable'>NOT_FIXABLE</span></td><td>2</td><td>6, 7</td><td><code>{&#x27;EmployeeID&#x27;: &#x27;E007&#x27;, &#x27;EmployeeName&#x27;: &#x27;Rahul Kumar&#x27;, &#x27;Email&#x27;: &#x27;rahul.kumar@company.com&#x27;, &#x27;Phone&#x27;: &#x27;9876543210&#x27;, &#x27;Department&#x27;: &#x27;IT&#x27;, &#x27;JobTitle&#x27;: &#x27;Data Analyst&#x27;, &#x27;HireDate&#x27;: &#x27;2022-01-15&#x27;, &#x27;Salary&#x27;: &#x27;65000.00&#x27;, &#x27;Location&#x27;: &#x27;Bangalore&#x27;, &#x27;Status&#x27;: &#x27;Active&#x27;}</code>, <code>{&#x27;EmployeeID&#x27;: &#x27;E007&#x27;, &#x27;EmployeeName&#x27;: &#x27;Rahul Kumar&#x27;, &#x27;Email&#x27;: &#x27;rahul.kumar@company.com&#x27;, &#x27;Phone&#x27;: &#x27;9876543210&#x27;, &#x27;Department&#x27;: &#x27;IT&#x27;, &#x27;JobTitle&#x27;: &#x27;Data Analyst&#x27;, &#x27;HireDate&#x27;: &#x27;2022-01-15&#x27;, &#x27;Salary&#x27;: &#x27;65000.00&#x27;, &#x27;Location&#x27;: &#x27;Bangalore&#x27;, &#x27;Status&#x27;: &#x27;Active&#x27;}</code></td><td class='msg-cell'>2 duplicate in candidate PK</td><td class='rec-cell'>Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL.</td></tr><tr><td>EmployeeName</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>3</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Email</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>9</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Phone</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>2</td><td>1, 13</td><td><code></code>, <code></code></td><td class='msg-cell'>2 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Department</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>JobTitle</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>10</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>HireDate</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>18</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Salary</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Location</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>19</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Status</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>10</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>EmployeeID</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>EmployeeName</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code>Unknown</code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Email</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Phone</td><td><code>nulls</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>5</td><td><code>N/A</code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr></tbody></table></div>
-            <h4 class='block-title'>Medium severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>Department</td><td><code>invalid_lookup_value</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>9</td><td><code>Operations</code></td><td class='msg-cell'>Value not in allowed lookup list for Department (1 invalid value(s))</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>EmployeeID</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code>{&#x27;EmployeeID&#x27;: &#x27;&#x27;}</code></td><td class='msg-cell'>EmployeeID must follow the standard format (E followed by digits).</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Email</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>20</td><td>0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19</td><td><code>{&#x27;Email&#x27;: &#x27;john.smith@company.com&#x27;}</code>, <code>{&#x27;Email&#x27;: &#x27;JANE.DOE@company.com&#x27;}</code>, <code>{&#x27;Email&#x27;: &#x27;mjohnson@company&#x27;}</code>, <code>{&#x27;Email&#x27;: &#x27;sarah.connor@company.com&#x27;}</code>, <code>{&#x27;Email&#x27;: &#x27;&#x27;}</code></td><td class='msg-cell'>Email must belong to an approved company domain.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Phone</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>6</td><td>1, 3, 5, 9, 13, 14</td><td><code>{&#x27;Phone&#x27;: None}</code>, <code>{&#x27;Phone&#x27;: &#x27;98765-12345&#x27;}</code>, <code>{&#x27;Phone&#x27;: &#x27;N/A&#x27;}</code>, <code>{&#x27;Phone&#x27;: &#x27;123456789&#x27;}</code>, <code>{&#x27;Phone&#x27;: None}</code></td><td class='msg-cell'>Phone must contain exactly 10 numeric digits.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>EmployeeName</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>3</td><td><code>{&#x27;EmployeeName&#x27;: None}</code></td><td class='msg-cell'>EmployeeName length must be between 3 and 100 characters.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>EmployeeName</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>3</td><td><code>{&#x27;EmployeeName&#x27;: None}</code></td><td class='msg-cell'>EmployeeName must contain only valid alphabetic characters and spaces.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Department</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>2</td><td>9, 16</td><td><code>{&#x27;Department&#x27;: &#x27;Operations&#x27;}</code>, <code>{&#x27;Department&#x27;: None}</code></td><td class='msg-cell'>Department must match an approved department list.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Status</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>4</td><td>2, 9, 10, 17</td><td><code>{&#x27;Status&#x27;: &#x27;active&#x27;}</code>, <code>{&#x27;Status&#x27;: &#x27;ACTIVE&#x27;}</code>, <code>{&#x27;Status&#x27;: None}</code>, <code>{&#x27;Status&#x27;: &#x27;active&#x27;}</code></td><td class='msg-cell'>Status must be one of the approved status values.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>[Row-level]</td><td><code>near_duplicate_rows</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>6</td><td><code>{&#x27;row_index_a&#x27;: 6, &#x27;row_index_b&#x27;: 7, &#x27;similarity&#x27;: 1.0}</code></td><td class='msg-cell'>Found 1 pair(s) of near-duplicate rows withsimilarity &gt;= 0.92</td><td class='rec-cell'>Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge.</td></tr><tr><td>HireDate</td><td><code>mixed_date_formats</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>16</td><td>0, 1, 3, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 19</td><td><code>ISO(YYYY-MM-DD)</code>, <code>US(MM/DD/YYYY)</code></td><td class='msg-cell'>Multiple date formats detected: ISO(YYYY-MM-DD)=15, US(MM/DD/YYYY)=1</td><td class='rec-cell'>Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors.</td></tr><tr><td>HireDate</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>3</td><td>8, 12, 14</td><td><code>2024-02-30</code>, <code>2021-13-01</code>, <code>2020-06-31</code></td><td class='msg-cell'>HireDate: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>EmployeeID</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>EmployeeID: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Email</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>Email: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr></tbody></table></div>
-            <h4 class='block-title'>Low severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>EmployeeID</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>EmployeeName</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td>1, 11</td><td><code> jane doe </code>, <code>Chris Wilson </code></td><td class='msg-cell'>2 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>Email</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>Location</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>14</td><td><code> Bengaluru </code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>Status</td><td><code>all_caps_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>9</td><td><code>ACTIVE</code></td><td class='msg-cell'>1 ALL-CAPS value(s) mixed with 18 mixed/lower-case</td><td class='rec-cell'>Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.</td></tr><tr><td>Status</td><td><code>duplicate_insensitive_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td><span class='muted'>(none)</span></td><td><code>[&#x27;Active&#x27;, &#x27;active&#x27;, &#x27;ACTIVE&#x27;]</code></td><td class='msg-cell'>2 value(s) that differ only by case/whitespace — false uniqueness</td><td class='rec-cell'>Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization.</td></tr></tbody></table></div>
+            <h4 class='block-title'>High severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>[Row-level]</td><td><code>duplicate_primary_key</code></td><td><span class='badge sev-high'>HIGH</span></td><td><span class='badge fx-not_fixable'>NOT_FIXABLE</span></td><td>2</td><td>6, 7</td><td><code>{&#x27;EmployeeID&#x27;: &#x27;E007&#x27;, &#x27;EmployeeName&#x27;: &#x27;Rahul Kumar&#x27;, &#x27;Email&#x27;: &#x27;rahul.kumar@company.com&#x27;, &#x27;Phone&#x27;: &#x27;9876543210&#x27;, &#x27;Department&#x27;: &#x27;IT&#x27;, &#x27;JobTitle&#x27;: &#x27;Data Analyst&#x27;, &#x27;HireDate&#x27;: &#x27;2022-01-15&#x27;, &#x27;Salary&#x27;: &#x27;65000.00&#x27;, &#x27;Location&#x27;: &#x27;Bangalore&#x27;, &#x27;Status&#x27;: &#x27;Active&#x27;}</code>, <code>{&#x27;EmployeeID&#x27;: &#x27;E007&#x27;, &#x27;EmployeeName&#x27;: &#x27;Rahul Kumar&#x27;, &#x27;Email&#x27;: &#x27;rahul.kumar@company.com&#x27;, &#x27;Phone&#x27;: &#x27;9876543210&#x27;, &#x27;Department&#x27;: &#x27;IT&#x27;, &#x27;JobTitle&#x27;: &#x27;Data Analyst&#x27;, &#x27;HireDate&#x27;: &#x27;2022-01-15&#x27;, &#x27;Salary&#x27;: &#x27;65000.00&#x27;, &#x27;Location&#x27;: &#x27;Bangalore&#x27;, &#x27;Status&#x27;: &#x27;Active&#x27;}</code></td><td class='msg-cell'>2 duplicate in candidate PK</td><td class='rec-cell'>Identify source of duplicate key generation; enforce UNIQUE constraint in database; apply deduplication filter in ETL.</td></tr></tbody></table></div>
+            <h4 class='block-title'>Medium severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>Email</td><td><code>invalid_email</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-not_fixable'>NOT_FIXABLE</span></td><td>2</td><td>2, 4</td><td><code>mjohnson@company</code>, <code></code></td><td class='msg-cell'>2 invalid email(s)</td><td class='rec-cell'>Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input.</td></tr><tr><td>Phone</td><td><code>invalid_phone</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>2</td><td>5, 14</td><td><code>N/A</code>, <code>55555abcde</code></td><td class='msg-cell'>2 invalid phone number(s)</td><td class='rec-cell'>Standardize phone format (e.g. E.164); check for missing country codes or area codes.</td></tr><tr><td>HireDate</td><td><code>invalid_date_format</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>3</td><td>8, 12, 14</td><td><code>2024-02-30</code>, <code>2021-13-01</code>, <code>2020-06-31</code></td><td class='msg-cell'>3 bad date(s) (failed parsing)</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>[Row-level]</td><td><code>near_duplicate_rows</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>6</td><td><code>{&#x27;row_index_a&#x27;: 6, &#x27;row_index_b&#x27;: 7, &#x27;similarity&#x27;: 1.0}</code></td><td class='msg-cell'>Found 1 pair(s) of near-duplicate rows withsimilarity &gt;= 0.92</td><td class='rec-cell'>Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge.</td></tr><tr><td>HireDate</td><td><code>mixed_date_formats</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>16</td><td>0, 1, 3, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 19</td><td><code>ISO(YYYY-MM-DD)</code>, <code>US(MM/DD/YYYY)</code></td><td class='msg-cell'>Multiple date formats detected: ISO(YYYY-MM-DD)=15, US(MM/DD/YYYY)=1</td><td class='rec-cell'>Multiple date formats in the same column (e.g. DD/MM/YYYY vs YYYY-MM-DD) cause silent parse errors.</td></tr><tr><td>HireDate</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>3</td><td>8, 12, 14</td><td><code>2024-02-30</code>, <code>2021-13-01</code>, <code>2020-06-31</code></td><td class='msg-cell'>HireDate: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>EmployeeID</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>EmployeeID: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>Email</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>Email: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr></tbody></table></div>
+            <h4 class='block-title'>Low severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>EmployeeName</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>3</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Email</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>9</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Phone</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>2</td><td>1, 13</td><td><code></code>, <code></code></td><td class='msg-cell'>2 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Department</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>JobTitle</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>10</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>HireDate</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>18</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Salary</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Location</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>19</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Status</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>10</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>EmployeeID</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>EmployeeName</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td>1, 11</td><td><code> jane doe </code>, <code>Chris Wilson </code></td><td class='msg-cell'>2 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>Email</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>Location</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>14</td><td><code> Bengaluru </code></td><td class='msg-cell'>1 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>EmployeeID</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>EmployeeName</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>16</td><td><code>Unknown</code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Email</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>4</td><td><code></code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Phone</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1</td><td>5</td><td><code>N/A</code></td><td class='msg-cell'>1 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>Status</td><td><code>all_caps_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1</td><td>9</td><td><code>ACTIVE</code></td><td class='msg-cell'>1 ALL-CAPS value(s) mixed with 18 mixed/lower-case</td><td class='rec-cell'>Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.</td></tr><tr><td>Status</td><td><code>duplicate_insensitive_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td><span class='muted'>(none)</span></td><td><code>[&#x27;Active&#x27;, &#x27;active&#x27;, &#x27;ACTIVE&#x27;]</code></td><td class='msg-cell'>2 value(s) that differ only by case/whitespace — false uniqueness</td><td class='rec-cell'>Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization.</td></tr></tbody></table></div>
               </div>
             </details>
           </div>

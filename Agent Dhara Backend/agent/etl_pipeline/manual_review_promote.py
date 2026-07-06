@@ -239,12 +239,16 @@ def promote_non_fixable_resolutions(
         "quarantine":          {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
         "quarantine_all_null": {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
         "reject_orphans":      {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
+        "validate_referential_integrity_or_stage": {"action": "validate_referential_integrity_or_stage", "params": {"enforcement_mode": "quarantine"}},
         "flag":                {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
         "flag_outliers":       {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
+        "clip_or_flag":        {"action": "clip_or_flag",    "params": {"outlier_method": "flag"}},
         "fill_null":           {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
         "fill_nulls":          {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
-        "accept_risk":         None,  # No step — just document in blocked[]
-        "custom":              None,  # Custom step built from user_note via LLM
+        "fill_nulls_simple":   {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
+        "fill_or_drop":        {"action": "fill_or_drop",    "params": {"fill_strategy": "value", "fill_value": None}},
+        "accept_risk":         None,
+        "custom":              None,
     }
     
     updated_plan = dict(plan)

@@ -8,19 +8,41 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
-    from openai import AzureOpenAI, OpenAI
+    from openai import AzureOpenAI, OpenAI, RateLimitError, APITimeoutError
 except ImportError:
     AzureOpenAI = None
     OpenAI = None
+    RateLimitError = None
+    APITimeoutError = None
 
 from agent.model_config import load_llm_config, LLM_REQUEST_TIMEOUT
 from agent.etl_pipeline.codegen_policy import llm_codegen_extra_context, plan_policy_block
 from agent.etl_pipeline.io_snippets import resolve_path_pyspark_helper
 
 LLM_ERROR_PREFIX = "# Error"
+
+class LLMInfraError(Exception):
+    """Raised for LLM infrastructure errors like rate limits or timeouts."""
+    pass
+
+class ConnectorConfigError(Exception):
+    """Raised when a connector is referenced but credentials are missing."""
+    pass
+
+_CODE_CACHE = {}
+
+try:
+    import tiktoken
+    _encoding = tiktoken.get_encoding("cl100k_base")
+    def _estimate_tokens(text: str) -> int:
+        return len(_encoding.encode(text, disallowed_special=()))
+except ImportError:
+    def _estimate_tokens(text: str) -> int:
+        return max(1, len(text) // 4)
 
 # Actions the planner may emit — LLM must implement each one correctly for the target engine.
 _PLAN_PARAMS = """
@@ -101,7 +123,7 @@ T-SQL REQUIREMENTS:
   - Tables: `IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'TableName' AND schema_id = SCHEMA_ID('dbo')) CREATE TABLE dbo.TableName (...);`
   - Indexes: `IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IndexName' AND object_id = OBJECT_ID('dbo.TableName')) CREATE NONCLUSTERED INDEX IndexName ON dbo.TableName (...);`
   - Procedures: `IF OBJECT_ID('dbo.ProcName', 'P') IS NOT NULL DROP PROCEDURE dbo.ProcName; GO` followed by `CREATE PROCEDURE dbo.ProcName AS BEGIN ... END; GO`
-  Each DDL statement MUST be followed by a `GO` batch separator on its own line.
+  Each outer script DDL statement (infrastructure tables, staging tables, procedures, views) MUST be followed by a GO batch separator on its own line. NEVER output GO inside a stored procedure body.
 - Execution Logging & Log ID Bugfix: Output DDL to create a logging table named `dbo.etl_log` with columns `id INT IDENTITY(1,1) PRIMARY KEY`, `process_name VARCHAR(100) NOT NULL`, `start_time DATETIME NOT NULL`, `end_time DATETIME NULL`, `status VARCHAR(20) NOT NULL`, `error_message VARCHAR(MAX) NULL` using the T-SQL idempotent guard described above. 
   Inside each stored procedure's TRY block, you MUST first run the `INSERT INTO dbo.etl_log (process_name, start_time, status) VALUES ('...', GETDATE(), 'RUNNING');` statement. IMMEDIATELY AFTER this insert, define and set the batch run ID: `DECLARE @run_id INT = SCOPE_IDENTITY();`. NEVER declare `@run_id = SCOPE_IDENTITY();` before any insert statement has occurred in the procedure, as this returns NULL and breaks audit batch tracking. Wrap the block in a transaction. Commit on success and rollback on failure.
 - Balanced Transactions: Every Try-Catch block MUST wrap data modifications in an explicit transaction block. Begin the transaction inside `BEGIN TRY` using `BEGIN TRANSACTION;` immediately after defining `@run_id`. Commit the transaction using `COMMIT TRANSACTION;` at the very end of the `BEGIN TRY` block (after all updates and logging are completed). At the beginning of the `BEGIN CATCH` block, you MUST verify if a transaction is still active and roll it back using: `IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;`. Never omit `BEGIN TRANSACTION` if `COMMIT/ROLLBACK` are used, or vice versa, to ensure compilation succeeds.
@@ -272,14 +294,10 @@ def _strip_markdown_fences(text: str) -> str:
     return code.strip()
 
 
-def _estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
-
-
-def _safe_max_tokens(payload_json: str, engine_key: str) -> int:
+def _safe_max_tokens(prompt_text: str, engine_key: str) -> int:
     context_window = 128000  # GPT-4o window
-    system_overhead = 4500  # SQL prompt is very large
-    input_tokens = _estimate_tokens(payload_json)
+    system_overhead = 6000 if engine_key == "sql-tsql" else 4500  # SQL prompt is very large
+    input_tokens = _estimate_tokens(prompt_text)
     available = context_window - input_tokens - system_overhead
     cap = 16000 if engine_key != "adf" else 6000
     return max(1500, min(cap, available))
@@ -607,6 +625,14 @@ def _read_hint_for_payload(engine_key: str, payload: Dict[str, Any]) -> str:
     ctx = payload.get("source_context") or {}
     src_type = str(ctx.get("type") or "unknown")
     loc = str(ctx.get("location") or "data_file")
+
+    # 1.9: Connector manifest validation gate
+    if src_type in ("blob_storage", "azure_sql", "sql_server", "postgres") and not ctx.get("resolved_connection"):
+        raise ConnectorConfigError(
+            f"Source type '{src_type}' requires resolved_connection details before codegen; "
+            "connector validation must complete first."
+        )
+
     if engine_key == "pyspark":
         tmpl = _PYSPARK_READ_TEMPLATES.get(src_type, _PYSPARK_READ_TEMPLATES["unknown"])
     else:
@@ -614,65 +640,162 @@ def _read_hint_for_payload(engine_key: str, payload: Dict[str, Any]) -> str:
     return tmpl.format(loc=loc)
 
 
-def _trim_payload_for_window(payload: dict, engine_key: str) -> dict:
+def _trim_payload_for_window(payload: dict, engine_key: str, force_level: int = 0) -> dict:
     """
-    Trim payload to keep total input under 10,000 tokens,
-    preserving steps but summarising source_metadata columns.
+    Trim payload according to tiered levels to fit within model context window.
+    Level 0: No trimming if estimated tokens <= 8000.
+    Level 1: Slim source_metadata, cap manual_review to 8, cap blocked to 5.
+    Level 2: Additionally cap steps to top 25, cap domain_rules to 15, relationships.joins to 10.
     """
     payload_json = json.dumps(payload, default=str)
-    if _estimate_tokens(payload_json) <= 10000:
-        return payload  # no trimming needed
-    
+    tokens = _estimate_tokens(payload_json)
+
+    if force_level == 0 and tokens <= 8000:
+        return payload
+
     trimmed = dict(payload)
-    
-    # Strategy 1: summarise source_metadata — keep dtype + semantic_type only
-    sm = trimmed.get("source_metadata") or {}
-    slim_sm = {}
-    for ds, meta in sm.items():
-        if not isinstance(meta, dict):
-            continue
-        slim_sm[ds] = {
-            "row_count": meta.get("row_count"),
-            "columns": {
-                col: {
-                    "dtype": cm.get("dtype") if isinstance(cm, dict) else None,
-                    "semantic_type": cm.get("semantic_type") if isinstance(cm, dict) else None,
-                    "sub_type": cm.get("sub_type") if isinstance(cm, dict) else None,
+
+    # Level 1 Trimming
+    if force_level >= 1 or tokens > 8000:
+        sm = trimmed.get("source_metadata") or {}
+        slim_sm = {}
+        for ds, meta in sm.items():
+            if not isinstance(meta, dict):
+                continue
+            slim_sm[ds] = {
+                "row_count": meta.get("row_count"),
+                "columns": {
+                    col: {
+                        "dtype": cm.get("dtype") if isinstance(cm, dict) else None,
+                        "semantic_type": cm.get("semantic_type") if isinstance(cm, dict) else None,
+                        "sub_type": cm.get("sub_type") if isinstance(cm, dict) else None,
+                    }
+                    for col, cm in (meta.get("columns") or {}).items()
                 }
-                for col, cm in (meta.get("columns") or {}).items()
             }
+        trimmed["source_metadata"] = slim_sm
+
+        mr = trimmed.get("manual_review") or []
+        if len(mr) > 8:
+            trimmed["manual_review"] = mr[:8]
+            trimmed["manual_review_truncated"] = f"...{len(mr)-8} more items omitted to fit context"
+
+        blocked = trimmed.get("blocked") or []
+        if len(blocked) > 5:
+            trimmed["blocked"] = blocked[:5]
+            trimmed["blocked_truncated"] = f"...{len(blocked)-5} more blocked items omitted"
+
+    # Re-estimate tokens
+    payload_json_2 = json.dumps(trimmed, default=str)
+    tokens_2 = _estimate_tokens(payload_json_2)
+
+    # Level 2 Trimming
+    if force_level >= 2 or tokens_2 > 12000:
+        ds = trimmed.get("datasets") or {}
+        _STEP_PRIORITIES = {
+            "cast_type": 1,
+            "strip_symbols": 2,
+            "fill_nulls": 3,
+            "zero_to_null": 4,
+            "lowercase": 5,
+            "uppercase": 5,
+            "trim": 5,
+            "sanitize_email": 6,
+            "normalize_phone": 6,
+            "hash_phone": 6,
+            "mask_phone": 6,
+            "clip_outliers": 7,
+            "flag_outliers": 7,
+            "clip_or_flag": 7,
+            "deduplicate": 8,
         }
-    trimmed["source_metadata"] = slim_sm
-    
-    # Strategy 2: cap manual_review to 8 items
-    mr = trimmed.get("manual_review") or []
-    if len(mr) > 8:
-        trimmed["manual_review"] = mr[:8]
-        trimmed["manual_review_truncated"] = f"...{len(mr)-8} more items omitted to fit context"
-    
-    # Strategy 3: cap blocked items to 5
-    blocked = trimmed.get("blocked") or []
-    if len(blocked) > 5:
-        trimmed["blocked"] = blocked[:5]
-    
+        def get_priority(st):
+            return _STEP_PRIORITIES.get(str(st.get("action") or "").lower().strip(), 99)
+
+        for ds_name, block in ds.items():
+            if not isinstance(block, dict):
+                continue
+            steps = block.get("steps") or []
+            if len(steps) > 25:
+                sorted_steps = sorted(steps, key=get_priority)
+                keep_steps = sorted_steps[:25]
+                omitted_count = len(steps) - 25
+                for i, st in enumerate(keep_steps):
+                    st_copy = dict(st)
+                    st_copy["order"] = i + 1
+                    keep_steps[i] = st_copy
+                block["steps"] = keep_steps
+                block["omitted_steps_summary"] = f"+{omitted_count} more low-priority steps omitted — apply standard heuristics"
+
+        dr = trimmed.get("domain_rules") or {}
+        if len(dr) > 15:
+            trimmed["domain_rules"] = {k: dr[k] for k in list(dr.keys())[:15]}
+            trimmed["domain_rules_truncated"] = f"...{len(dr)-15} more domain rules omitted"
+
+        rel = trimmed.get("relationships") or {}
+        joins = rel.get("joins") or []
+        if len(joins) > 10:
+            rel_copy = dict(rel)
+            rel_copy["joins"] = joins[:10]
+            rel_copy["joins_truncated"] = f"...{len(joins)-10} more joins omitted"
+            trimmed["relationships"] = rel_copy
+
     return trimmed
 
 
-def _call_llm(
+def _build_dynamic_sql_prompt(payload: dict, base_prompt: str) -> str:
+    has_outliers = False
+    has_dates = False
+    
+    datasets = payload.get("datasets") or {}
+    for ds_name, block in datasets.items():
+        if not isinstance(block, dict):
+            continue
+        steps = block.get("steps") or []
+        for st in steps:
+            act = str(st.get("action") or "").lower().strip()
+            if act in ("flag_outliers", "clip_outliers", "cap_outliers", "clip_or_flag"):
+                has_outliers = True
+            if act == "parse_dates":
+                has_dates = True
+                
+    br = payload.get("business_rules") or {}
+    notes = str(br.get("notes") or "").lower()
+    has_incremental = "incremental" in notes or "watermark" in notes
+    
+    rel = payload.get("relationships") or {}
+    joins = rel.get("joins") or []
+    has_joins = len(joins) > 0
+    
+    lines = base_prompt.splitlines()
+    filtered_lines = []
+    
+    for line in lines:
+        if "Incremental Loading" in line and not has_incremental:
+            continue
+        if "Outlier Mitigation Safety" in line and not has_outliers:
+            continue
+        if "Reusable Outlier Procedure" in line and not has_outliers:
+            continue
+        if "Multi-Format Date Parsing" in line and not has_dates:
+            continue
+        if "Active curated views" in line and not has_joins:
+            continue
+        if "Idempotent and Production-Safe views" in line and not has_joins:
+            continue
+            
+        filtered_lines.append(line)
+        
+    return "\n".join(filtered_lines)
+
+
+def _build_user_message_parts(
     engine_key: str,
     payload: Dict[str, Any],
-    *,
     fix_errors: Optional[List[str]] = None,
     previous_output: Optional[str] = None,
-) -> str:
-    client, model = _get_llm_client()
-    if not client or not model:
-        return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
-
-    # Trim payload first before embedding it into user message
-    payload = _trim_payload_for_window(payload, engine_key)
-
-    system = SYSTEM_PROMPTS.get(engine_key, SYSTEM_PROMPTS["python"])
+) -> List[str]:
+    br = payload.get("business_rules") or {}
     user_parts = [
         f"Target engine: {engine_key}",
         f"ETL policy (must follow):\n{payload.get('policy') or ''}",
@@ -729,7 +852,6 @@ def _call_llm(
         user_parts.append(
             f"PRIMARY READ PATTERN:\n```python\n{read_hint}\n```"
         )
-    br = payload.get("business_rules") or {}
     if br.get("notes"):
         user_parts.append(
             "BUSINESS NOTES (must honor in generated transforms):\n" + str(br.get("notes"))
@@ -829,25 +951,81 @@ def _call_llm(
             + "\nDo NOT repeat these errors."
         )
         if previous_output:
-            user_parts.append(f"Previous output (truncated):\n{previous_output[:12000]}")
+            user_parts.append(f"Previous output (truncated):\n{previous_output}")
+    return user_parts
 
-    payload_json = json.dumps(payload, indent=2, default=str)
-    max_tokens = _safe_max_tokens(payload_json, engine_key)
 
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": "\n\n".join(user_parts)},
-            ],
-            temperature=0.05,
-            max_tokens=max_tokens,
-            timeout=LLM_REQUEST_TIMEOUT,
-        )
-        return _strip_markdown_fences(response.choices[0].message.content or "")
-    except Exception as e:
-        return f"{LLM_ERROR_PREFIX} generating code with LLM: {e}"
+def _call_llm(
+    engine_key: str,
+    payload: Dict[str, Any],
+    *,
+    fix_errors: Optional[List[str]] = None,
+    previous_output: Optional[str] = None,
+) -> str:
+    import logging
+    import time
+    logger = logging.getLogger("agent.etl_pipeline.llm_codegen")
+
+    client, model = _get_llm_client()
+    if not client or not model:
+        return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
+
+    # Trim payload first before embedding it into user message
+    payload = _trim_payload_for_window(payload, engine_key, force_level=0)
+
+    # 1.5 dynamic system prompt injection
+    system = SYSTEM_PROMPTS.get(engine_key, SYSTEM_PROMPTS["python"])
+    if engine_key in ("sql-tsql", "sql-ansi"):
+        system = _build_dynamic_sql_prompt(payload, system)
+
+    user_parts = _build_user_message_parts(engine_key, payload, fix_errors, previous_output)
+    user_message = "\n\n".join(user_parts)
+    max_tokens = _safe_max_tokens(user_message, engine_key)
+
+    # 1.1 Floor check: if max_tokens < 3000, force level 2 trim and rebuild message
+    if max_tokens < 3000:
+        logger.info(f"Available tokens too small ({max_tokens}). Forcing Level 2 payload trim...")
+        payload = _trim_payload_for_window(payload, engine_key, force_level=2)
+        user_parts = _build_user_message_parts(engine_key, payload, fix_errors, previous_output)
+        user_message = "\n\n".join(user_parts)
+        max_tokens = _safe_max_tokens(user_message, engine_key)
+
+    # 1.3 OpenAI/Azure retry & timeout handling loop
+    max_attempts = 3
+    response = None
+    last_err = None
+    for attempt in range(max_attempts):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.0,
+                max_tokens=max_tokens,
+                timeout=LLM_REQUEST_TIMEOUT,
+            )
+            break
+        except (RateLimitError, APITimeoutError) as e:
+            last_err = e
+            if attempt == max_attempts - 1:
+                raise LLMInfraError(f"LLM request failed after retries: {e}") from e
+            sleep_time = 3.0 if attempt > 0 else 1.0
+            logger.warning(f"LLM rate limit or timeout on attempt {attempt + 1}, retrying in {sleep_time}s... Error: {e}")
+            time.sleep(sleep_time)
+        except Exception as e:
+            raise LLMInfraError(f"LLM infrastructure error: {e}") from e
+
+    if not response:
+        raise LLMInfraError(f"LLM request failed entirely. Last error: {last_err}")
+
+    choice = response.choices[0]
+    text = _strip_markdown_fences(choice.message.content or "")
+    if choice.finish_reason == "length":
+        raise LLMInfraError("LLM response truncated (finish_reason=length) — plan/payload too large for available tokens.")
+        
+    return text
 
 
 def parse_adf_json_from_llm(text: str) -> Tuple[Optional[Dict[str, Any]], List[str]]:
@@ -873,6 +1051,26 @@ def parse_adf_json_from_llm(text: str) -> Tuple[Optional[Dict[str, Any]], List[s
     else:
         errs.append("no JSON object found in LLM response")
     return None, errs or ["invalid ADF JSON"]
+
+
+def _build_retry_context(code: str, errors: List[str]) -> str:
+    lines = code.splitlines()
+    error_lines = set()
+    for e in errors:
+        m = re.search(r"line (\d+)", e, re.IGNORECASE)
+        if m:
+            error_lines.add(int(m.group(1)))
+    
+    if not error_lines:
+        return code[:8000]
+        
+    excerpt_lines = []
+    for ln in sorted(error_lines):
+        start = max(0, ln - 5)
+        end = min(len(lines), ln + 5)
+        excerpt_lines.append(f"... (lines {start + 1}-{end}) ...")
+        excerpt_lines.extend(lines[start:end])
+    return "\n".join(excerpt_lines[:150])
 
 
 _RETRY_BUDGET: Dict[str, int] = {
@@ -903,6 +1101,24 @@ def generate_etl_with_llm(
     if engine_key == "adf":
         return f"{LLM_ERROR_PREFIX} Use generate_adf_with_llm for ADF engine."
 
+    # 1.8: Plan signature caching
+    import hashlib
+    try:
+        blob = json.dumps(assessment, sort_keys=True, default=str)
+    except Exception:
+        blob = str(assessment)
+    assess_sig = hashlib.sha256(blob.encode("utf-8", errors="ignore")).hexdigest()[:16]
+    cache_key = f"{plan.get('plan_id')}_{assess_sig}_{engine_key}"
+
+    if not validation_errors:
+        now = time.time()
+        if cache_key in _CODE_CACHE:
+            cached_code, cached_time = _CODE_CACHE[cache_key]
+            if now - cached_time < 3600:
+                import logging
+                logging.getLogger("agent.etl_pipeline.llm_codegen").info(f"Returning cached generated code for key: {cache_key}")
+                return cached_code
+
     payload = _build_codegen_payload(
         plan, assessment, output_mode=output_mode, output_path=output_path
     )
@@ -917,7 +1133,7 @@ def generate_etl_with_llm(
     code = ""
     for attempt in range(max_retries + 1):
         if fix_errors and attempt > 0:
-            prev = code
+            prev = _build_retry_context(code, fix_errors)
         elif validation_errors:
             prev = "(retry — see validation errors in user message)"
         else:
@@ -933,24 +1149,42 @@ def generate_etl_with_llm(
             return code
         
         # Run local validation loop
+        rules = plan.get("business_rules") or {}
+        never_drop_rows = bool(rules.get("never_drop_rows"))
+
         if validator:
-            ok, errs = validator(code)
+            import inspect
+            sig = inspect.signature(validator)
+            if "never_drop_rows" in sig.parameters:
+                ok, errs = validator(code, never_drop_rows=never_drop_rows)
+            else:
+                ok, errs = validator(code)
             if ok:
+                _CODE_CACHE[cache_key] = (code, time.time())
                 return code
             if attempt < max_retries:
                 fix_errors = errs
                 continue
             # After max retries, return with validation warnings prepended
             warning = "\n".join(f"# VALIDATION WARNING: {e}" for e in errs)
-            return f"{warning}\n\n{code}"
+            res_code = f"{warning}\n\n{code}"
+            _CODE_CACHE[cache_key] = (res_code, time.time())
+            return res_code
         else:
             if validate_fn:
-                ok, errs = validate_fn(code)
+                import inspect
+                sig = inspect.signature(validate_fn)
+                if "never_drop_rows" in sig.parameters:
+                    ok, errs = validate_fn(code, never_drop_rows=never_drop_rows)
+                else:
+                    ok, errs = validate_fn(code)
                 if ok:
+                    _CODE_CACHE[cache_key] = (code, time.time())
                     return code
                 if attempt < max_retries:
                     fix_errors = errs
                     continue
+            _CODE_CACHE[cache_key] = (code, time.time())
             return code
 
     return code

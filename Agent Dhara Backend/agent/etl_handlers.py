@@ -855,7 +855,9 @@ def etl_apply_manual_resolutions(
     plan_ok, plan_errs = validate_etl_plan(updated, assess or {}, rules)
 
     # Build impact preview
-    preview = build_impact_preview(assess or {}, updated)
+    exec_res = flow.get("sql_execution_result") or {}
+    row_deltas = (exec_res.get("post_execution_summary") or {}).get("row_deltas")
+    preview = build_impact_preview(assess or {}, updated, row_deltas=row_deltas)
     flow["preview"] = preview
 
     # Build coverage report
@@ -984,12 +986,14 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
         }
 
     auto_ok = _plan_all_auto(plan) and _invariants_pass(plan)
+    exec_res = flow.get("sql_execution_result") or {}
+    row_deltas = (exec_res.get("post_execution_summary") or {}).get("row_deltas")
     if phase == "planned":
-        flow["preview"] = flow.get("preview") or build_impact_preview(assess or {}, plan)
+        flow["preview"] = flow.get("preview") or build_impact_preview(assess or {}, plan, row_deltas=row_deltas)
         _transition(flow, "preview_ready", by="system", reason="preview_before_approve")
         phase = "preview_ready"
 
-    preview = flow.get("preview") or build_impact_preview(assess or {}, plan)
+    preview = flow.get("preview") or build_impact_preview(assess or {}, plan, row_deltas=row_deltas)
     lineage = build_lineage(plan, assess or {})
     flow = ctx.setdefault("etl_flow", {})
     flow["approved_plan"] = plan

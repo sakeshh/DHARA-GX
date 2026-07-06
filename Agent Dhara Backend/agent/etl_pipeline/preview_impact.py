@@ -29,14 +29,27 @@ def _estimate_from_profile(
     return None
 
 
-def build_impact_preview(assessment: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
+def build_impact_preview(
+    assessment: Dict[str, Any],
+    plan: Dict[str, Any],
+    row_deltas: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Summarize likely data impact per step using assessment row counts, DQ counts,
     and column profile heuristics when counts are missing.
+    If row_deltas is provided, blend actual row count differences from latest runs.
     """
     rows_by_ds: Dict[str, int] = {}
     for name, meta in (assessment.get("datasets") or {}).items():
         rows_by_ds[name] = int(meta.get("row_count") or 0)
+
+    actual_diffs = {}
+    if row_deltas:
+        for t, metrics in row_deltas.items():
+            if isinstance(metrics, dict):
+                actual_diffs[t] = metrics.get("delta")
+                if metrics.get("after") is not None:
+                    rows_by_ds[t] = metrics["after"]
 
     bullets: List[str] = []
     detail: List[Dict[str, Any]] = []
@@ -44,12 +57,18 @@ def build_impact_preview(assessment: Dict[str, Any], plan: Dict[str, Any]) -> Di
     ds_plan = plan.get("datasets") or {}
     for ds_name, block in ds_plan.items():
         total = rows_by_ds.get(ds_name, 0)
+        actual_delta = actual_diffs.get(ds_name)
+        
         for st in block.get("steps") or []:
             action = st.get("action")
             col = st.get("column")
             est = st.get("estimated_affected_rows")
             est_source = "dq_issue_count"
-            if est is None or not isinstance(est, (int, float)) or est < 0:
+            
+            if actual_delta is not None:
+                est = abs(actual_delta)
+                est_source = "actual_run_delta"
+            elif est is None or not isinstance(est, (int, float)) or est < 0:
                 est2 = _estimate_from_profile(assessment, ds_name, col, str(action or ""))
                 if est2 is not None:
                     est = est2

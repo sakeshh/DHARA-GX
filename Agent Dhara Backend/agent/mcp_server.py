@@ -276,9 +276,61 @@ def readyz() -> Dict[str, str]:
     return {"ok": "true"}
 
 
+def validate_startup_config():
+    problems = []
+    if not (os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_API_KEY")):
+        problems.append("No LLM credentials configured (AZURE_OPENAI_ENDPOINT or OPENAI_API_KEY)")
+    if not os.getenv("DHARA_AZURE_SQL_CONN_STR") and os.getenv("DHARA_REQUIRE_SQL", "1") == "1":
+        problems.append("Azure SQL connection string (DHARA_AZURE_SQL_CONN_STR) is missing")
+    if os.getenv("DHARA_FABRIC_MIRROR_ENABLED", "0").strip().lower() in ("1", "true") and not os.getenv("FABRIC_WORKSPACE_ID"):
+        problems.append("Fabric mirroring enabled but FABRIC_WORKSPACE_ID missing")
+        
+    if problems:
+        for p in problems:
+            logger.critical("STARTUP CONFIG ERROR: %s", p)
+        if os.getenv("DHARA_STRICT_STARTUP", "1") == "1":
+            raise RuntimeError(f"Startup validation failed: {problems}")
+
+
 @app.on_event("startup")
 async def _startup():
+    validate_startup_config()
     _worker.start()
+
+
+@app.get("/etl/regen-status/{job_id}", tags=["etl"])
+def api_etl_regen_status(job_id: str) -> Dict[str, Any]:
+    from agent.etl_pipeline.execution_orchestrator import _REGEN_JOBS
+    if job_id not in _REGEN_JOBS:
+        raise HTTPException(status_code=404, detail="Regeneration job not found")
+    return _REGEN_JOBS[job_id]
+
+
+@app.get("/etl/plan/{plan_id}/narrative", tags=["etl"])
+def api_etl_plan_narrative(plan_id: str, session_id: str = "default") -> Dict[str, Any]:
+    from agent.session_store import load_session, save_session
+    from agent.etl_pipeline.plan_narrator import narrate_plan
+    
+    sess = load_session(session_id)
+    ctx = sess.setdefault("context", {})
+    flow = ctx.setdefault("etl_flow", {})
+    
+    plan = flow.get("approved_plan") or flow.get("plan")
+    if not plan or str(plan.get("plan_id")) != plan_id:
+        raise HTTPException(status_code=404, detail="Plan not found or plan_id mismatch")
+        
+    cache_key = f"narr_{plan_id}_{plan.get('assessment_signature')}"
+    cached = (flow.get("narration_cache") or {}).get(cache_key)
+    if isinstance(cached, dict) and cached.get("engine_explanation"):
+        return {"ok": True, "narration": cached}
+        
+    narr_mode = os.getenv("ETL_NARRATOR_MODE", "fallback").strip().lower()
+    use_llm_full = narr_mode in ("llm", "full") or os.getenv("ETL_NARRATOR_USE_LLM", "0").strip().lower() in ("1", "true", "yes")
+    
+    narration = narrate_plan(plan, mode=narr_mode, use_llm=use_llm_full)
+    flow.setdefault("narration_cache", {})[cache_key] = narration
+    save_session(sess)
+    return {"ok": True, "narration": narration}
 
 
 @app.exception_handler(Exception)
