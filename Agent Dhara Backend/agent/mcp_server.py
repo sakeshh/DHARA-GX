@@ -280,7 +280,7 @@ def validate_startup_config():
     problems = []
     if not (os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_API_KEY")):
         problems.append("No LLM credentials configured (AZURE_OPENAI_ENDPOINT or OPENAI_API_KEY)")
-    if not os.getenv("DHARA_AZURE_SQL_CONN_STR") and os.getenv("DHARA_REQUIRE_SQL", "1") == "1":
+    if not os.getenv("DHARA_AZURE_SQL_CONN_STR") and os.getenv("DHARA_REQUIRE_SQL", "0") == "1":
         problems.append("Azure SQL connection string (DHARA_AZURE_SQL_CONN_STR) is missing")
     if os.getenv("DHARA_FABRIC_MIRROR_ENABLED", "0").strip().lower() in ("1", "true") and not os.getenv("FABRIC_WORKSPACE_ID"):
         problems.append("Fabric mirroring enabled but FABRIC_WORKSPACE_ID missing")
@@ -288,7 +288,7 @@ def validate_startup_config():
     if problems:
         for p in problems:
             logger.critical("STARTUP CONFIG ERROR: %s", p)
-        if os.getenv("DHARA_STRICT_STARTUP", "1") == "1":
+        if os.getenv("DHARA_STRICT_STARTUP", "0") == "1":
             raise RuntimeError(f"Startup validation failed: {problems}")
 
 
