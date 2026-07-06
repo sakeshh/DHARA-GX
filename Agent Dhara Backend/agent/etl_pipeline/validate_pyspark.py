@@ -67,15 +67,16 @@ def _check_never_drop_rows(source: str, plan: Dict[str, Any] | None) -> List[str
     return errs
 
 
-def _check_resolve_helper_defined(source: str) -> List[str]:
+def _check_resolve_helper_defined(source: str) -> Tuple[List[str], List[str]]:
+    """Returns (hard_errors, warnings)"""
     if "_resolve_data_path(" not in source:
-        return []
+        return [], []
     if re.search(r"def\s+_resolve_data_path\s*\(", source):
-        return _check_resolve_helper_quality(source)
-    return [
-        "_resolve_data_path() is used but not defined — include the connector_manifest "
-        "_resolve_data_path helper or use full abfss:// paths"
-    ]
+        return _check_resolve_helper_quality(source), []
+    # Not defined but used — only warn if abfss:// paths exist, hard error if no path at all
+    if "abfss://" in source:
+        return [], ["Advisory: _resolve_data_path used but not defined — ensure abfss:// paths are complete"]
+    return ["_resolve_data_path() is used but not defined — add helper or use full abfss:// paths"], []
 
 
 def _check_resolve_helper_quality(source: str) -> List[str]:
@@ -196,7 +197,8 @@ def validate_pyspark_source(
     if not has_spark and "SparkSession" not in source:
         errs.append("expected pyspark import or SparkSession usage")
 
-    errs.extend(_check_resolve_helper_defined(source))
+    resolve_errs, resolve_warnings = _check_resolve_helper_defined(source)
+    errs.extend(resolve_errs)
     errs.extend(_check_dead_join_variables(source))
     errs.extend(_check_io_antipatterns(source, plan))
     errs.extend(_check_spark_session_import(source, tree))

@@ -24,13 +24,15 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
 
         sid = str(inp.get("sessionId") or inp.get("session_id") or "default").strip()
         business_rules = None
-        try:
-            from agent.session_store import load_session
-            sess = load_session(sid)
-            ctx = sess.get("context") or {}
-            business_rules = ctx.get("pending_business_rules") or ctx.get("business_rules")
-        except Exception:
-            pass
+        from agent.session_store import get_session_lock
+        with get_session_lock(sid):
+            try:
+                from agent.session_store import load_session
+                sess = load_session(sid)
+                ctx = sess.get("context") or {}
+                business_rules = ctx.get("pending_business_rules") or ctx.get("business_rules")
+            except Exception:
+                pass
 
         # Try to load from checkpoint first
         state = load_checkpoint(job_id, "orchestrator")
@@ -68,12 +70,13 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
                 merged_result["data_quality_issues"]["global_issues"].update(dq.get("global_issues") or {})
 
         try:
-            from agent.session_store import load_session, save_session
+            from agent.session_store import load_session, save_session, get_session_lock
             sid = str(inp.get("sessionId") or inp.get("session_id") or "default").strip()
-            sess = load_session(sid)
-            ctx = sess.setdefault("context", {})
-            ctx["last_assessment_result"] = merged_result
-            save_session(sess)
+            with get_session_lock(sid):
+                sess = load_session(sid)
+                ctx = sess.setdefault("context", {})
+                ctx["last_assessment_result"] = merged_result
+                save_session(sess)
         except Exception:
             pass
 
