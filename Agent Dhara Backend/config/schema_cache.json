@@ -1,14 +1,22 @@
 {
-    "dbo.EmployeeData": {
-        "EmployeeID": "object",
-        "EmployeeName": "object",
-        "Email": "object",
-        "Phone": "object",
-        "Department": "object",
-        "JobTitle": "object",
-        "HireDate": "object",
-        "Salary": "object",
-        "Location": "object",
-        "Status": "object"
+    "data_quality_issues.csv": {
+        "id": "object",
+        "name": "object",
+        "email": "object"
+    },
+    "data_quality_issues.json": {
+        "id": "object",
+        "name": "object",
+        "email": "object"
+    },
+    "data_quality_issues_v2.csv": {
+        "user_id": "object",
+        "name": "object",
+        "country": "object"
+    },
+    "data_quality_issues_v2.json": {
+        "user_id": "object",
+        "name": "object",
+        "country": "object"
     }
 }

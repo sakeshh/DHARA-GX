@@ -324,11 +324,19 @@ def _emit_unsupported(action: str, col: str, ds_var: str, _p: Dict[str, Any]) ->
     return [f"# Unsupported in codegen v1: {action} ({col})"]
 
 
+def _emit_review_manually(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
+    return [
+        f"# MANUAL REVIEW REQUIRED: {col}",
+        f"logger.warning('Column {col} requires manual review — excluded from auto-clean')",
+    ]
+
+
 def _emit_deduplicate_ds(ds_var: str) -> List[str]:
     return [f"{ds_var} = {ds_var}.drop_duplicates()"]
 
 
 _ACTION_REGISTRY: Dict[str, Callable[[str, str, Dict[str, Any]], List[str]]] = {
+    "review_manually": _emit_review_manually,
     "trim": _emit_trim,
     "fill_or_drop": _emit_fill_step,
     "fill_nulls_simple": _emit_fill_step,
