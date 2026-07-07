@@ -131,6 +131,10 @@ def post_etl_regen_if_needed(
         issue = reg.get("issue") or "quality regression"
         fix_hints.append(f"[{ds}] column {col}: {issue} worsened after ETL — fix the transform")
     
+    uncovered = original_plan.get("coverage", {}).get("uncovered_items", [])
+    pre_hints = [f"[{u['dataset']}] {u['column']}: {u['issue_type']} uncovered in plan" for u in uncovered]
+    fix_hints = pre_hints + fix_hints
+    
     patched_code = generate_etl_with_llm(
         original_plan, assessment, engine=engine,
         validation_errors=fix_hints

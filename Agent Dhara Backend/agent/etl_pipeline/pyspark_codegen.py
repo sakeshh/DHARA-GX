@@ -208,6 +208,11 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
             f"    logger.warning(f'Skipped referential integrity check for {col} -> {rel_ds}.{rel_col} (parent dataset not loaded)')",
         ])
         return lines
+    if act == "review_manually":
+        return [
+            f"# MANUAL REVIEW REQUIRED: {col}",
+            f"logger.warning('Column {col} requires manual review — excluded from auto-clean')",
+        ]
     return [f"# Unsupported in pyspark template v1: {act} on {col}"]
 
 
