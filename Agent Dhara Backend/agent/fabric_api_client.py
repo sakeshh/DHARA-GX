@@ -108,16 +108,17 @@ class FabricAPIClient:
                 "target": {"type": "BlobStorage", "location": f"https://{target_blob_account}.blob.core.windows.net/{target_container}", "subpath": f"/{target_path}"}
             }
 
-        url = f"{self.base_url}/workspaces/{self.workspace_id}/lakehouses/{self.lakehouse_id}/shortcuts"
+        url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{self.lakehouse_id}/shortcuts"
         
         # Build the payload according to Fabric specifications
         payload = {
             "path": destination_path,
             "name": shortcut_name,
             "target": {
-                "type": "BlobStorage",
-                "location": f"https://{target_blob_account}.blob.core.windows.net/{target_container}",
-                "subpath": f"/{target_path.lstrip('/')}"
+                "azureBlobStorage": {
+                    "location": f"https://{target_blob_account}.blob.core.windows.net",
+                    "subpath": f"/{target_container}/{target_path.lstrip('/')}"
+                }
             }
         }
         
@@ -161,15 +162,16 @@ class FabricAPIClient:
         try:
             if notebook_id:
                 # Update existing
-                url = f"{self.base_url}/workspaces/{self.workspace_id}/notebooks/{notebook_id}/updateDefinition"
+                url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{notebook_id}/updateDefinition"
                 res = requests.post(url, json=notebook_payload, headers=self._headers(), timeout=30)
                 res.raise_for_status()
                 return {"ok": True, "id": notebook_id, "name": notebook_name}
             else:
                 # Create new
-                url = f"{self.base_url}/workspaces/{self.workspace_id}/notebooks"
+                url = f"{self.base_url}/workspaces/{self.workspace_id}/items"
                 create_payload = {
                     "displayName": notebook_name,
+                    "type": "Notebook",
                     "definition": notebook_payload
                 }
                 res = requests.post(url, json=create_payload, headers=self._headers(), timeout=30)
@@ -192,7 +194,7 @@ class FabricAPIClient:
             logger.info(f"[MOCK] Triggered notebook run on notebook {notebook_id}. Run ID: {r_id}")
             return r_id
 
-        url = f"{self.base_url}/workspaces/{self.workspace_id}/notebooks/{notebook_id}/jobs/instances?jobType=RunNotebook"
+        url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{notebook_id}/jobs/instances?jobType=RunNotebook"
         try:
             # POST request to run notebook job
             res = requests.post(url, headers=self._headers(), timeout=20)
@@ -221,7 +223,7 @@ class FabricAPIClient:
             logger.info(f"[MOCK] Checking run status of job {run_id}")
             return {"status": "Succeeded", "ok": True}
 
-        url = f"{self.base_url}/workspaces/{self.workspace_id}/notebooks/{notebook_id}/jobs/instances/{run_id}"
+        url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{notebook_id}/jobs/instances/{run_id}"
         try:
             res = requests.get(url, headers=self._headers(), timeout=15)
             res.raise_for_status()
@@ -251,7 +253,7 @@ class FabricAPIClient:
         if self.mock_mode:
             return {"displayName": "mock-lakehouse", "id": self.lakehouse_id}
             
-        url = f"{self.base_url}/workspaces/{self.workspace_id}/lakehouses/{self.lakehouse_id}"
+        url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{self.lakehouse_id}"
         try:
             res = requests.get(url, headers=self._headers(), timeout=15)
             res.raise_for_status()
@@ -262,7 +264,7 @@ class FabricAPIClient:
 
     def _find_notebook_by_name(self, name: str) -> Optional[str]:
         """Finds notebook ID in workspace by displayName."""
-        url = f"{self.base_url}/workspaces/{self.workspace_id}/notebooks"
+        url = f"{self.base_url}/workspaces/{self.workspace_id}/items"
         try:
             res = requests.get(url, headers=self._headers(), timeout=15)
             res.raise_for_status()

@@ -591,7 +591,7 @@ export default function DataPipelinePage() {
                   </div>
                 </div>
 
-                {selectedDatabase !== 'blob_data' ? (
+                {(!selectedDatabase?.includes(':blob:') && selectedDatabase !== 'blob_data') ? (
                   <div className="flex-1 flex flex-col items-center justify-center p-8 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900/30">
                     <p className="text-gray-600 dark:text-gray-300 text-center mb-6">
                       Database sources bypass the OneLake Shortcut stage and connect directly.

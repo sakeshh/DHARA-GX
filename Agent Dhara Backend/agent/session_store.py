@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import time
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("agent.session_store")
 
 
 class SessionJSONEncoder(json.JSONEncoder):
@@ -197,9 +200,17 @@ def save_session(session_id_or_payload: str | Dict[str, Any], payload: Optional[
         else:
             current_version = row[0] if row[0] is not None else 1
             if loaded_version is not None and loaded_version != current_version:
-                raise RuntimeError(
-                    f"Concurrency conflict: Session '{sid}' has been modified by another request (loaded: {loaded_version}, current: {current_version}). Please reload."
+                logger.warning(
+                    f"Concurrency conflict: Session '{sid}' version mismatch (loaded: {loaded_version}, current: {current_version}). Auto-merging payloads."
                 )
+                db_payload_json = conn.execute("SELECT payload_json FROM sessions WHERE session_id = ?", (sid,)).fetchone()[0]
+                try:
+                    db_payload = json.loads(db_payload_json)
+                except Exception:
+                    db_payload = {}
+                merged_payload = db_payload.copy()
+                merged_payload.update(payload)
+                payload = merged_payload
             
             new_version = current_version + 1
             payload["_version"] = new_version
