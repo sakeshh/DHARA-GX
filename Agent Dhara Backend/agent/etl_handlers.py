@@ -1499,12 +1499,15 @@ def etl_execute_sql(
     flow = ctx.setdefault("etl_flow", {})
 
     target_engine = str(flow.get("target_engine") or "").lower()
-    if target_engine not in ("sql", "tsql", "ansi"):
+    execution_target = flow.get("execution_target")
+    is_fabric = (execution_target == "fabric") or (target_engine in ("spark", "pyspark"))
+
+    if not is_fabric and target_engine not in ("sql", "tsql", "ansi"):
         return {
             "ok": False,
             "session_id": sid,
             "error": "UNSUPPORTED_ENGINE",
-            "message": f"Execution only supported for SQL/T-SQL/ANSI target engines, not '{target_engine}'."
+            "message": f"Execution only supported for SQL/T-SQL/ANSI target engines or Fabric, not '{target_engine}'."
         }
 
     sql = flow.get("code")
@@ -1513,7 +1516,77 @@ def etl_execute_sql(
             "ok": False,
             "session_id": sid,
             "error": "NO_CODE",
-            "message": "No generated SQL code found for this session. Generate code first."
+            "message": "No generated SQL/PySpark code found for this session. Generate code first."
+        }
+
+    if is_fabric:
+        import uuid
+        from datetime import datetime, timezone
+        from agent.execution import execute_plan, ExecutionPlan, ExecutionEngine
+        
+        rid = f"fabric-run-{uuid.uuid4().hex[:8]}"
+        plan = ExecutionPlan(
+            plan_id=rid,
+            engine=ExecutionEngine.FABRIC_PYSPARK,
+            code=sql,
+            metadata={
+                "session_id": sid,
+                "lakehouse_id": flow.get("lakehouse_id"),
+                "workspace_id": flow.get("workspace_id")
+            }
+        )
+        
+        # Execute (triggers multiple notebooks in parallel and polls them)
+        exec_result = execute_plan(
+            plan,
+            session_id=sid,
+            timeout_s=timeout_s,
+        )
+        
+        flow["sql_execution_result"] = {
+            "ok": exec_result.ok,
+            "stage": "execution",
+            "run_id": exec_result.run_id,
+            "requires_approval": False,
+            "ops_found": [],
+            "dry_run": False,
+            "execution": exec_result.dict(),
+            "post_execution_summary": {
+                "transaction_committed": exec_result.committed,
+                "total_rows_affected": exec_result.rows_affected,
+                "total_duration_ms": exec_result.duration_ms,
+                "batch_count": len(exec_result.batch_results),
+                "row_deltas": {},
+                "rollback_reason": exec_result.error
+            },
+            "timestamp_utc": datetime.now(timezone.utc).isoformat()
+        }
+        
+        if exec_result.ok:
+            _transition(flow, "downloadable", by="system", reason="fabric_notebooks_executed_successfully")
+        else:
+            _transition(flow, "failed", by="system", reason=f"fabric_notebooks_execution_failed: {exec_result.error}")
+            
+        save_session(sess)
+        
+        return {
+            "ok": exec_result.ok,
+            "session_id": sid,
+            "stage": "execution",
+            "run_id": exec_result.run_id,
+            "requires_approval": False,
+            "ops_found": [],
+            "dry_run": False,
+            "execution": exec_result.dict(),
+            "post_execution_summary": {
+                "transaction_committed": exec_result.committed,
+                "total_rows_affected": exec_result.rows_affected,
+                "total_duration_ms": exec_result.duration_ms,
+                "batch_count": len(exec_result.batch_results),
+                "row_deltas": {},
+                "rollback_reason": exec_result.error
+            },
+            "timestamp_utc": datetime.now(timezone.utc).isoformat()
         }
 
     from agent.sql_preflight import lint_generated_sql

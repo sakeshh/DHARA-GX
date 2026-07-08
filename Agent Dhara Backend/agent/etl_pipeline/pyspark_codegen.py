@@ -16,6 +16,7 @@ from agent.etl_pipeline.io_snippets import (
     pyspark_prefix_non_key_columns_helper,
     pyspark_production_helpers,
     resolve_path_pyspark_helper,
+    resolve_path_fabric_pyspark_helper,
 )
 
 
@@ -275,8 +276,16 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         lines.extend(["# Business notes:", "# " + notes.replace("\n", "\n# "), ""])
 
     manifest = plan.get("connector_manifest") or {}
+    use_fabric = plan.get("execution_target") == "fabric" or any(
+        ent.get("source_type") == "fabric_files_zone"
+        for ent in (manifest.get("datasets") or {}).values()
+    )
+    
     if manifest.get("datasets"):
-        lines.append(resolve_path_pyspark_helper())
+        if use_fabric:
+            lines.append(resolve_path_fabric_pyspark_helper())
+        else:
+            lines.append(resolve_path_pyspark_helper())
         lines.append("")
         lines.append(pyspark_production_helpers())
         lines.append("")

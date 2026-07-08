@@ -138,6 +138,35 @@ def print_schema_top0(connector, table: str) -> bool:
         return False
 
 
+def resolve_datasets_for_assessment(
+    session_id: str,
+    selected_sources: List[str],
+) -> List[Dict[str, Any]]:
+    """
+    Resolve blob paths to Fabric raw zone (Files/raw) shortcut paths 
+    if shortcuts have been registered in sqlite for this session.
+    """
+    from agent.blob_fabric_registry import get_shortcut
+    resolved = []
+    for src in selected_sources:
+        # Check if it has a registered shortcut
+        shortcut = get_shortcut(session_id, src)
+        if shortcut:
+            resolved.append({
+                "source_type": "fabric_files_zone",
+                "files_zone_path": shortcut["files_zone_path"],
+                "lakehouse_uri": shortcut["lakehouse_uri"],
+                "dataset_name": src,
+            })
+        else:
+            resolved.append({
+                "source_type": "azure_blob" if src.startswith("azure_blob:") or "." in src else "database",
+                "blob_path": src,
+                "dataset_name": src,
+            })
+    return resolved
+
+
 # ========================= Markdown Report =========================
 
 def _fmt_pct(x: Optional[float]) -> str:

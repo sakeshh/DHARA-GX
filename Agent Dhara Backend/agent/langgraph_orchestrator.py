@@ -60,6 +60,9 @@ class OrchestratorState(TypedDict, total=False):
     dq_recommendations: Dict[str, Any]
     transform_suggestions: Dict[str, Any]
     timings: Dict[str, Any]
+    selected_sources_resolved: List[Dict[str, Any]]
+    shortcut_summary: List[Dict[str, Any]]
+    execution_target: str
     request_id: str
     approved_semantics: Dict[str, Dict[str, str]]
     business_rules: Dict[str, Any]
@@ -211,6 +214,16 @@ async def _node_extract_async(state: OrchestratorState) -> OrchestratorState:
                 
                 approved_sem = context.get("approved_semantics") or state.get("approved_semantics")
                 result = run_assessment(cfg_text, additional_data=dfs, job_id=job_id, approved_semantics=approved_sem, business_rules=business_rules)
+                
+                # Overwrite source_root in assessment metadata with Fabric OneLake shortcuts
+                from agent.blob_fabric_registry import get_shortcut
+                if "datasets" in result:
+                    for ds_name, ds_meta in result["datasets"].items():
+                        shortcut = get_shortcut(session_id or "default", ds_name)
+                        if shortcut:
+                            ds_meta["source_type"] = "fabric_files_zone"
+                            ds_meta["source_root"] = shortcut["lakehouse_uri"]
+                            ds_meta["source_blob_root"] = ds_meta.get("source_root")
                 
                 label = (
                     (loc.get("id") or loc.get("label") or loc.get("name") or "").strip()

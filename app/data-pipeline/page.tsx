@@ -36,7 +36,7 @@ interface ExecutionResult {
   fabric_mirror_result?: any;
 }
 
-type Step = 'database' | 'files' | 'business-requirements' | 'assessment' | 'report' | 'semantics' | 'requirements' | 'etl' | 'cleaning' | 'complete';
+type Step = 'database' | 'files' | 'fabric-setup' | 'business-requirements' | 'assessment' | 'report' | 'semantics' | 'requirements' | 'etl' | 'cleaning' | 'complete';
 
 function generateHtmlReportFromBackend(html: string): string {
   return html || '<!doctype html><html><head><meta charset="utf-8" /></head><body>No HTML report available.</body></html>';
@@ -77,6 +77,12 @@ export default function DataPipelinePage() {
   const [approvalRequired, setApprovalRequired] = useState(false);
   const [dryRun, setDryRun] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
+
+  // Fabric OneLake Shortcuts states
+  const [shortcutLoading, setShortcutLoading] = useState(false);
+  const [shortcutResults, setShortcutResults] = useState<Record<string, boolean>>({});
+  const [shortcutComplete, setShortcutComplete] = useState(false);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
 
   async function handleExecuteSQL(approved = false) {
     setExecLoading(true);
@@ -300,6 +306,7 @@ export default function DataPipelinePage() {
   const steps = [
     { id: 'database', label: 'Database', icon: FaDatabase },
     { id: 'files', label: 'Files', icon: FaFileAlt },
+    { id: 'fabric-setup', label: 'Fabric Setup', icon: FaCloudUploadAlt },
     { id: 'business-requirements', label: 'Business Requirements', icon: FaClipboardList },
     { id: 'assessment', label: 'Assessment', icon: FaChartBar },
     { id: 'report', label: 'DQ Gate & Report', icon: FaChartBar },
@@ -319,6 +326,41 @@ export default function DataPipelinePage() {
     setSelectedFiles(files);
     setAvailableFiles(available);
   };
+
+  const handleStartFabricSetup = () => {
+    setDirection('forward');
+    setCurrentStep('fabric-setup');
+  };
+
+  async function handleCreateShortcuts() {
+    setShortcutLoading(true);
+    setShortcutError(null);
+    try {
+      const res = await fetch('/api/fabric-shortcuts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: etlSessionId,
+          selected_blob_paths: selectedFiles
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to establish shortcuts');
+      }
+      
+      const resMap: Record<string, boolean> = {};
+      (data.shortcuts || []).forEach((sc: any) => {
+        resMap[sc.blob] = sc.status === 'success';
+      });
+      setShortcutResults(resMap);
+      setShortcutComplete(true);
+    } catch (e: any) {
+      setShortcutError(e.message || 'Failed to establish shortcuts');
+    } finally {
+      setShortcutLoading(false);
+    }
+  }
 
   const handleStartSemantics = () => {
     setDirection('forward');
@@ -532,9 +574,95 @@ export default function DataPipelinePage() {
               <FileSelector
                 database={selectedDatabase}
                 onSelect={handleFilesSelect}
-                onNext={handleStartBusinessRequirements}
+                onNext={handleStartFabricSetup}
                 selectedFiles={selectedFiles}
               />
+            )}
+
+            {currentStep === 'fabric-setup' && (
+              <div className="flex flex-col h-full min-h-[calc(100vh-149px)] p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-3 bg-blue-100 dark:bg-blue-900/30 text-[#0070AD] rounded-xl">
+                    <FaCloudUploadAlt className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-800 dark:text-white">Fabric OneLake Landings</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Establish zero-copy Shortcuts from Azure Blob to OneLake Files/ zone.</p>
+                  </div>
+                </div>
+
+                {selectedDatabase !== 'blob_data' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900/30">
+                    <p className="text-gray-600 dark:text-gray-300 text-center mb-6">
+                      Database sources bypass the OneLake Shortcut stage and connect directly.
+                    </p>
+                    <button
+                      onClick={handleStartBusinessRequirements}
+                      className="px-6 py-3 bg-[#0070AD] hover:bg-[#005c8f] text-white font-semibold rounded-xl transition-all shadow-md"
+                    >
+                      Skip to Business Requirements
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col">
+                    <div className="mb-6">
+                      <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-3">Selected Raw Files</h3>
+                      <div className="space-y-2">
+                        {selectedFiles.map(file => (
+                          <div key={file} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-800">
+                            <span className="text-sm text-gray-700 dark:text-gray-300 font-mono">{file}</span>
+                            {shortcutResults[file] ? (
+                              <span className="text-xs font-semibold text-green-600 bg-green-50 dark:bg-green-900/20 dark:text-green-400 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                                <FaCheckCircle /> Shortcut Linked
+                              </span>
+                            ) : shortcutLoading ? (
+                              <span className="text-xs text-blue-600 animate-pulse px-2.5 py-1 rounded-full">
+                                Linking...
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {shortcutError && (
+                      <div className="p-4 mb-6 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-xl border border-red-100 dark:border-red-900/30 text-sm">
+                        {shortcutError}
+                      </div>
+                    )}
+
+                    <div className="mt-auto flex items-center justify-between gap-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+                      <button
+                        onClick={() => setCurrentStep('files')}
+                        className="px-5 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-650 text-gray-700 dark:text-gray-300 font-semibold rounded-xl transition-all"
+                      >
+                        Back
+                      </button>
+                      
+                      {!shortcutComplete ? (
+                        <button
+                          onClick={handleCreateShortcuts}
+                          disabled={shortcutLoading}
+                          className="px-6 py-3 bg-[#0070AD] hover:bg-[#005c8f] disabled:opacity-50 text-white font-semibold rounded-xl transition-all shadow-md"
+                        >
+                          {shortcutLoading ? 'Establishing Shortcuts...' : 'Create OneLake Shortcuts'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleStartBusinessRequirements}
+                          className="px-6 py-3 bg-[#0070AD] hover:bg-[#005c8f] text-white font-semibold rounded-xl transition-all shadow-md flex items-center gap-2"
+                        >
+                          Continue <FaArrowRight />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {currentStep === 'business-requirements' && (
@@ -545,7 +673,7 @@ export default function DataPipelinePage() {
                 onComplete={handleStartAssessment}
                 onBack={() => {
                   setDirection('back');
-                  setCurrentStep('files');
+                  setCurrentStep('fabric-setup');
                 }}
               />
             )}
@@ -864,6 +992,20 @@ export default function DataPipelinePage() {
                               </h5>
                               <span className="text-xs text-black/45 font-mono">Run ID: {execResult.run_id}</span>
                             </div>
+
+                            {execResult.execution?.artifacts?.fabric_url && (
+                              <div className="p-3 bg-blue-50 dark:bg-blue-900/10 rounded-xl flex items-center justify-between gap-3 text-sm text-blue-700 dark:text-blue-300">
+                                <span>Notebook run is monitored in Microsoft Fabric workspace.</span>
+                                <a 
+                                  href={execResult.execution.artifacts.fabric_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="px-3.5 py-1.5 bg-[#0070AD] hover:bg-[#005c8f] text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <FaCode /> Open Spark Notebook
+                                </a>
+                              </div>
+                            )}
 
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                               <div className="p-3 rounded-xl bg-black/[0.02] border border-black/5">

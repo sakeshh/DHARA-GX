@@ -17,6 +17,9 @@ class UnifiedState(TypedDict, total=False):
     user_request: str
     sources_path: str
     selected_sources: List[str]
+    selected_sources_resolved: List[Dict[str, Any]]
+    shortcut_summary: List[Dict[str, Any]]
+    execution_target: str
     job_id: str
     request_id: str
     approved_semantics: Dict[str, Dict[str, str]]
@@ -79,10 +82,25 @@ def _node_unified_route(state: UnifiedState) -> UnifiedState:
         prior_run=prior_run,
         current_schema_hash=None,   # computed after extraction
     )
+    
+    # Resolve datasets to Fabric Raw (Files/raw) shortcuts if present
+    from agent.service_layer import resolve_datasets_for_assessment
+    from agent.blob_fabric_registry import list_shortcuts
+    
+    selected_sources = state.get("selected_sources") or []
+    resolved_sources = resolve_datasets_for_assessment(sid, selected_sources)
+    shortcuts = list_shortcuts(sid)
+    
+    # Determine execution target
+    has_fabric = any(r.get("source_type") == "fabric_files_zone" for r in resolved_sources)
+    exec_target = "fabric" if has_fabric else "local"
 
     return {
         "routing_plan": plan.__dict__,
         "prior_run": prior_run,
+        "selected_sources_resolved": resolved_sources,
+        "shortcut_summary": shortcuts,
+        "execution_target": exec_target,
         "schema_changed": True,   # conservative default
         "timings": _merge_timings(state, {"route_ms": int((time.time() - t0) * 1000)}),
     }

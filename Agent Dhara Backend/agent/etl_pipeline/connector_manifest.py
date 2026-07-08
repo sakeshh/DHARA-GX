@@ -43,6 +43,7 @@ def build_connector_manifest(
     }
     """
     ctx = session_context or {}
+    session_id = ctx.get("session_id") or ctx.get("sessionId") or "default"
     ds_names = list((assessment.get("datasets") or {}).keys())
     selected = str(ctx.get("selected_source") or "").lower().strip()
     tables: List[str] = list(ctx.get("selected_tables") or [])
@@ -61,7 +62,15 @@ def build_connector_manifest(
         connection_ref: Optional[str] = None
         ext = _ext(ds_name)
 
-        if ds_name in tables or (tables and ds_name.split(".")[-1] in tables):
+        # Check for registered Fabric OneLake shortcut first
+        from agent.blob_fabric_registry import get_shortcut
+        shortcut = get_shortcut(session_id, ds_name)
+
+        if shortcut:
+            source_type = "fabric_files_zone"
+            loc = shortcut["files_zone_path"]
+            connection_ref = None
+        elif ds_name in tables or (tables and ds_name.split(".")[-1] in tables):
             source_type = default_sql_type
             loc = ds_name if ds_name in tables else ds_name
             connection_ref = "DHARA_SQL_CONNECTION_STRING"
@@ -99,7 +108,11 @@ def build_connector_manifest(
 
         fmt = infer_format_from_ext(ext if ext else _ext(loc), source_type)
         out_ext = output_extension_for_format(fmt, ext or ".parquet")
-        if overwrite_in_place or output_base == "__overwrite__":
+        
+        if shortcut:
+            clean_tbl = shortcut["shortcut_name"] + "_clean"
+            out_path = f"Tables/{clean_tbl}"
+        elif overwrite_in_place or output_base == "__overwrite__":
             out_path = loc
         else:
             base = output_base.rstrip("/") or "cleaned"
@@ -117,6 +130,11 @@ def build_connector_manifest(
                 ((assessment.get("datasets") or {}).get(ds_name) or {}).get("row_count") or 0
             ),
         }
+        
+        # Pass shortcut context down for write snippet table naming
+        if shortcut:
+            entry["clean_table_name"] = shortcut["shortcut_name"] + "_clean"
+            
         entry["read_snippet_python"] = python_read_snippet(entry)
         entry["read_snippet_pyspark"] = pyspark_read_snippet(entry)
         entry["write_snippet_python"] = python_write_snippet(entry)

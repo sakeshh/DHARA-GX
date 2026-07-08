@@ -191,6 +191,20 @@ class PipelineRunPayload(BaseModel):
     job_id: Optional[str] = ""
 
 
+class FabricShortcutsPayload(BaseModel):
+    session_id: str
+    selected_blob_paths: List[str]
+    blob_account_name: Optional[str] = None
+    blob_container: Optional[str] = None
+
+
+class FabricDeployNotebookPayload(BaseModel):
+    session_id: str
+    pyspark_code: str
+    notebook_name: Optional[str] = None
+    lakehouse_id: Optional[str] = None
+
+
 
 setup_logging()
 logger = logging.getLogger("mcp_server")
@@ -1252,6 +1266,56 @@ def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, A
             "session_id": sid,
             "approved": bool(payload.approved)
         }
+
+
+@app.post("/fabric/create-shortcuts", tags=["fabric"])
+def api_fabric_create_shortcuts(payload: FabricShortcutsPayload) -> Dict[str, Any]:
+    from agent.fabric_shortcut_service import create_shortcuts_for_blobs
+    try:
+        results = create_shortcuts_for_blobs(
+            session_id=payload.session_id,
+            selected_blob_paths=payload.selected_blob_paths,
+            blob_account_name=payload.blob_account_name,
+            blob_container=payload.blob_container
+        )
+        return {"ok": True, "shortcuts": results}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "SHORTCUT_CREATION_FAILED", "message": str(e)}
+        )
+
+
+@app.post("/fabric/deploy-notebook", tags=["fabric"])
+def api_fabric_deploy_notebook(payload: FabricDeployNotebookPayload) -> Dict[str, Any]:
+    from agent.fabric_notebook_deployer import deploy_and_run_notebook
+    try:
+        results = deploy_and_run_notebook(
+            session_id=payload.session_id,
+            pyspark_code=payload.pyspark_code,
+            notebook_name=payload.notebook_name,
+            lakehouse_id=payload.lakehouse_id
+        )
+        return results
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "NOTEBOOK_RUN_FAILED", "message": str(e)}
+        )
+
+
+@app.get("/fabric/run-status/{notebook_id}/{run_id}", tags=["fabric"])
+def api_fabric_run_status(notebook_id: str, run_id: str) -> Dict[str, Any]:
+    from agent.fabric_api_client import FabricAPIClient
+    client = FabricAPIClient()
+    try:
+        status_res = client.get_run_status(notebook_id, run_id)
+        return status_res
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "STATUS_CHECK_FAILED", "message": str(e)}
+        )
 
 
 @app.get("/pipeline/history/{session_id}")

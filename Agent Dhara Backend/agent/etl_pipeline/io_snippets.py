@@ -52,6 +52,21 @@ def _resolve_data_path(location: str) -> str:
 '''.strip()
 
 
+def resolve_path_fabric_pyspark_helper() -> str:
+    """Path resolver for code running INSIDE a Fabric Spark Notebook."""
+    return '''
+def _resolve_data_path(location: str) -> str:
+    """Resolve path relative to the attached default Lakehouse."""
+    loc = (location or "").strip()
+    if not loc or loc == "unknown":
+        raise ValueError("location is missing")
+    if loc.lower().startswith(("abfss://", "wasbs://", "https://", "http://")):
+        return loc
+    # In Fabric Notebooks, the default attached lakehouse is mounted under /lakehouse/default
+    return f"/lakehouse/default/{loc.lstrip('/')}"
+'''.strip()
+
+
 def infer_format_from_ext(ext: str, source_type: str) -> str:
     ext = (ext or "").lower()
     if ext in (".csv",):
@@ -128,6 +143,14 @@ def python_write_snippet(entry: Dict[str, Any]) -> str:
 def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
     loc = _escape_path(entry["location"])
     fmt = entry.get("format") or "csv"
+    if entry.get("source_type") == "fabric_files_zone":
+        path_expr = f'_resolve_data_path("{loc}")'
+        if fmt == "parquet":
+            return f"spark.read.parquet({path_expr})"
+        if fmt == "json":
+            return f"spark.read.json({path_expr})"
+        return f"spark.read.option('header', 'true').option('inferSchema', 'true').csv({path_expr})"
+        
     if fmt == "sql_table":
         cref = entry.get("connection_ref") or "DHARA_SQL_CONNECTION_STRING"
         table = entry["location"]
@@ -153,6 +176,10 @@ def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
 
 
 def pyspark_write_snippet(entry: Dict[str, Any]) -> str:
+    if entry.get("source_type") == "fabric_files_zone" or entry.get("execution_target") == "fabric":
+        table_name = entry.get("clean_table_name") or "dataset_clean"
+        return f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))'
+        
     fmt = entry.get("format") or "csv"
     op = entry.get("output_path") or "cleaned/out.parquet"
     if fmt == "xml" and str(op).lower().endswith(".xml"):
