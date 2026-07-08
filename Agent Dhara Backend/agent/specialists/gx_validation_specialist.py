@@ -310,12 +310,8 @@ def run_gx_validation(
                     if semantic_type == "email":
                         validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
                     elif semantic_type == "phone":
-<<<<<<< HEAD
                         # We will use custom python validation below to perform Google phonenumbers validation
                         pass
-=======
-                        validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[+()\-\.\s0-9]{7,}$")
->>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
                     elif semantic_type in ("uuid", "guid"):
                         validator.expect_column_values_to_match_regex(
                             column=col_name,
@@ -722,7 +718,6 @@ def run_gx_validation(
                                 "unexpected_values": [{"row_index_a": int(a), "row_index_b": int(b), "similarity": float(s)} for a, b, s in near_dups[:10]]
                             })
 
-<<<<<<< HEAD
                 # 5b. Google phonenumbers phone validation
                 for col in validation_df.columns:
                     col_meta = cols_meta.get(col) or {}
@@ -743,9 +738,6 @@ def run_gx_validation(
                                     "unexpected_index_list": s.index[invalid_mask].tolist(),
                                     "unexpected_values": s[invalid_mask].head(5).tolist()
                                 })
-
-=======
->>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
                 # 6. Multivariate Outliers (sklearn IsolationForest)
                 num_cols = [c for c in validation_df.columns if pd.api.types.is_numeric_dtype(validation_df[c]) and not c.lower().endswith("id")]
                 if len(num_cols) >= 2 and len(validation_df) >= 10:
@@ -896,7 +888,6 @@ def run_gx_validation(
                                         "unexpected_index_list": non_empty.index[fmt_iso | fmt_us | fmt_eu].tolist(),
                                         "unexpected_values": [n for n, _ in active_fmts]
                                     })
-<<<<<<< HEAD
                                 else:
                                     # Ambiguity check: if we have slash/dash/dot separators and all values could be either DD/MM or MM/DD
                                     # (i.e. no number in first two segments is > 12).
@@ -921,8 +912,6 @@ def run_gx_validation(
                                                 "unexpected_index_list": non_empty.index.tolist()[:50],
                                                 "unexpected_values": non_empty.head(5).tolist()
                                             })
-=======
->>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
 
                 # 11. Case inconsistency check
                 for col_name in validation_df.columns:

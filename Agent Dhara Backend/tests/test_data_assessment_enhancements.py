@@ -493,7 +493,6 @@ class TestDataAssessmentEnhancements(unittest.TestCase):
         self.assertEqual(null_issues[0]["row_indexes"], [1])
         self.assertEqual(null_issues[0]["severity"], "low") # Should be low severity for nullable columns
 
-<<<<<<< HEAD
     def test_gap_phone_validation_phonenumbers(self):
         # Create a dataframe with valid and invalid phone numbers
         df = pd.DataFrame({
@@ -560,8 +559,5 @@ class TestDataAssessmentEnhancements(unittest.TestCase):
         self.assertEqual(iss["count"], 100) # scaled 1 * (1000/10) = 100!
         self.assertEqual(len(iss["row_indexes"]), 0) # indexes cleared
         self.assertIn("[ESTIMATED]", iss["message"])
-
-=======
->>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
 if __name__ == "__main__":
     unittest.main()
