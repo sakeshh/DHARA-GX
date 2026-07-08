@@ -523,6 +523,7 @@ def build_executive_summary_items(
         })
     return items
 
+<<<<<<< HEAD
 def _is_id_like_column(col_name: str) -> bool:
     c_lower = str(col_name).lower()
     return any(hint in c_lower for hint in ["id", "code", "key", "ref", "fk", "pk", "uuid"])
@@ -564,6 +565,8 @@ def _finalize_sampled_issue(iss: Dict[str, Any], full_row_count: int, sample_row
             iss["message"] = f"[ESTIMATED] {iss['message']} (Row indexes are cleared as they are unreliable on sampled data. Count is estimated based on the sample profile)"
         iss["row_indexes_estimated"] = True
 
+=======
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
 def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     - Orphan foreign keys: values present in one dataset.column but not in the counterpart
@@ -590,7 +593,11 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
 
             common = set(map(str.lower, df1.columns)) & set(map(str.lower, df2.columns))
             for col in common:
+<<<<<<< HEAD
                 if not _is_id_like_column(col):
+=======
+                if not col.endswith("id"):
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
                     continue
                 c1 = next(x for x in df1.columns if x.lower() == col)
                 c2 = next(x for x in df2.columns if x.lower() == col)
@@ -646,10 +653,13 @@ def detect_global_issues(datasets: Dict[str, pd.DataFrame], thresholds: Optional
                             ),
                         })
 
+<<<<<<< HEAD
     # Cross-dataset schema drift type comparison
     schema_drift_mismatch = _compare_column_schemas(datasets)
     global_issues["cross_dataset_inconsistencies"].extend(schema_drift_mismatch)
 
+=======
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
     # Deduplicate cross-dataset inconsistencies: one row per (dataset, column, issue_type)
     try:
         seen = set()
@@ -1002,21 +1012,33 @@ def load_and_profile(
 
     is_sampled = (max_rows is not None)
     for ds_name, block in per_dataset_dq.items():
+<<<<<<< HEAD
         full_row_count = metadata.get(ds_name, {}).get("row_count", 0)
         df_len = len(datasets[ds_name]) if datasets.get(ds_name) is not None else 0
         ds_sampled = is_sampled or (full_row_count > HEAVY_OPERATION_THRESHOLD)
+=======
+        ds_sampled = is_sampled or (metadata.get(ds_name, {}).get("row_count", 0) > HEAVY_OPERATION_THRESHOLD)
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
         for iss in block.get("issues", []):
             iss.setdefault("dataset", ds_name)
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+<<<<<<< HEAD
             if ds_sampled:
                 _finalize_sampled_issue(iss, full_row_count, df_len)
+=======
+            if ds_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
 
     # Enrich global/cross-dataset issues
     try:
         for iss in (global_issues.get("relationship_row_issues") or []):
             enrich_issue_with_recommendation(iss)
             enrich_issue_with_fixability(iss)
+<<<<<<< HEAD
             ds_name = iss.get("dataset")
             if ds_name and datasets.get(ds_name) is not None:
                 full_row_count = metadata.get(ds_name, {}).get("row_count", 0)
@@ -1041,6 +1063,26 @@ def load_and_profile(
                 df_len = len(datasets[ds_name])
                 if is_sampled or (full_row_count > HEAVY_OPERATION_THRESHOLD):
                     _finalize_sampled_issue(iss, full_row_count, df_len)
+=======
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
+        for iss in (global_issues.get("relationship_warnings") or []):
+            enrich_issue_with_recommendation(iss)
+            enrich_issue_with_fixability(iss)
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
+        for iss in (global_issues.get("cross_dataset_consistency") or []):
+            enrich_issue_with_recommendation(iss)
+            enrich_issue_with_fixability(iss)
+            if is_sampled and iss.get("row_indexes"):
+                iss["row_indexes_estimated"] = True
+                if "estimated" not in str(iss.get("message")).lower():
+                    iss["message"] = f"{iss['message']} (Row indexes are estimated based on a sampled subset of the data)"
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
         for iss in (global_issues.get("cross_dataset_inconsistencies") or []):
             # these use issue_type, not type
             if isinstance(iss, dict) and iss.get("issue_type") and not iss.get("fixability"):

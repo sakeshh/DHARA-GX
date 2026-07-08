@@ -1,8 +1,30 @@
 {
+<<<<<<< HEAD
     "ds1": {
         "common_col": "int64"
     },
     "ds2": {
         "common_col": "object"
+=======
+    "data_quality_issues.csv": {
+        "id": "object",
+        "name": "object",
+        "email": "object"
+    },
+    "data_quality_issues.json": {
+        "id": "object",
+        "name": "object",
+        "email": "object"
+    },
+    "data_quality_issues_v2.csv": {
+        "user_id": "object",
+        "name": "object",
+        "country": "object"
+    },
+    "data_quality_issues_v2.json": {
+        "user_id": "object",
+        "name": "object",
+        "country": "object"
+>>>>>>> b6500f301d2ec6e83dab3fddf051c7a3f54d9b76
     }
 }
