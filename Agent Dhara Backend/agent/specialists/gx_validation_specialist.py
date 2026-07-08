@@ -310,7 +310,8 @@ def run_gx_validation(
                     if semantic_type == "email":
                         validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[^@\s]+@[^@\s]*\.[^@\s]+$")
                     elif semantic_type == "phone":
-                        validator.expect_column_values_to_match_regex(column=col_name, regex=r"^[+()\-\.\s0-9]{7,}$")
+                        # We will use custom python validation below to perform Google phonenumbers validation
+                        pass
                     elif semantic_type in ("uuid", "guid"):
                         validator.expect_column_values_to_match_regex(
                             column=col_name,
@@ -717,6 +718,27 @@ def run_gx_validation(
                                 "unexpected_values": [{"row_index_a": int(a), "row_index_b": int(b), "similarity": float(s)} for a, b, s in near_dups[:10]]
                             })
 
+                # 5b. Google phonenumbers phone validation
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    if semantic_type == "phone":
+                        from agent.profiling.format_validators import _validate_phone_phonenumbers
+                        s = validation_df[col].dropna().astype(str)
+                        if not s.empty:
+                            invalid_mask = s.apply(lambda v: not _validate_phone_phonenumbers(v))
+                            bad_cnt = int(invalid_mask.sum())
+                            if bad_cnt > 0:
+                                results_processed.append({
+                                    "expectation": "invalid_phone",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"{bad_cnt} invalid phone number(s)",
+                                    "unexpected_count": bad_cnt,
+                                    "unexpected_index_list": s.index[invalid_mask].tolist(),
+                                    "unexpected_values": s[invalid_mask].head(5).tolist()
+                                })
+
                 # 6. Multivariate Outliers (sklearn IsolationForest)
                 num_cols = [c for c in validation_df.columns if pd.api.types.is_numeric_dtype(validation_df[c]) and not c.lower().endswith("id")]
                 if len(num_cols) >= 2 and len(validation_df) >= 10:
@@ -867,6 +889,30 @@ def run_gx_validation(
                                         "unexpected_index_list": non_empty.index[fmt_iso | fmt_us | fmt_eu].tolist(),
                                         "unexpected_values": [n for n, _ in active_fmts]
                                     })
+                                else:
+                                    # Ambiguity check: if we have slash/dash/dot separators and all values could be either DD/MM or MM/DD
+                                    # (i.e. no number in first two segments is > 12).
+                                    has_slash_dash = non_empty.str.contains(r"[/.-]").any()
+                                    if has_slash_dash:
+                                        def _is_ambiguous_val(val):
+                                            parts = re.findall(r"\d+", val)
+                                            if len(parts) >= 2:
+                                                try:
+                                                    p1, p2 = int(parts[0]), int(parts[1])
+                                                    return p1 <= 12 and p2 <= 12
+                                                except Exception:
+                                                    return False
+                                            return False
+                                        if non_empty.apply(_is_ambiguous_val).all():
+                                            results_processed.append({
+                                                "expectation": "mixed_date_formats",
+                                                "column": col_name,
+                                                "success": False,
+                                                "details": "High-severity format ambiguity: all date values are ambiguous between DD/MM and MM/DD formats.",
+                                                "unexpected_count": len(non_empty),
+                                                "unexpected_index_list": non_empty.index.tolist()[:50],
+                                                "unexpected_values": non_empty.head(5).tolist()
+                                            })
 
                 # 11. Case inconsistency check
                 for col_name in validation_df.columns:
