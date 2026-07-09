@@ -163,7 +163,10 @@ class FabricAPIClient:
             if notebook_id:
                 # Update existing
                 url = f"{self.base_url}/workspaces/{self.workspace_id}/items/{notebook_id}/updateDefinition"
-                res = requests.post(url, json=notebook_payload, headers=self._headers(), timeout=30)
+                update_payload = {
+                    "definition": notebook_payload
+                }
+                res = requests.post(url, json=update_payload, headers=self._headers(), timeout=30)
                 res.raise_for_status()
                 return {"ok": True, "id": notebook_id, "name": notebook_name}
             else:
@@ -176,7 +179,34 @@ class FabricAPIClient:
                 }
                 res = requests.post(url, json=create_payload, headers=self._headers(), timeout=30)
                 if res.status_code in (200, 201, 202):
-                    return {"ok": True, "id": res.json().get("id"), "name": notebook_name}
+                    item_id = None
+                    try:
+                        data = res.json()
+                        if isinstance(data, dict):
+                            item_id = data.get("id")
+                    except Exception:
+                        pass
+                        
+                    # Check Location or Operation-Location headers
+                    if not item_id:
+                        loc_header = res.headers.get("Location") or res.headers.get("X-MS-Operation-Location") or ""
+                        if "/items/" in loc_header:
+                            item_id = loc_header.split("/items/")[-1].split("/")[0].split("?")[0]
+                            
+                    # Poll workspace if needed (asynchronous creation status 202)
+                    if not item_id:
+                        logger.info(f"Asynchronous creation returned status {res.status_code}. Polling workspace for notebook '{notebook_name}'...")
+                        import time
+                        for _ in range(10):
+                            time.sleep(2)
+                            item_id = self._find_notebook_by_name(notebook_name)
+                            if item_id:
+                                break
+                                
+                    if not item_id:
+                        return {"ok": False, "error": "NOTEBOOK_ID_NOT_FOUND", "message": f"Notebook created but failed to retrieve its ID. Response headers: {dict(res.headers)}"}
+                        
+                    return {"ok": True, "id": item_id, "name": notebook_name}
                 else:
                     logger.error(f"Fabric API notebook creation error: {res.text}")
                     return {"ok": False, "error": "CREATE_NOTEBOOK_FAILED", "message": res.text}

@@ -348,6 +348,18 @@ def etl_plan_start(
             "message": "Run an assessment first, or pass assessment_result in the request body.",
         }
 
+    # Inject Fabric shortcuts and target properties if registered
+    from agent.blob_fabric_registry import get_shortcut
+    if isinstance(assess, dict) and "datasets" in assess:
+        for ds_name, ds_meta in assess["datasets"].items():
+            if isinstance(ds_meta, dict):
+                blob_path = ds_meta.get("source_path") or ds_meta.get("source") or ""
+                shortcut = get_shortcut(sid, blob_path) or get_shortcut(sid, ds_name)
+                if shortcut:
+                    ds_meta["fabric_uri"] = shortcut["lakehouse_uri"]
+                    ds_meta["source_type"] = "fabric_files_zone"
+                    ds_meta["files_zone_path"] = shortcut["files_zone_path"]
+
     if isinstance(assessment_result, dict) and assessment_result.get("datasets"):
         ctx["last_assessment_result"] = assessment_result
 
@@ -571,6 +583,8 @@ def etl_plan_start(
             
     plan["connector_manifest"] = manifest
     plan["source_context"] = src_ctx
+    if flow.get("execution_target") == "fabric":
+        plan["execution_target"] = "fabric"
     plan["etl_intent"] = {
         "engine": (engine or "python").lower(),
         "target_destination": target_destination or "dataframe_only",

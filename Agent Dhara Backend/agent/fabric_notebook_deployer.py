@@ -60,6 +60,7 @@ def deploy_and_run_notebook(
     session_id: str,
     pyspark_code: str,
     lakehouse_id: Optional[str] = None,
+    notebook_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Deploys one Microsoft Fabric Notebook per dataset in the PySpark script,
@@ -93,7 +94,10 @@ def deploy_and_run_notebook(
     for ds_name in datasets:
         # Generate safe clean name, e.g. "orders.csv" -> "orders"
         safe_name = make_safe_shortcut_name(ds_name)
-        nb_name = f"dhara_clean_{safe_name}"
+        if notebook_name:
+            nb_name = f"{notebook_name}_{safe_name}"
+        else:
+            nb_name = f"dhara_clean_{safe_name}"
         
         # Customize code to run ONLY this dataset
         custom_code = _customize_code_for_dataset(pyspark_code, ds_name)

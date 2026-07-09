@@ -65,10 +65,11 @@ def build_connector_manifest(
         # Check for registered Fabric OneLake shortcut first
         from agent.blob_fabric_registry import get_shortcut
         shortcut = get_shortcut(session_id, ds_name)
+        ds_meta = (assessment.get("datasets") or {}).get(ds_name) or {}
 
-        if shortcut:
+        if shortcut or ds_meta.get("source_type") == "fabric_files_zone":
             source_type = "fabric_files_zone"
-            loc = shortcut["files_zone_path"]
+            loc = (shortcut or {}).get("files_zone_path") or ds_meta.get("files_zone_path") or ds_name
             connection_ref = None
         elif ds_name in tables or (tables and ds_name.split(".")[-1] in tables):
             source_type = default_sql_type
@@ -132,8 +133,11 @@ def build_connector_manifest(
         }
         
         # Pass shortcut context down for write snippet table naming
-        if shortcut:
-            entry["clean_table_name"] = shortcut["shortcut_name"] + "_clean"
+        if shortcut or ds_meta.get("source_type") == "fabric_files_zone":
+            from agent.blob_fabric_registry import make_safe_shortcut_name
+            sh_name = (shortcut or {}).get("shortcut_name") or make_safe_shortcut_name(ds_name)
+            entry["clean_table_name"] = sh_name + "_clean"
+            entry["fabric_uri"] = (shortcut or {}).get("lakehouse_uri") or ds_meta.get("fabric_uri")
             
         entry["read_snippet_python"] = python_read_snippet(entry)
         entry["read_snippet_pyspark"] = pyspark_read_snippet(entry)

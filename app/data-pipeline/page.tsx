@@ -1189,6 +1189,7 @@ export default function DataPipelinePage() {
 
             {currentStep === 'cleaning' && (
               <DataCleaner
+                sessionId={etlSessionId}
                 files={selectedFiles}
                 etlCode={etlCode}
                 assessmentData={assessmentData}

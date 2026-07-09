@@ -52,8 +52,20 @@ def _resolve_data_path(location: str) -> str:
 '''.strip()
 
 
-def resolve_path_fabric_pyspark_helper() -> str:
+def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakehouse_id: Optional[str] = None) -> str:
     """Path resolver for code running INSIDE a Fabric Spark Notebook."""
+    if workspace_id and lakehouse_id:
+        return f'''
+def _resolve_data_path(location: str) -> str:
+    """Resolve path relative to the attached default Lakehouse using absolute ABFSS URL."""
+    loc = (location or "").strip()
+    if not loc or loc == "unknown":
+        raise ValueError("location is missing")
+    if loc.lower().startswith(("abfss://", "wasbs://", "https://", "http://")):
+        return loc
+    return f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}/{{loc.lstrip('/')}}"
+'''.strip()
+    
     return '''
 def _resolve_data_path(location: str) -> str:
     """Resolve path relative to the attached default Lakehouse."""
@@ -178,7 +190,11 @@ def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
 def pyspark_write_snippet(entry: Dict[str, Any]) -> str:
     if entry.get("source_type") == "fabric_files_zone" or entry.get("execution_target") == "fabric":
         table_name = entry.get("clean_table_name") or "dataset_clean"
-        return f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))'
+        return (
+            f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))\n'
+            f'    spark.sql("DROP TABLE IF EXISTS {table_name}")\n'
+            f'    spark.sql("CREATE TABLE {table_name} USING delta LOCATION \'" + _resolve_data_path("Tables/{table_name}") + "\'")'
+        )
         
     fmt = entry.get("format") or "csv"
     op = entry.get("output_path") or "cleaned/out.parquet"

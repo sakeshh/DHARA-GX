@@ -205,6 +205,12 @@ class FabricDeployNotebookPayload(BaseModel):
     lakehouse_id: Optional[str] = None
 
 
+class PipelineMirrorPayload(BaseModel):
+    session_id: str
+    blob_paths: List[str]
+
+
+
 
 setup_logging()
 logger = logging.getLogger("mcp_server")
@@ -1316,6 +1322,33 @@ def api_fabric_run_status(notebook_id: str, run_id: str) -> Dict[str, Any]:
             status_code=500,
             detail={"error": "STATUS_CHECK_FAILED", "message": str(e)}
         )
+
+
+@app.post("/api/pipeline/mirror", tags=["fabric"])
+def api_pipeline_mirror(payload: PipelineMirrorPayload) -> Dict[str, Any]:
+    from agent.mirror_service import mirror_blobs_to_fabric
+    try:
+        result = mirror_blobs_to_fabric(payload.session_id, payload.blob_paths)
+        return {"ok": True, "mirror_result": result}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "MIRRORING_FAILED", "message": str(e)}
+        )
+
+
+@app.get("/api/pipeline/mirror/status/{session_id}", tags=["fabric"])
+def api_pipeline_mirror_status(session_id: str) -> Dict[str, Any]:
+    from agent.blob_fabric_registry import list_shortcuts
+    try:
+        shortcuts = list_shortcuts(session_id)
+        return {"ok": True, "shortcuts": shortcuts, "count": len(shortcuts)}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "STATUS_RETRIEVAL_FAILED", "message": str(e)}
+        )
+
 
 
 @app.get("/pipeline/history/{session_id}")

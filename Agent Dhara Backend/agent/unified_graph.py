@@ -62,6 +62,10 @@ class UnifiedState(TypedDict, total=False):
     error: Optional[str]
     timings: Dict[str, Any]
 
+    # Mirroring output
+    mirror_result: Dict[str, Any]
+
+
 def _merge_timings(state: UnifiedState, extra: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(state.get("timings") or {})
     out.update(extra or {})
@@ -167,11 +171,25 @@ def _node_narrate(state: UnifiedState) -> UnifiedState:
         "improvement_narrative": narrative,
     }
 
+def _node_mirror(state: UnifiedState) -> UnifiedState:
+    from agent.mirror_service import mirror_blobs_to_fabric
+    sid = state.get("session_id") or "default"
+    sources = state.get("selected_sources") or []
+    blob_paths = [s for s in sources if s.startswith("azure_blob:") or "." in s]
+    if not blob_paths:
+        return {"mirror_result": {}}
+    result = mirror_blobs_to_fabric(sid, blob_paths)
+    return {"mirror_result": result}
+
 def _route_after_unified_route(state: UnifiedState) -> str:
     plan = state.get("routing_plan") or {}
+    sources = state.get("selected_sources") or []
+    has_blob = any(s.startswith("azure_blob:") or "." in s for s in sources)
     if plan.get("resume_from"):
         return "etl"
     if plan.get("do_extract"):
+        if has_blob:
+            return "mirror"
         return "assess"
     if plan.get("do_etl_plan"):
         return "etl"
@@ -179,7 +197,11 @@ def _route_after_unified_route(state: UnifiedState) -> str:
 
 def _route_after_assess(state: UnifiedState) -> str:
     plan = state.get("routing_plan") or {}
+    dq_score = state.get("dq_score") or 0
     if plan.get("do_etl_plan"):
+        if dq_score < 60:
+            logger.warning(f"DQ score {dq_score} < 60 threshold. Routing to narrate instead of ETL.")
+            return "narrate"
         return "etl"
     return "narrate"
 
@@ -189,12 +211,14 @@ def build_unified_graph(checkpointer=None):
     
     g = StateGraph(UnifiedState)
     g.add_node("route", _node_unified_route)
+    g.add_node("mirror", _node_mirror)
     g.add_node("assess", assessment_graph)
     g.add_node("etl", etl_graph_compiled)
     g.add_node("narrate", _node_narrate)
 
     g.set_entry_point("route")
     g.add_conditional_edges("route", _route_after_unified_route)
+    g.add_edge("mirror", "assess")
     g.add_conditional_edges("assess", _route_after_assess)
     g.add_edge("etl", "narrate")
     g.add_edge("narrate", END)

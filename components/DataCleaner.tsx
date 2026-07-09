@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FaBroom, FaDownload, FaCheckCircle, FaThumbsUp, FaThumbsDown, FaExclamationTriangle } from 'react-icons/fa';
 
 interface DataCleanerProps {
+  sessionId?: string;
   files: string[];
   etlCode: string | null;
   assessmentData: any;
@@ -23,7 +24,7 @@ interface CleaningResult {
   blobUrl: string;
 }
 
-export default function DataCleaner({ files, etlCode, assessmentData, userFeedback, execResult, onComplete, onFeedback }: DataCleanerProps) {
+export default function DataCleaner({ sessionId, files, etlCode, assessmentData, userFeedback, execResult, onComplete, onFeedback }: DataCleanerProps) {
   const [showConfirmation, setShowConfirmation] = useState(true);
   const [cleaning, setCleaning] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -38,6 +39,7 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
 
   const startCleaning = async () => {
     setCleaning(true);
+    setProgress(0);
     
     if (userFeedback.some(f => !f.liked)) {
       setLearningFromFeedback(true);
@@ -45,21 +47,65 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
       setLearningFromFeedback(false);
     }
 
+    // Call execution API in parallel with progress animation
+    let apiData: any = null;
+    let apiError: string | null = null;
+    
+    // Start backend execution request
+    const executePromise = (async () => {
+      if (!sessionId) return null;
+      try {
+        const res = await fetch('/api/etl/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            approved: true
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Execution failed');
+        }
+        return data;
+      } catch (err: any) {
+        apiError = err.message || String(err);
+        return null;
+      }
+    })();
+
+    // Animate progress up to 90% while waiting for API
+    for (let p = 0; p <= 90; p += 2) {
+      if (apiData || apiError) break;
+      setProgress(p);
+      await new Promise(resolve => setTimeout(resolve, 300)); // takes ~13.5s total to get to 90%
+    }
+    
+    // Wait for API to finish
+    apiData = await executePromise;
+    
+    if (apiError) {
+      alert(`Remediation execution failed: ${apiError}`);
+      setCleaning(false);
+      setShowConfirmation(true);
+      return;
+    }
+    
+    // Jump progress to 100%
+    setProgress(100);
+    await new Promise(resolve => setTimeout(resolve, 500));
+
     const cleaningResults: CleaningResult[] = [];
+    const activeExecResult = apiData || execResult;
 
     for (let i = 0; i < files.length; i++) {
       setCurrentFile(files[i]);
       
-      for (let p = 0; p <= 100; p += 5) {
-        await new Promise(resolve => setTimeout(resolve, 50));
-        setProgress(((i * 100 + p) / files.length));
-      }
-
       const rawKey = files[i];
       const cleanKey = rawKey.endsWith('_Clean') ? rawKey : `${rawKey}_Clean`;
       
-      const rawDelta = execResult?.post_execution_summary?.row_deltas?.[rawKey];
-      const cleanDelta = execResult?.post_execution_summary?.row_deltas?.[cleanKey];
+      const rawDelta = activeExecResult?.post_execution_summary?.row_deltas?.[rawKey];
+      const cleanDelta = activeExecResult?.post_execution_summary?.row_deltas?.[cleanKey];
       
       const originalRows = rawDelta?.before ?? assessmentData?.result?.datasets?.[rawKey]?.row_count ?? Math.floor(Math.random() * 10000) + 1000;
       const cleanedRows = cleanDelta?.after ?? rawDelta?.after ?? (originalRows - Math.floor(Math.random() * 100) - 10);
@@ -68,11 +114,17 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
       const missingValuesHandled = Math.floor(Math.random() * 20) + 5;
       
       const cleanTableBase = cleanKey.split('.').pop() || cleanKey;
-      const blobInfo = execResult?.execution?.artifacts?.blobs?.find(
+      
+      // Look for Fabric run URL
+      const fabricRun = activeExecResult?.execution?.artifacts?.runs?.find(
+        (r: any) => String(r.dataset || '').toLowerCase() === String(rawKey).toLowerCase()
+      );
+      
+      const blobInfo = activeExecResult?.execution?.artifacts?.blobs?.find(
         (b: any) => String(b.table_name || '').toLowerCase().includes(cleanTableBase.toLowerCase())
       );
       
-      const blobUrl = blobInfo?.blob_url ?? `https://datasogetiatrgacc.blob.core.windows.net/agentdhararawdata/cleaned/${cleanKey.replace('.', '_')}_cleaned.csv`;
+      const displayUrl = fabricRun?.fabric_url ?? blobInfo?.blob_url ?? `https://datasogetiatrgacc.blob.core.windows.net/agentdhararawdata/cleaned/${cleanKey.replace('.', '_')}_cleaned.csv`;
 
       cleaningResults.push({
         fileName: files[i],
@@ -80,7 +132,7 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
         cleanedRows,
         duplicatesRemoved,
         missingValuesHandled,
-        blobUrl
+        blobUrl: displayUrl
       });
     }
 
@@ -91,11 +143,11 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
   const handleDownloadAll = () => {
     results.forEach(result => {
       console.log(`Downloading: ${result.blobUrl}`);
-      if (result.blobUrl.startsWith('http') && !result.blobUrl.includes('storage.blob.core.windows.net/cleaned-data/')) {
+      if (result.blobUrl.startsWith('http')) {
         window.open(result.blobUrl, '_blank');
       }
     });
-    alert('Cleaned files download / open requested. If the container is public or you are logged into Azure, download will begin.');
+    alert('Artifact links opened in new tabs.');
   };
 
   const handleLike = () => {
@@ -251,7 +303,7 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
             </button>
             <button
               onClick={handleDislike}
-              className="group flex h-14 w-14 items-center justify-center rounded-2xl border-red-500/20 bg-white shadow-sm transition-all hover:bg-red-500 hover:text-white"
+              className="group flex h-14 w-14 items-center justify-center rounded-2xl border border-red-500/25 bg-white shadow-sm transition-all hover:bg-red-500 hover:text-white"
             >
               <FaThumbsDown className="text-xl transition-transform group-hover:scale-125" />
             </button>
@@ -295,7 +347,9 @@ export default function DataCleaner({ files, etlCode, assessmentData, userFeedba
               </div>
 
               <div className="mt-8 rounded-2xl border border-[#0070AD]/10 bg-[#0070AD]/5 p-5">
-                <div className="text-[10px] font-black uppercase tracking-widest text-[#0070AD] mb-3">Cloud Storage Deployment</div>
+                <div className="text-[10px] font-black uppercase tracking-widest text-[#0070AD] mb-3">
+                  {result.blobUrl.includes('fabric.microsoft.com') ? 'Fabric Notebook Link' : 'Cloud Storage Deployment'}
+                </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                   <code className="flex-1 overflow-x-auto rounded-xl border border-[#0070AD]/20 bg-white/80 p-3 font-mono text-[11px] text-[#0070AD]">
                     {result.blobUrl}

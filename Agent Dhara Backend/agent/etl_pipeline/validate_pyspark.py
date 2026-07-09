@@ -94,11 +94,12 @@ def _check_resolve_helper_quality(source: str) -> List[str]:
         )
     if "_resolve_data_path" in source and "def _resolve_data_path" in source:
         body = source.split("def _resolve_data_path", 1)[-1][:800]
-        if "AZURE_STORAGE_ACCOUNT" not in body and "dfs.core.windows.net" not in body:
-            if re.search(r"abfss://", body, re.I):
-                errs.append(
-                    "_resolve_data_path must build full abfss URLs with storage account and container"
-                )
+        if "/lakehouse/default" not in body and "onelake.dfs.fabric.microsoft.com" not in body:
+            if "AZURE_STORAGE_ACCOUNT" not in body and "dfs.core.windows.net" not in body:
+                if re.search(r"abfss://", body, re.I):
+                    errs.append(
+                        "_resolve_data_path must build full abfss URLs with storage account and container"
+                    )
     return errs
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 from typing import Any, Dict, List, Optional
 
 from agent.etl_pipeline.codegen_policy import plan_policy_block
@@ -44,10 +45,12 @@ def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
             f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg)))",
         ]
     if strat == "value" and fval is not None:
+        if str(fval).strip().lower() in ("none", "null", ""):
+            return []
         return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({repr(fval)})))"]
     if strat == "value":
         return [f'{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit("")))']
-    return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(None)))"]
+    return []
 
 
 def _emit_outliers_spark(action: str, col: str, df: str, params: Dict[str, Any]) -> List[str]:
@@ -283,7 +286,11 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
     
     if manifest.get("datasets"):
         if use_fabric:
-            lines.append(resolve_path_fabric_pyspark_helper())
+            workspace_id = os.getenv("FABRIC_WORKSPACE_ID")
+            lakehouse_id = os.getenv("FABRIC_LAKEHOUSE_NAME") or os.getenv("FABRIC_LAKEHOUSE_ID")
+            from connectors.fabric_lakehouse_connector import get_lakehouse_folder
+            lakehouse_folder = get_lakehouse_folder(lakehouse_id) if lakehouse_id else None
+            lines.append(resolve_path_fabric_pyspark_helper(workspace_id, lakehouse_folder))
         else:
             lines.append(resolve_path_pyspark_helper())
         lines.append("")

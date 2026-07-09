@@ -20,6 +20,7 @@ class ETLState(TypedDict, total=False):
     sql_dialect: str              # "tsql" | "ansi" | "spark"
     business_rules: Dict[str, Any]
     assessment_result: Optional[Dict[str, Any]]
+    execution_target: str         # "fabric" | "local"
 
     # Plan node outputs
     plan: Dict[str, Any]
@@ -44,8 +45,19 @@ class ETLState(TypedDict, total=False):
 
 def _node_etl_plan(state: ETLState) -> ETLState:
     logger.info("Executing ETL node: plan")
+    
+    # Propagate execution_target to session etl_flow context
+    from agent.session_store import load_session, save_session
+    sid = state.get("session_id") or "default"
+    sess = load_session(sid)
+    ctx = sess.setdefault("context", {})
+    flow = ctx.setdefault("etl_flow", {})
+    if state.get("execution_target"):
+        flow["execution_target"] = state["execution_target"]
+    save_session(sess)
+
     res = etl_plan_start(
-        session_id=state.get("session_id") or "default",
+        session_id=sid,
         business_rules=state.get("business_rules") or {},
         assessment_result=state.get("assessment_result"),
         engine=state.get("engine") or "python",
