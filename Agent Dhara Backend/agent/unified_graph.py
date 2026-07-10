@@ -105,7 +105,7 @@ def _node_unified_route(state: UnifiedState) -> UnifiedState:
         "selected_sources_resolved": resolved_sources,
         "shortcut_summary": shortcuts,
         "execution_target": exec_target,
-        "schema_changed": True,   # conservative default
+        "schema_changed": False,   # updated after assessment
         "timings": _merge_timings(state, {"route_ms": int((time.time() - t0) * 1000)}),
     }
 
@@ -156,6 +156,9 @@ def _node_narrate(state: UnifiedState) -> UnifiedState:
 
     # Load prior run to compare
     prior = state.get("prior_run")
+    prior_hash = prior.get("schema_hash") if prior else None
+    schema_changed = (prior_hash != schema_hash) if prior_hash else True
+    
     current_run_summary = {
         "dq_score": dq_score,
         "dq_issue_count": dq_issues,
@@ -168,6 +171,7 @@ def _node_narrate(state: UnifiedState) -> UnifiedState:
     return {
         "dq_score": dq_score,
         "schema_hash": schema_hash,
+        "schema_changed": schema_changed,
         "improvement_narrative": narrative,
     }
 

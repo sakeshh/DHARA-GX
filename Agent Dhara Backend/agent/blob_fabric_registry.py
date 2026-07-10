@@ -30,10 +30,21 @@ def _init_db():
                 lakehouse_uri   TEXT NOT NULL,
                 created_ts      REAL NOT NULL,
                 method          TEXT NOT NULL,
+                blob_etag       TEXT,
+                blob_last_modified REAL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id)
             )
             """
         )
+        # Dynamic migration for existing tables
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(blob_fabric_shortcuts)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if "blob_etag" not in cols:
+            conn.execute("ALTER TABLE blob_fabric_shortcuts ADD COLUMN blob_etag TEXT")
+        if "blob_last_modified" not in cols:
+            conn.execute("ALTER TABLE blob_fabric_shortcuts ADD COLUMN blob_last_modified REAL")
+            
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_blob_fabric_shortcuts_session ON blob_fabric_shortcuts(session_id, blob_path)"
         )
@@ -63,7 +74,9 @@ def register_shortcut(
     files_zone_path: str,
     shortcut_name: str,
     lakehouse_uri: str,
-    method: str = "shortcut"
+    method: str = "shortcut",
+    blob_etag: Optional[str] = None,
+    blob_last_modified: Optional[float] = None
 ) -> None:
     """
     Register a blob-to-Fabric-shortcut mapping. If one exists, overwrite it.
@@ -82,19 +95,20 @@ def register_shortcut(
             conn.execute(
                 """
                 UPDATE blob_fabric_shortcuts
-                SET files_zone_path = ?, shortcut_name = ?, lakehouse_uri = ?, created_ts = ?, method = ?
+                SET files_zone_path = ?, shortcut_name = ?, lakehouse_uri = ?, created_ts = ?, method = ?,
+                    blob_etag = ?, blob_last_modified = ?
                 WHERE id = ?
                 """,
-                (files_zone_path, shortcut_name, lakehouse_uri, now, method, row[0])
+                (files_zone_path, shortcut_name, lakehouse_uri, now, method, blob_etag, blob_last_modified, row[0])
             )
         else:
             conn.execute(
                 """
                 INSERT INTO blob_fabric_shortcuts 
-                (session_id, blob_path, files_zone_path, shortcut_name, lakehouse_uri, created_ts, method)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (session_id, blob_path, files_zone_path, shortcut_name, lakehouse_uri, created_ts, method, blob_etag, blob_last_modified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (sid, blob_path, files_zone_path, shortcut_name, lakehouse_uri, now, method)
+                (sid, blob_path, files_zone_path, shortcut_name, lakehouse_uri, now, method, blob_etag, blob_last_modified)
             )
         conn.commit()
         logger.info(f"Registered Fabric shortcut for blob '{blob_path}' -> '{files_zone_path}' under session '{sid}'.")
@@ -113,7 +127,7 @@ def get_shortcut(session_id: str, blob_path: str) -> Optional[Dict[str, Any]]:
     try:
         row = conn.execute(
             """
-            SELECT files_zone_path, shortcut_name, lakehouse_uri, created_ts, method
+            SELECT files_zone_path, shortcut_name, lakehouse_uri, created_ts, method, blob_etag, blob_last_modified
             FROM blob_fabric_shortcuts
             WHERE session_id = ? AND (blob_path = ? OR blob_path = ?)
             """,
@@ -128,7 +142,9 @@ def get_shortcut(session_id: str, blob_path: str) -> Optional[Dict[str, Any]]:
             "shortcut_name": row[1],
             "lakehouse_uri": row[2],
             "created_ts": row[3],
-            "method": row[4]
+            "method": row[4],
+            "blob_etag": row[5],
+            "blob_last_modified": row[6]
         }
     finally:
         conn.close()
@@ -142,7 +158,7 @@ def list_shortcuts(session_id: str) -> List[Dict[str, Any]]:
     try:
         rows = conn.execute(
             """
-            SELECT blob_path, files_zone_path, shortcut_name, lakehouse_uri, created_ts, method
+            SELECT blob_path, files_zone_path, shortcut_name, lakehouse_uri, created_ts, method, blob_etag, blob_last_modified
             FROM blob_fabric_shortcuts
             WHERE session_id = ?
             ORDER BY created_ts DESC
@@ -157,7 +173,9 @@ def list_shortcuts(session_id: str) -> List[Dict[str, Any]]:
                 "shortcut_name": r[2],
                 "lakehouse_uri": r[3],
                 "created_ts": r[4],
-                "method": r[5]
+                "method": r[5],
+                "blob_etag": r[6],
+                "blob_last_modified": r[7]
             }
             for r in rows
         ]

@@ -32,24 +32,27 @@ def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
     fval = params.get("fill_value")
     if strat == "median":
         if fval is not None:
-            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval})))"]
+            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({df}.schema[{c}].dataType)))"]
         return [
             f"_med = {df}.select(F.percentile_approx(F.col({c}), 0.5).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med)))",
+            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med).cast({df}.schema[{c}].dataType)))",
         ]
     if strat == "mean":
         if fval is not None:
-            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval})))"]
+            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({df}.schema[{c}].dataType)))"]
         return [
             f"_avg = {df}.select(F.avg(F.col({c}).cast('double')).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg)))",
+            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({df}.schema[{c}].dataType)))",
         ]
     if strat == "value" and fval is not None:
         if str(fval).strip().lower() in ("none", "null", ""):
             return []
-        return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({repr(fval)})))"]
+        return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({repr(fval)}).cast({df}.schema[{c}].dataType)))"]
     if strat == "value":
-        return [f'{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit("")))']
+        return [
+            f"# WARNING: fill_value is None for column {col} — using empty string default",
+            f'{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit("").cast({df}.schema[{c}].dataType)))'
+        ]
     return []
 
 
@@ -92,10 +95,11 @@ def _emit_outliers_spark(action: str, col: str, df: str, params: Dict[str, Any])
 def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[str, Any]] = None) -> List[str]:
     params = step_params(step_meta)
     act = (action or "").lower()
-    if not col or str(col).lower() in ("row-level", "[row-level]"):
-        if act == "deduplicate":
+    if act == "deduplicate":
+        if not col or str(col).lower() in ("row-level", "[row-level]"):
             return [f"{df} = {df}.dropDuplicates()"]
-        return []
+        else:
+            return [f"{df} = {df}.dropDuplicates([{repr(str(col))}])"]
     c = repr(str(col))
     if act == "trim":
         return [f'{df} = {df}.withColumn({c}, F.trim(F.col({c}).cast("string")))']
@@ -103,8 +107,11 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
         return _emit_fill_spark(col, df, params)
     if act == "coerce_numeric":
         return [f"{df} = {df}.withColumn({c}, F.col({c}).cast('double'))"]
+    if act == "zero_to_null":
+        return [f"{df} = {df}.withColumn({c}, F.when(F.col({c}) == 0, F.lit(None)).otherwise(F.col({c})))"]
     if act == "cast_type":
-        return [f"{df} = {df}.withColumn({c}, F.col({c}).cast('long'))"]
+        target_type = params.get("target_type") or params.get("cast_to") or "long"
+        return [f"{df} = {df}.withColumn({c}, F.col({c}).cast({repr(target_type)}))"]
     if act == "parse_dates":
         return [f"{df} = {df}.withColumn({c}, F.to_timestamp(F.col({c})))"]
     if act == "sanitize_email":
@@ -142,7 +149,7 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
     if act == "nullify_dummy_dates":
         return [
             f"# Nullify dummy dates (e.g. 1900-01-01)",
-            f"{df} = {df}.withColumn({c}, F.when(F.to_date(F.col({c})).eqNullSafe(F.lit('1900-01-01')) | (F.month(F.to_date(F.col({c}))) == 1) & (F.dayofmonth(F.to_date(F.col({c}))) == 1), F.lit(None)).otherwise(F.col({c})))"
+            f"{df} = {df}.withColumn({c}, F.when((F.to_date(F.col({c})).eqNullSafe(F.lit('1900-01-01'))) | ((F.month(F.to_date(F.col({c}))) == 1) & (F.dayofmonth(F.to_date(F.col({c}))) == 1)), F.lit(None)).otherwise(F.col({c})))"
         ]
     if act == "range_clip":
         lo = params.get("min_value") or params.get("lower_bound") or 0
@@ -157,6 +164,14 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
         replacement = params.get("replacement") or ""
         pattern_esc = pattern.replace("\\", "\\\\")
         return [f"{df} = {df}.withColumn({c}, F.regexp_replace(F.col({c}).cast('string'), {repr(pattern_esc)}, {repr(replacement)}))"]
+    if act == "replace_values":
+        mapping = params.get("replace_values") or {}
+        if mapping:
+            col_expr = f"F.col({c})"
+            for old_v, new_v in mapping.items():
+                col_expr = f"F.when(F.col({c}) == F.lit({repr(old_v)}), F.lit({repr(new_v)})).otherwise({col_expr})"
+            return [f"{df} = {df}.withColumn({c}, {col_expr})"]
+        return [f"# replace_values on {col}: no mapping provided"]
     if act in ("drop_column", "exclude_column"):
         return [f"{df} = {df}.drop({c})"]
     if act == "noop":
@@ -241,7 +256,7 @@ def _emit_valid_values_spark(df: str, ds_name: str, rules: Dict[str, Any]) -> Li
                 f"if {c} in {df}.columns:",
                 f"    _before = {df}.count()",
                 f"    {df} = {df}.filter(F.lower(F.col({c}).cast('string')).isin({allowed_lit}) | F.col({c}).isNull())",
-                f"    logging.info(f'valid_values {ds_name}.{col}: dropped %s rows', _before - {df}.count())",
+                f"    logger.info('valid_values {ds_name}.{col}: dropped %d rows', _before - {df}.count())",
             ])
     return lines
 
@@ -267,6 +282,7 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         "",
         "import logging",
         "import os",
+        "from typing import Optional",
         "from pyspark.sql import functions as F",
         "from pyspark.sql import DataFrame",
         "",
@@ -286,11 +302,10 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
     
     if manifest.get("datasets"):
         if use_fabric:
-            workspace_id = os.getenv("FABRIC_WORKSPACE_ID")
-            lakehouse_id = os.getenv("FABRIC_LAKEHOUSE_NAME") or os.getenv("FABRIC_LAKEHOUSE_ID")
-            from connectors.fabric_lakehouse_connector import get_lakehouse_folder
-            lakehouse_folder = get_lakehouse_folder(lakehouse_id) if lakehouse_id else None
-            lines.append(resolve_path_fabric_pyspark_helper(workspace_id, lakehouse_folder))
+            # For Fabric notebooks, always use /lakehouse/default/ relative paths.
+            # The notebook has the lakehouse attached, so ABFSS URLs are unnecessary
+            # and can cause issues with spark.sql CREATE TABLE commands.
+            lines.append(resolve_path_fabric_pyspark_helper(None, None))
         else:
             lines.append(resolve_path_pyspark_helper())
         lines.append("")
@@ -303,7 +318,7 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
 
     for ds_name, block in (plan.get("datasets") or {}).items():
         fn = f"transform_{_safe(ds_name)}"
-        lines.append(f"def {fn}(df: DataFrame, all_dfs: dict | None = None) -> DataFrame:")
+        lines.append(f"def {fn}(df: DataFrame, all_dfs: Optional[dict] = None) -> DataFrame:")
         var = "out"
         lines.append(f"    {var} = df")
 
@@ -348,9 +363,20 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
             lines.append(f"    {sl}")
         lines.append("    return dfs, OUTPUT_PATHS")
         lines.append("")
-        lines.append("if __name__ == '__main__':")
+        lines.append("# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev.")
+        lines.append("try:")
+        lines.append("    spark  # type: ignore[name-defined]")
+        lines.append("except NameError:")
         lines.append("    from pyspark.sql import SparkSession")
         lines.append('    spark = SparkSession.builder.appName("AgentDharaETL").getOrCreate()')
-        lines.append("    _dfs, _paths = run_pipeline(spark)")
+        lines.append("_dfs, _paths = run_pipeline(spark)")
+    else:
+        lines.append("# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev.")
+        lines.append("try:")
+        lines.append("    spark  # type: ignore[name-defined]")
+        lines.append("except NameError:")
+        lines.append("    from pyspark.sql import SparkSession")
+        lines.append('    spark = SparkSession.builder.appName("AgentDharaETL").getOrCreate()')
+        lines.append("logger.info('Empty pipeline executed successfully')")
 
     return "\n".join(lines)

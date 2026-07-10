@@ -65,6 +65,7 @@ def upload_file_to_onelake(
     token: str
 ) -> bool:
     """Uploads file bytes directly to Fabric OneLake using ADLS Gen2 REST API."""
+    import time
     headers = {
         "Authorization": f"Bearer {token}"
     }
@@ -73,36 +74,68 @@ def upload_file_to_onelake(
     encoded_dest = "/".join(quote(seg) for seg in dest_path.split("/") if seg)
     url = f"https://onelake.dfs.fabric.microsoft.com/{workspace}/{lakehouse_folder}/{encoded_dest}"
     
-    # 1. Create file placeholder (overwrites if already exists)
-    create_url = f"{url}?resource=file"
-    logger.info(f"Creating file placeholder in OneLake: {create_url}")
-    res = requests.put(create_url, headers=headers, timeout=30)
-    if res.status_code not in (200, 201):
-        logger.error(f"Failed to create file placeholder: {res.status_code} - {res.text}")
-        return False
+    def _request_with_retry(method: str, req_url: str, max_retries: int = 3, initial_delay: float = 1.0, **kwargs) -> requests.Response:
+        delay = initial_delay
+        last_ex = None
+        for attempt in range(max_retries):
+            try:
+                res = requests.request(method, req_url, timeout=30, **kwargs)
+                if res.status_code in (500, 502, 503, 504, 408):
+                    logger.warning(f"Transient HTTP {res.status_code} for {method} {req_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {delay}s...")
+                else:
+                    return res
+            except requests.RequestException as e:
+                last_ex = e
+                logger.warning(f"Request exception for {method} {req_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {delay}s... Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+                delay *= 2
+        if last_ex:
+            raise last_ex
+        return res
+
+    created = False
+    try:
+        # 1. Create file placeholder (overwrites if already exists)
+        create_url = f"{url}?resource=file"
+        logger.info(f"Creating file placeholder in OneLake: {create_url}")
+        res = _request_with_retry("PUT", create_url, headers=headers)
+        if res.status_code not in (200, 201):
+            logger.error(f"Failed to create file placeholder: {res.status_code} - {res.text}")
+            return False
+        created = True
         
-    # 2. Append data
-    append_url = f"{url}?action=append&position=0"
-    logger.info(f"Appending data to OneLake: {append_url}")
-    headers_append = {
-        **headers,
-        "Content-Type": "application/octet-stream"
-    }
-    res = requests.patch(append_url, headers=headers_append, data=file_bytes, timeout=30)
-    if res.status_code not in (200, 201, 202):
-        logger.error(f"Failed to append data: {res.status_code} - {res.text}")
+        # 2. Append data
+        append_url = f"{url}?action=append&position=0"
+        logger.info(f"Appending data to OneLake: {append_url}")
+        headers_append = {
+            **headers,
+            "Content-Type": "application/octet-stream"
+        }
+        res = _request_with_retry("PATCH", append_url, headers=headers_append, data=file_bytes)
+        if res.status_code not in (200, 201, 202):
+            logger.error(f"Failed to append data: {res.status_code} - {res.text}")
+            raise RuntimeError(f"Failed to append data: {res.status_code}")
+            
+        # 3. Flush data
+        flush_url = f"{url}?action=flush&position={len(file_bytes)}"
+        logger.info(f"Flushing data in OneLake: {flush_url}")
+        res = _request_with_retry("PATCH", flush_url, headers=headers)
+        if res.status_code not in (200, 201, 202):
+            logger.error(f"Failed to flush data: {res.status_code} - {res.text}")
+            raise RuntimeError(f"Failed to flush data: {res.status_code}")
+            
+        logger.info("File physical upload completed successfully.")
+        return True
+    except Exception as e:
+        logger.error(f"Physical upload failed: {e}. Cleaning up orphaned placeholder if created.")
+        if created:
+            try:
+                del_res = requests.delete(url, headers=headers, timeout=15)
+                logger.info(f"Delete cleanup returned status: {del_res.status_code}")
+            except Exception as del_err:
+                logger.error(f"Failed to delete orphaned placeholder: {del_err}")
         return False
-        
-    # 3. Flush data
-    flush_url = f"{url}?action=flush&position={len(file_bytes)}"
-    logger.info(f"Flushing data in OneLake: {flush_url}")
-    res = requests.patch(flush_url, headers=headers, timeout=30)
-    if res.status_code not in (200, 201, 202):
-        logger.error(f"Failed to flush data: {res.status_code} - {res.text}")
-        return False
-        
-    logger.info("File physical upload completed successfully.")
-    return True
 
 def create_shortcuts_for_blobs(
     session_id: str,
@@ -140,7 +173,14 @@ def create_shortcuts_for_blobs(
             })
         except Exception as e:
             logger.error(f"Failed to initialize AzureBlobStorageConnector: {e}")
-            # We will handle missing connector errors inside the loop
+            
+    # Acquire token once for the entire batch in live mode
+    cached_token = None
+    if not client.mock_mode:
+        try:
+            cached_token = _get_storage_token()
+        except Exception as e:
+            logger.error(f"Failed to acquire storage token on startup: {e}")
             
     for blob_path in selected_blob_paths:
         clean_blob_path = blob_path.replace("azure_blob:", "")
@@ -161,7 +201,7 @@ def create_shortcuts_for_blobs(
                 files_zone_path=files_zone_path,
                 shortcut_name=shortcut_name,
                 lakehouse_uri=lakehouse_uri,
-                method="copy"
+                method="copy_mock"
             )
             results.append({
                 "blob": blob_path,
@@ -187,12 +227,22 @@ def create_shortcuts_for_blobs(
             continue
             
         try:
+            # Fetch properties for staleness checks
+            blob_etag = None
+            blob_last_modified = None
+            try:
+                props = blob_connector.get_blob_properties(clean_blob_path)
+                blob_etag = props.get("etag")
+                blob_last_modified = props.get("last_modified")
+            except Exception as pe:
+                logger.warning(f"Could not retrieve blob properties for {clean_blob_path}: {pe}")
+
             # 1. Download bytes from Blob Storage
             logger.info(f"Downloading blob '{clean_blob_path}'...")
             file_bytes = blob_connector._download_blob_bytes(clean_blob_path)
             
-            # 2. Acquire Storage Access Token
-            token = _get_storage_token()
+            # 2. Acquire/Reuse Storage Access Token
+            token = cached_token or _get_storage_token()
             if not token:
                 raise RuntimeError("Failed to acquire Azure Storage bearer token for OneLake data plane access.")
                 
@@ -212,7 +262,9 @@ def create_shortcuts_for_blobs(
                     files_zone_path=files_zone_path,
                     shortcut_name=shortcut_name,
                     lakehouse_uri=lakehouse_uri,
-                    method="copy"
+                    method="copy",
+                    blob_etag=blob_etag,
+                    blob_last_modified=blob_last_modified
                 )
                 results.append({
                     "blob": blob_path,

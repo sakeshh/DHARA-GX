@@ -11,7 +11,7 @@ import json
 import io
 import time
 import xml.etree.ElementTree as ET
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import pandas as pd
 
 try:
@@ -135,6 +135,22 @@ class AzureBlobStorageConnector:
             self.container_client = self.client.get_container_client(self.container)
         except Exception as e:
             raise RuntimeError(f"Failed to create BlobServiceClient: {e}") from e
+
+    def get_blob_properties(self, blob_name: str) -> Dict[str, Any]:
+        """Fetch etag and last_modified for a specific blob (with retry)."""
+        if self.container_client is None:
+            return {"etag": None, "last_modified": None}
+        blob_client = self.container_client.get_blob_client(blob_name)
+        def _get_props():
+            props = blob_client.get_blob_properties()
+            return {
+                "etag": props.etag,
+                "last_modified": props.last_modified.timestamp() if props.last_modified else None
+            }
+        try:
+            return _retry_on_transient(_get_props)
+        except Exception:
+            return {"etag": None, "last_modified": None}
 
     def list_blobs(self) -> List[str]:
         """List all blob names in the container (with retry)."""

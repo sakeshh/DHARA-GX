@@ -198,6 +198,10 @@ def validate_pyspark_source(
     if not has_spark and "SparkSession" not in source:
         errs.append("expected pyspark import or SparkSession usage")
 
+    unsupported = re.findall(r"# Unsupported in pyspark template v1: (.+)", source)
+    if unsupported:
+        errs.append(f"Unsupported template actions detected: {', '.join(unsupported)}")
+
     resolve_errs, resolve_warnings = _check_resolve_helper_defined(source)
     errs.extend(resolve_errs)
     errs.extend(_check_dead_join_variables(source))

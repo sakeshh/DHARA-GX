@@ -283,7 +283,14 @@ def emit_pyspark_write_outputs(plan: Dict[str, Any], manifest: Dict[str, Any]) -
                 f'    dfs["{ds_name}"].write.mode("overwrite").option("header", "true").csv(_out)'
             )
         else:
-            lines.append(f"    {wsnip}")
+            # Handle multi-statement snippets (e.g. Fabric delta write + catalog registration)
+            for stmt in wsnip.split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    if stmt.startswith("df.") or stmt.startswith("dfs["):
+                        lines.append(f"    {stmt}")
+                    else:
+                        lines.append(f"    {stmt}")
 
     joins = [j for j in (rel.get("joins") or []) if j.get("join_type") != "review"]
     if joins and not _skip_joins_for_plan(plan):

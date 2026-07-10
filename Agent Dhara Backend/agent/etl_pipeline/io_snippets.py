@@ -190,10 +190,11 @@ def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
 def pyspark_write_snippet(entry: Dict[str, Any]) -> str:
     if entry.get("source_type") == "fabric_files_zone" or entry.get("execution_target") == "fabric":
         table_name = entry.get("clean_table_name") or "dataset_clean"
+        # Use semicolons as line separators — the emitter will split on them
         return (
-            f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))\n'
-            f'    spark.sql("DROP TABLE IF EXISTS {table_name}")\n'
-            f'    spark.sql("CREATE TABLE {table_name} USING delta LOCATION \'" + _resolve_data_path("Tables/{table_name}") + "\'")'
+            f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))'
+            f';spark.sql("DROP TABLE IF EXISTS {table_name}")'
+            f';spark.sql("CREATE TABLE {table_name} USING delta LOCATION \'" + _resolve_data_path("Tables/{table_name}") + "\'")'
         )
         
     fmt = entry.get("format") or "csv"

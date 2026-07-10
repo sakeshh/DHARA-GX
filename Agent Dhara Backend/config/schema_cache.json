@@ -1,7 +1,7 @@
 {
-    "data_quality_issues.csv": {
-        "id": "object",
+    "data_quality_issues_v2.json": {
+        "user_id": "object",
         "name": "object",
-        "email": "object"
+        "country": "object"
     }
 }

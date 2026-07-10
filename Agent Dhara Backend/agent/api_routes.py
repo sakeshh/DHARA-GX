@@ -1068,7 +1068,13 @@ def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
     cleanse_code = flow.get("code_cleanse") or ""
     transform_code = flow.get("code_transform") or ""
 
-    if eng in ("sql", "tsql", "ansi"):
+    if eng in ("python", "pyspark", "spark"):
+        combined = payload.code
+    # If both phases contain the same code (e.g. full-mode stored as cleanse),
+    # don't concatenate — just use one copy.
+    elif cleanse_code and transform_code and cleanse_code.strip() == transform_code.strip():
+        combined = cleanse_code
+    elif eng in ("sql", "tsql", "ansi"):
         if cleanse_code and transform_code:
             combined = cleanse_code + "\nGO\n\n" + transform_code
         else:

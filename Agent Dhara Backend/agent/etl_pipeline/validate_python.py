@@ -58,7 +58,7 @@ _ACTION_CODE_MARKERS: Dict[str, List[str]] = {
     "exclude_column": [".drop(columns=", ".drop("],
     "drop_column": [".drop(columns=", ".drop("],
     "standardize_boolean": ["isin(", "standardize_boolean"],
-    "zero_to_null": [".replace(", "zero_to_null"],
+    "zero_to_null": [".replace(", "zero_to_null", "F.when("],
     "range_clip": [".clip(lower=", "range_clip"],
     "replace_values": ["replace_values"],
     "regex_replace": [".str.replace(", "regex_replace"],
