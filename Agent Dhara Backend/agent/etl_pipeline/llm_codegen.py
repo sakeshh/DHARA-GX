@@ -24,7 +24,12 @@ except ImportError:
 
 from agent.model_config import load_llm_config, LLM_REQUEST_TIMEOUT
 from agent.etl_pipeline.codegen_policy import llm_codegen_extra_context, plan_policy_block
-from agent.etl_pipeline.io_snippets import resolve_path_pyspark_helper
+from agent.etl_pipeline.io_snippets import (
+    resolve_path_pyspark_helper,
+    resolve_path_fabric_pyspark_helper,
+)
+import logging
+logger = logging.getLogger("agent.etl_pipeline.llm_codegen")
 
 LLM_ERROR_PREFIX = "# Error"
 
@@ -848,7 +853,7 @@ def _build_user_message_parts(
         if engine_key == "pyspark":
             user_parts.append(
                 "REQUIRED _resolve_data_path helper (copy verbatim into generated code):\n"
-                f"```python\n{resolve_path_pyspark_helper()}\n```"
+                f"```python\n{resolve_path_fabric_pyspark_helper(None, None)}\n```"
             )
             user_parts.append(
                 "REQUIRED production helpers (copy if you emit joins or required_columns):\n"
@@ -984,10 +989,6 @@ def _call_llm(
     fix_errors: Optional[List[str]] = None,
     previous_output: Optional[str] = None,
 ) -> str:
-    import logging
-    import time
-    logger = logging.getLogger("agent.etl_pipeline.llm_codegen")
-
     client, model = _get_llm_client()
     if not client or not model:
         return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
@@ -1223,18 +1224,19 @@ def _generate_etl_with_llm_impl(
             else:
                 cached_code, cached_time = _entry
                 cached_ok = True
+            if cached_ok and isinstance(cached_code, str) and cached_code.strip().startswith("# VALIDATION WARNING:"):
+                cached_ok = False
             if now - cached_time < 3600:
                 if cached_ok:
                     logger.info("Returning cached generated code for key: %s", cache_key)
                     return cached_code
                 else:
                     logger.info("Skipping failed cached code for key: %s — will regenerate", cache_key)
-                    del _CODE_CACHE[cache_key]
+                    _CODE_CACHE.pop(cache_key, None)
 
     payload = _build_codegen_payload(
         plan, assessment, output_mode=output_mode, output_path=output_path
     )
-    payload = _trim_payload_for_codegen(payload, engine_key)
     prev: Optional[str] = None
     fix_errors = list(validation_errors or [])
     

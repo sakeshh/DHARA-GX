@@ -14,14 +14,14 @@ try:
     class _NoOutputDefault(_OrigDefault):
         def __call__(self, change, path):
             _norm = _os.path.normpath(path).replace("\\", "/")
-            if "/output/" in _norm or _norm.endswith("/output"):
+            if "output" in _norm.split("/"):
                 return False
             return super().__call__(change, path)
 
     class _NoOutputPython(_OrigPython):
         def __call__(self, change, path):
             _norm = _os.path.normpath(path).replace("\\", "/")
-            if "/output/" in _norm or _norm.endswith("/output"):
+            if "output" in _norm.split("/"):
                 return False
             return super().__call__(change, path)
 

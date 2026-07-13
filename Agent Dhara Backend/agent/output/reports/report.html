@@ -1135,10 +1135,10 @@ button.dataset-toggle:active {
 <header class="masthead">
   <div class="tagline">Intelligent data assessment</div>
   <h1>Assessment report</h1>
-  <div class="sub">Generated 2026-07-13 13:21:25</div>
+  <div class="sub">Generated 2026-07-13 13:45:53</div>
 </header>
 </div>
-<section id="dq-scorecard" class="dq-scorecard-section"><div class="scorecard-banner scorecard-ready"><div class="scorecard-verdict-row"><span class="v-ico">✅</span> <span class="v-text">Data quality verdict: <strong>READY</strong></span></div><div class="scorecard-metrics">Overall DQ score: <strong>99.7</strong> / 100 · High severity issues: <strong>0</strong> · Rows affected by HIGH: <strong>0</strong> · <span title="Based on summed HIGH issue counts; same row may be counted multiple times — value is clamped 0–100%.">Approx. row share unaffected by HIGH (UI estimate): <strong>100.0%</strong></span></div><div class="scorecard-bar-list"><div class="ds-score-row"><span class="ds-name">data_quality_issues_v2.csv</span><div class="score-bar"><div class="score-fill score-fill-high" style="width:99.7%"></div></div><span class="score-value">99.7/100</span><span class="badge badge-ready">✅ READY</span></div></div></div><div class="manifest-callout"><strong>Machine-readable manifest</strong> — export run writes <code>cleaning_manifest.json</code> next to <code>report.html</code>. Use it when implementing ETL: issues, row indexes, samples, and recommended actions.</div></section>
+<section id="dq-scorecard" class="dq-scorecard-section"><div class="scorecard-banner scorecard-ready"><div class="scorecard-verdict-row"><span class="v-ico">✅</span> <span class="v-text">Data quality verdict: <strong>READY</strong></span></div><div class="scorecard-metrics">Overall DQ score: <strong>99.6</strong> / 100 · High severity issues: <strong>0</strong> · Rows affected by HIGH: <strong>0</strong> · <span title="Based on summed HIGH issue counts; same row may be counted multiple times — value is clamped 0–100%.">Approx. row share unaffected by HIGH (UI estimate): <strong>100.0%</strong></span></div><div class="scorecard-bar-list"><div class="ds-score-row"><span class="ds-name">data_quality_issues_v2.json</span><div class="score-bar"><div class="score-fill score-fill-high" style="width:99.6%"></div></div><span class="score-value">99.6/100</span><span class="badge badge-ready">✅ READY</span></div></div></div><div class="manifest-callout"><strong>Machine-readable manifest</strong> — export run writes <code>cleaning_manifest.json</code> next to <code>report.html</code>. Use it when implementing ETL: issues, row indexes, samples, and recommended actions.</div></section>
 <section id="overview">
 <h2>Overview</h2>
 <p class="section-lead">Aggregate view of assessed datasets: volume, shape, and footprint.</p>
@@ -1146,7 +1146,7 @@ button.dataset-toggle:active {
   <div class="kpi"><div class="label">Datasets</div><div class="val">1</div></div>
   <div class="kpi"><div class="label">Approx. rows</div><div class="val">10,000</div></div>
   <div class="kpi"><div class="label">Total columns</div><div class="val">3</div></div>
-  <div class="kpi"><div class="label">Memory (bytes)</div><div class="val">1,582,251</div></div>
+  <div class="kpi"><div class="label">Memory (bytes)</div><div class="val">1,421,062</div></div>
 </div>
 
 </section>
@@ -1163,7 +1163,7 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.user_id</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.user_id</span>
                 <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
@@ -1179,13 +1179,13 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.country</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.country</span>
                 <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
                 <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
                 <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
-                <p class="rec-why-text"><strong>Why it matters:</strong> 2789 null/placeholder</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 1398 null/placeholder</p>
                 
                 
                 <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
@@ -1195,7 +1195,7 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.name</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.name</span>
                 <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
@@ -1208,10 +1208,42 @@ button.dataset-toggle:active {
               </div>
             </div>
             
+            <div class="rec-card border-sev-low">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.country</span>
+                <span class="pill-sev badge sev-low">LOW</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>whitespace</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 1391 leading/trailing spaces</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-low">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.country</span>
+                <span class="pill-sev badge sev-low">LOW</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>nulls</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> 1391 null/placeholder</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
             <div class="rec-card border-sev-medium">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.user_id</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.user_id</span>
                 <span class="pill-sev badge sev-medium">MEDIUM</span>
               </div>
               <div class="rec-body">
@@ -1227,7 +1259,7 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.name</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.name</span>
                 <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
@@ -1243,7 +1275,7 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-low">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.user_id</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.user_id</span>
                 <span class="pill-sev badge sev-low">LOW</span>
               </div>
               <div class="rec-body">
@@ -1259,7 +1291,23 @@ button.dataset-toggle:active {
             <div class="rec-card border-sev-medium">
               <div class="rec-header">
                 <span class="pill-priority">Priority 99</span>
-                <span class="pill-dataset">data_quality_issues_v2.csv.user_id</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.country</span>
+                <span class="pill-sev badge sev-medium">MEDIUM</span>
+              </div>
+              <div class="rec-body">
+                <h4 class="rec-issue-type">Issue: <code>custom_rule_violation</code></h4>
+                <p class="rec-fix-text"><strong>Suggested Fix:</strong> Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</p>
+                <p class="rec-why-text"><strong>Why it matters:</strong> country: expectation failed.</p>
+                
+                
+                <p class="rec-risk-text"><strong>Risk:</strong> ⚠️ Fallback mode (LLM not configured). Validate before applying changes.</p>
+              </div>
+            </div>
+            
+            <div class="rec-card border-sev-medium">
+              <div class="rec-header">
+                <span class="pill-priority">Priority 99</span>
+                <span class="pill-dataset">data_quality_issues_v2.json.user_id</span>
                 <span class="pill-sev badge sev-medium">MEDIUM</span>
               </div>
               <div class="rec-body">
@@ -1285,37 +1333,37 @@ button.dataset-toggle:active {
 <div class="nest-body" id="nest-root-body"><div class="nest-loc-wrap" id="src-0" data-path-filter="0">
 <button type="button" class="nest-toggle nest-level-1" aria-expanded="true" aria-controls="nest-loc-body-0">
   <span class="chevron" aria-hidden="true"></span>
-  <span class="nest-toggle-main"><span class="nest-loc-heading-row"><strong>File system</strong><span class="btn-mini btn-copy-path nest-loc-copy-path" role="button" tabindex="0" data-path="abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_csv.csv">Copy path</span></span>
+  <span class="nest-toggle-main"><span class="nest-loc-heading-row"><strong>File system</strong><span class="btn-mini btn-copy-path nest-loc-copy-path" role="button" tabindex="0" data-path="abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_json.json">Copy path</span></span>
   <span class="nest-meta-inline">abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Fi…</span></span>
 </button>
 <div class="nest-body nest-loc-inner" id="nest-loc-body-0">
-<button type="button" class="nest-toggle nest-level-2" aria-expanded="true" aria-controls="nest-fmt-0-csv">
+<button type="button" class="nest-toggle nest-level-2" aria-expanded="true" aria-controls="nest-fmt-0-json">
   <span class="chevron" aria-hidden="true"></span>
-  <span class="nest-toggle-main"><strong>.csv</strong>
+  <span class="nest-toggle-main"><strong>.json</strong>
   <span class="nest-meta-inline">1 file(s)</span></span>
 </button>
-<div class="nest-body nest-fmt-inner" id="nest-fmt-0-csv">
+<div class="nest-body nest-fmt-inner" id="nest-fmt-0-json">
         <div class="nest-file-card dataset-card depth-card" id="ds-0" data-path-group="0">
           <button type="button" class="nest-toggle nest-level-3" aria-expanded="true" aria-controls="dbc-0">
             <span class="chevron" aria-hidden="true"></span>
             <div class="toggle-main">
-              <h3>data_quality_issues_v2.csv</h3>
+              <h3>data_quality_issues_v2.json</h3>
               <div class="toggle-sub">Profile &amp; data quality</div>
             </div>
-            <div class="dataset-stats-inline"><span>10,000 rows</span><span>3 cols</span><span class='badge sev-low'>DQ 99.7/100</span></div>
+            <div class="dataset-stats-inline"><span>10,000 rows</span><span>3 cols</span><span class='badge sev-low'>DQ 99.6/100</span></div>
           </button>
           <div class="dataset-body" id="dbc-0">
-            <div class='path-inset disk'><span class='path-inset-label'>Filesystem path</span><span class='path-inset-value'>abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_csv.csv</span><button type='button' class='btn-mini btn-copy-path' data-path="abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_csv.csv">Copy</button></div>
-            <aside class="dataset-clean-summary" aria-label="Remediation row estimates"><p class="clean-summary-intro">These counts are computed from overlapping HIGH/MEDIUM rows in this scan (see <a href="#dq-scorecard">DQ verdict</a> for context).</p><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH</strong>-severity finding</span><span class="clean-est-value">10000</span><span class="clean-est-tail"> <span class="muted">(of 10,000 sampled rows)</span> <span class="muted">≈ 100.0% unaffected by HIGH severity</span></span></div><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH nor MEDIUM</strong> finding</span><span class="clean-est-value">9948</span><span class="clean-est-tail"> <span class="muted">(of 10,000 sampled rows)</span> <span class="muted">≈ 99.5% unaffected after HIGH+MEDIUM remediation</span></span></div></aside>
+            <div class='path-inset disk'><span class='path-inset-label'>Filesystem path</span><span class='path-inset-value'>abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_json.json</span><button type='button' class='btn-mini btn-copy-path' data-path="abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_v2_json.json">Copy</button></div>
+            <aside class="dataset-clean-summary" aria-label="Remediation row estimates"><p class="clean-summary-intro">These counts are computed from overlapping HIGH/MEDIUM rows in this scan (see <a href="#dq-scorecard">DQ verdict</a> for context).</p><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH</strong>-severity finding</span><span class="clean-est-value">10000</span><span class="clean-est-tail"> <span class="muted">(of 10,000 sampled rows)</span> <span class="muted">≈ 100.0% unaffected by HIGH severity</span></span></div><div class="clean-est-row"><span class="clean-est-label">Rows with <strong>no HIGH nor MEDIUM</strong> finding</span><span class="clean-est-value">9900</span><span class="clean-est-tail"> <span class="muted">(of 10,000 sampled rows)</span> <span class="muted">≈ 99.0% unaffected after HIGH+MEDIUM remediation</span></span></div></aside>
             <h4 class="block-title">Profile</h4>
-            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>country</strong></td><td>object (string)</td><td>27.89%</td><td>5</td><td>categorical</td><td>false</td></tr><tr><td><strong>name</strong></td><td>object (string)</td><td>0.0%</td><td>10000</td><td>categorical</td><td>true</td></tr><tr><td><strong>user_id</strong></td><td>object (numeric_like)</td><td>3.36%</td><td>9658</td><td>numeric_id</td><td>false</td></tr></tbody></table></div>
+            <div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Type</th><th>Null %</th><th>Unique</th><th>Semantic</th><th>PK candidate</th></tr></thead><tbody><tr><td><strong>name</strong></td><td>object (string)</td><td>0.0%</td><td>10000</td><td>categorical</td><td>true</td></tr><tr><td><strong>country</strong></td><td>object (string)</td><td>13.98%</td><td>6</td><td>categorical</td><td>false</td></tr><tr><td><strong>user_id</strong></td><td>object (numeric_like)</td><td>3.36%</td><td>9658</td><td>numeric_id</td><td>false</td></tr></tbody></table></div>
             <h4 class="block-title">Data quality</h4>
             <details class="dq-issue-details" open>
-              <summary class="dq-issue-summary">data_quality_issues_v2.csv — 7 issues (0 HIGH · 2 MEDIUM · 5 LOW)</summary>
+              <summary class="dq-issue-summary">data_quality_issues_v2.json — 10 issues (0 HIGH · 3 MEDIUM · 7 LOW)</summary>
               <div class="dq-issue-body">
             <h4 class='block-title'>High severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td colspan='9' class='muted'>(no issues)</td></tr></tbody></table></div>
-            <h4 class='block-title'>Medium severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>user_id</td><td><code>sentinel_numeric_value</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td>1111, 2345</td><td><code>11111</code>, <code>12345</code></td><td class='msg-cell'>2 sentinel/magic number(s) detected (e.g. -999, 9999999)</td><td class='rec-cell'>Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source.</td></tr><tr><td>user_id</td><td><code>invalid_numeric</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>166</td><td><div class='scrollcell'>195, 200, 204, 289, 299, 393, 403, 443, 499, 528, 594, 647, 727, 766, 802, 881, 939, 960, 1044, 1106, 1191, 1218, 1236, 1246, 1334, 1387, 1637, 1661, 1737, 1754, 1851, 2022, 2274, 2603, 2720, 2817, 2968, 2974, 3046, 3082, 3093, 3129, 3295, 3304, 3326, 3622, 3653, 3808, 3820, 3881</div></td><td><code>U-10195</code>, <code>U-10200</code>, <code>U-None</code>, <code>U-10289</code>, <code>U-10299</code>, <code>U-10393</code>, <code>U-10403</code>, <code>U-10443</code>, <code>U-10499</code>, <code>U-10528</code></td><td class='msg-cell'>166 non-numeric value(s) in numeric column</td><td class='rec-cell'>Cast column values to float/int; investigate why non-numeric characters are present in numeric fields.</td></tr></tbody></table></div>
-            <h4 class='block-title'>Low severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>user_id</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>336</td><td><div class='scrollcell'>52, 66, 140, 222, 314, 338, 353, 358, 408, 445, 466, 489, 500, 509, 536, 538, 598, 601, 617, 634, 657, 778, 782, 791, 829, 840, 878, 885, 904, 916, 924, 930, 974, 1101, 1107, 1114, 1127, 1135, 1139, 1162, 1170, 1219, 1230, 1237, 1262, 1293, 1298, 1304, 1316, 1331</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>336 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>country</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>2789</td><td><div class='scrollcell'>0, 2, 8, 10, 12, 14, 16, 20, 24, 27, 28, 30, 33, 47, 50, 51, 53, 59, 62, 66, 68, 71, 75, 95, 99, 100, 107, 116, 117, 123, 126, 129, 133, 140, 146, 147, 148, 151, 152, 156, 162, 171, 176, 178, 181, 196, 204, 218, 220, 222</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>2789 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>name</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>192</td><td><div class='scrollcell'>185, 187, 244, 301, 303, 326, 364, 402, 470, 575, 592, 619, 639, 680, 704, 713, 780, 819, 846, 914, 1188, 1287, 1491, 1553, 1568, 1576, 1586, 1726, 1749, 1815, 1826, 1861, 1964, 2097, 2102, 2309, 2313, 2337, 2542, 2696, 2779, 2799, 2811, 2833, 2850, 2966, 2974, 2984, 3023, 3096</div></td><td><code> jRgNpxhKLY </code>, <code> gGdXwCXW </code>, <code> atfXqFXRXGmV </code>, <code> vRdoZsZSx </code>, <code> UrVCk </code></td><td class='msg-cell'>192 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>name</td><td><code>all_caps_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>498</td><td><div class='scrollcell'>27, 40, 49, 60, 76, 104, 107, 138, 149, 210, 211, 279, 340, 346, 350, 376, 380, 385, 395, 421, 448, 496, 498, 510, 515, 524, 528, 538, 540, 542, 553, 556, 564, 569, 575, 640, 663, 688, 755, 757, 767, 801, 835, 856, 886, 893, 913, 927, 963, 968</div></td><td><code>KVFC</code>, <code>XEIY</code>, <code>EZBPA</code>, <code>HCHAMHHWI</code>, <code>OCOGPR</code></td><td class='msg-cell'>498 ALL-CAPS value(s) mixed with 9502 mixed/lower-case</td><td class='rec-cell'>Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.</td></tr><tr><td>user_id</td><td><code>string_length_outlier</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>159</td><td><div class='scrollcell'>195, 200, 289, 299, 393, 403, 443, 499, 528, 594, 647, 727, 766, 802, 881, 939, 960, 1044, 1106, 1191, 1218, 1236, 1246, 1334, 1387, 1637, 1661, 1737, 1754, 1851, 2022, 2274, 2603, 2720, 2817, 2968, 2974, 3046, 3082, 3093, 3129, 3295, 3304, 3326, 3622, 3653, 3808, 3820, 3881, 3911</div></td><td><code>U-10195</code>, <code>U-10200</code>, <code>U-10289</code>, <code>U-10299</code>, <code>U-10393</code></td><td class='msg-cell'>159 value(s) exceed 6 chars (mean=5, σ=0)</td><td class='rec-cell'>Strings significantly longer than the column average may contain concatenated data or free-text errors.</td></tr></tbody></table></div>
+            <h4 class='block-title'>Medium severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>user_id</td><td><code>sentinel_numeric_value</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>2</td><td>1111, 2345</td><td><code>11111</code>, <code>12345</code></td><td class='msg-cell'>2 sentinel/magic number(s) detected (e.g. -999, 9999999)</td><td class='rec-cell'>Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source.</td></tr><tr><td>country</td><td><code>custom_rule_violation</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1391</td><td><div class='scrollcell'>8, 12, 16, 20, 27, 28, 30, 33, 47, 50, 59, 62, 75, 95, 100, 126, 133, 147, 148, 176, 178, 181, 218, 220, 222, 224, 231, 247, 265, 275, 283, 285, 289, 291, 296, 298, 302, 306, 310, 313, 318, 324, 325, 338, 340, 345, 347, 352, 353, 393</div></td><td><code></code></td><td class='msg-cell'>country: expectation failed.</td><td class='rec-cell'>Review with domain owners; document the expected rule; add validation at ingest or in the warehouse.</td></tr><tr><td>user_id</td><td><code>invalid_numeric</code></td><td><span class='badge sev-medium'>MEDIUM</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>166</td><td><div class='scrollcell'>195, 200, 204, 289, 299, 393, 403, 443, 499, 528, 594, 647, 727, 766, 802, 881, 939, 960, 1044, 1106, 1191, 1218, 1236, 1246, 1334, 1387, 1637, 1661, 1737, 1754, 1851, 2022, 2274, 2603, 2720, 2817, 2968, 2974, 3046, 3082, 3093, 3129, 3295, 3304, 3326, 3622, 3653, 3808, 3820, 3881</div></td><td><code>U-10195</code>, <code>U-10200</code>, <code>U-None</code>, <code>U-10289</code>, <code>U-10299</code>, <code>U-10393</code>, <code>U-10403</code>, <code>U-10443</code>, <code>U-10499</code>, <code>U-10528</code></td><td class='msg-cell'>166 non-numeric value(s) in numeric column</td><td class='rec-cell'>Cast column values to float/int; investigate why non-numeric characters are present in numeric fields.</td></tr></tbody></table></div>
+            <h4 class='block-title'>Low severity</h4><div class='table-wrap'><table class='data-table'><thead><tr><th>Column</th><th>Issue</th><th>Sev</th><th>Fixability</th><th>Count</th><th>Rows</th><th>Samples</th><th>Problem</th><th>Recommendation</th></tr></thead><tbody><tr><td>user_id</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>336</td><td><div class='scrollcell'>52, 66, 140, 222, 314, 338, 353, 358, 408, 445, 466, 489, 500, 509, 536, 538, 598, 601, 617, 634, 657, 778, 782, 791, 829, 840, 878, 885, 904, 916, 924, 930, 974, 1101, 1107, 1114, 1127, 1135, 1139, 1162, 1170, 1219, 1230, 1237, 1262, 1293, 1298, 1304, 1316, 1331</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>336 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>country</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1398</td><td><div class='scrollcell'>0, 2, 10, 14, 24, 51, 53, 66, 68, 71, 99, 107, 116, 117, 123, 129, 140, 146, 151, 152, 156, 162, 171, 196, 204, 254, 256, 269, 293, 307, 319, 323, 333, 349, 350, 355, 360, 364, 369, 370, 389, 405, 406, 408, 409, 410, 416, 419, 422, 426</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>1398 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>name</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>192</td><td><div class='scrollcell'>185, 187, 244, 301, 303, 326, 364, 402, 470, 575, 592, 619, 639, 680, 704, 713, 780, 819, 846, 914, 1188, 1287, 1491, 1553, 1568, 1576, 1586, 1726, 1749, 1815, 1826, 1861, 1964, 2097, 2102, 2309, 2313, 2337, 2542, 2696, 2779, 2799, 2811, 2833, 2850, 2966, 2974, 2984, 3023, 3096</div></td><td><code> jRgNpxhKLY </code>, <code> gGdXwCXW </code>, <code> atfXqFXRXGmV </code>, <code> vRdoZsZSx </code>, <code> UrVCk </code></td><td class='msg-cell'>192 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>country</td><td><code>whitespace</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>1391</td><td><div class='scrollcell'>8, 12, 16, 20, 27, 28, 30, 33, 47, 50, 59, 62, 75, 95, 100, 126, 133, 147, 148, 176, 178, 181, 218, 220, 222, 224, 231, 247, 265, 275, 283, 285, 289, 291, 296, 298, 302, 306, 310, 313, 318, 324, 325, 338, 340, 345, 347, 352, 353, 393</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>1391 leading/trailing spaces</td><td class='rec-cell'>Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input.</td></tr><tr><td>country</td><td><code>nulls</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>1391</td><td><div class='scrollcell'>8, 12, 16, 20, 27, 28, 30, 33, 47, 50, 59, 62, 75, 95, 100, 126, 133, 147, 148, 176, 178, 181, 218, 220, 222, 224, 231, 247, 265, 275, 283, 285, 289, 291, 296, 298, 302, 306, 310, 313, 318, 324, 325, 338, 340, 345, 347, 352, 353, 393</div></td><td><code></code>, <code></code>, <code></code>, <code></code>, <code></code></td><td class='msg-cell'>1391 null/placeholder</td><td class='rec-cell'>Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults.</td></tr><tr><td>name</td><td><code>all_caps_values</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-fixable'>FIXABLE</span></td><td>498</td><td><div class='scrollcell'>27, 40, 49, 60, 76, 104, 107, 138, 149, 210, 211, 279, 340, 346, 350, 376, 380, 385, 395, 421, 448, 496, 498, 510, 515, 524, 528, 538, 540, 542, 553, 556, 564, 569, 575, 640, 663, 688, 755, 757, 767, 801, 835, 856, 886, 893, 913, 927, 963, 968</div></td><td><code>KVFC</code>, <code>XEIY</code>, <code>EZBPA</code>, <code>HCHAMHHWI</code>, <code>OCOGPR</code></td><td class='msg-cell'>498 ALL-CAPS value(s) mixed with 9502 mixed/lower-case</td><td class='rec-cell'>Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL.</td></tr><tr><td>user_id</td><td><code>string_length_outlier</code></td><td><span class='badge sev-low'>LOW</span></td><td><span class='badge fx-complex'>COMPLEX</span></td><td>159</td><td><div class='scrollcell'>195, 200, 289, 299, 393, 403, 443, 499, 528, 594, 647, 727, 766, 802, 881, 939, 960, 1044, 1106, 1191, 1218, 1236, 1246, 1334, 1387, 1637, 1661, 1737, 1754, 1851, 2022, 2274, 2603, 2720, 2817, 2968, 2974, 3046, 3082, 3093, 3129, 3295, 3304, 3326, 3622, 3653, 3808, 3820, 3881, 3911</div></td><td><code>U-10195</code>, <code>U-10200</code>, <code>U-10289</code>, <code>U-10299</code>, <code>U-10393</code></td><td class='msg-cell'>159 value(s) exceed 6 chars (mean=5, σ=0)</td><td class='rec-cell'>Strings significantly longer than the column average may contain concatenated data or free-text errors.</td></tr></tbody></table></div>
               </div>
             </details>
           </div>

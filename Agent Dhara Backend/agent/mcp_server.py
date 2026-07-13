@@ -880,8 +880,9 @@ def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
         codegen_mode=payload.codegen_mode,
         generation_mode=payload.generation_mode,
     )
-    if not result.get("ok") and result.get("http_status") == 409:
-        raise HTTPException(status_code=409, detail=result)
+    if not result.get("ok"):
+        status = result.get("http_status") or 422
+        raise HTTPException(status_code=status, detail=result)
     return result
 
 
