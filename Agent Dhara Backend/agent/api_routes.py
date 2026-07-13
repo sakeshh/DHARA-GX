@@ -733,6 +733,38 @@ def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
     return result
 
 
+class GenerateEtlRequest(BaseModel):
+    plan: Dict[str, Any]
+    assessment: Dict[str, Any]
+    engine: Optional[str] = "python"
+    sql_dialect: Optional[str] = "tsql"
+    output_mode: Optional[str] = "dataframe_only"
+    output_path: Optional[str] = None
+    validation_errors: Optional[List[str]] = None
+
+
+@router.post("/generate-etl")
+async def generate_etl_endpoint(payload: GenerateEtlRequest) -> Dict[str, Any]:
+    from agent.etl_pipeline.llm_codegen import generate_etl_with_llm
+    from agent.errors import ConnectorConfigError
+    try:
+        code, err = await generate_etl_with_llm(
+            payload.plan,
+            payload.assessment,
+            engine=payload.engine or "python",
+            sql_dialect=payload.sql_dialect or "tsql",
+            output_mode=payload.output_mode or "dataframe_only",
+            output_path=payload.output_path,
+            validation_errors=payload.validation_errors,
+        )
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        return {"ok": True, "code": code}
+    except ConnectorConfigError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+
 @router.post("/etl/deploy")
 def api_etl_deploy(payload: EtlDeployPayload) -> Dict[str, Any]:
     from agent.etl_handlers import etl_deploy

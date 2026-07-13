@@ -52,3 +52,9 @@ class AgentError(Exception):
 
     def __str__(self) -> str:
         return f"[{self.code.value}] {self.message} (recoverable={self.recoverable})"
+
+
+class ConnectorConfigError(Exception):
+    """Raised when a connector is referenced but credentials are missing."""
+    pass
+

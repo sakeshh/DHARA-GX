@@ -1051,8 +1051,10 @@ def _generate_for_engine(
     """Returns (code, ok, errs, generated_by)."""
     generated_by = "llm"
 
+    from agent.etl_pipeline.llm_codegen import run_codegen_sync, is_llm_generation_error, parse_adf_json_from_llm
+
     if eng == "python":
-        code = generate_etl_with_llm(
+        coro = generate_etl_with_llm(
             plan,
             assess,
             engine="python",
@@ -1061,6 +1063,9 @@ def _generate_for_engine(
             validation_errors=inject_errors,
             validate_fn=lambda src: validate_etl_python_source(src),
         )
+        code, err = run_codegen_sync(coro)
+        if err:
+            return err, False, [err], generated_by
         if is_llm_generation_error(code):
             return code, False, [code], generated_by
         ok, errs = validate_etl_python_source(code)
@@ -1070,7 +1075,7 @@ def _generate_for_engine(
         from agent.etl_pipeline.validate_sql import validate_sql_basic
 
         dialect = "ansi" if eng == "ansi" else (sql_dialect or "tsql")
-        code = generate_etl_with_llm(
+        coro = generate_etl_with_llm(
             plan,
             assess,
             engine=f"sql-{dialect}",
@@ -1078,6 +1083,9 @@ def _generate_for_engine(
             output_mode=output_mode,
             validation_errors=inject_errors,
         )
+        code, err = run_codegen_sync(coro)
+        if err:
+            return err, False, [err], generated_by
         if is_llm_generation_error(code):
             return code, False, [code], generated_by
         ok, hard_errors, warnings = validate_sql_basic(code)
@@ -1086,7 +1094,7 @@ def _generate_for_engine(
         return code, ok, hard_errors, generated_by
 
     if eng in ("spark", "pyspark"):
-        code = generate_etl_with_llm(
+        coro = generate_etl_with_llm(
             plan,
             assess,
             engine="pyspark",
@@ -1095,6 +1103,9 @@ def _generate_for_engine(
             validation_errors=inject_errors,
             validate_fn=lambda src: validate_pyspark_source(src, plan),
         )
+        code, err = run_codegen_sync(coro)
+        if err:
+            return err, False, [err], generated_by
         if is_llm_generation_error(code):
             return code, False, [code], generated_by
         ok, errs = validate_pyspark_source(code, plan)
@@ -1104,7 +1115,10 @@ def _generate_for_engine(
         from agent.etl_pipeline.validate_adf import validate_adf_json
 
         if inject_errors:
-            raw = generate_etl_with_llm(plan, assess, engine="adf", validation_errors=inject_errors)
+            coro = generate_etl_with_llm(plan, assess, engine="adf", validation_errors=inject_errors)
+            raw, err = run_codegen_sync(coro)
+            if err:
+                return err, False, [err], generated_by
             if is_llm_generation_error(raw):
                 return raw, False, [raw], generated_by
             obj, parse_errs = parse_adf_json_from_llm(raw)
@@ -1114,7 +1128,8 @@ def _generate_for_engine(
             ok, errs = validate_adf_json(obj)
             return code, ok, errs, generated_by
 
-        obj, llm_err = generate_adf_with_llm(plan, assess, validate_fn=validate_adf_json)
+        coro = generate_adf_with_llm(plan, assess, validate_fn=validate_adf_json)
+        obj, llm_err = run_codegen_sync(coro)
         if obj is None:
             return llm_err or "# Error: ADF generation failed", False, [llm_err or "ADF failed"], generated_by
         code = json.dumps(obj, indent=2)

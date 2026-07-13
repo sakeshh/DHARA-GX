@@ -9,10 +9,14 @@ import json
 import os
 import re
 import time
-import threading
+import asyncio
+from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-_CODEGEN_LOCK = threading.Lock()
+# Per-plan-id async locks — only blocks the same plan, not all plans
+_PLAN_LOCKS: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+_PLAN_FAILURE_COUNTS: dict[str, int] = defaultdict(int)
+_MAX_PLAN_FAILURES = 3  # after this, circuit-open for 5 min
 
 try:
     from openai import AzureOpenAI, OpenAI, RateLimitError, APITimeoutError
@@ -22,12 +26,14 @@ except ImportError:
     RateLimitError = None
     APITimeoutError = None
 
-from agent.model_config import load_llm_config, LLM_REQUEST_TIMEOUT
+from agent.errors import ConnectorConfigError
+from agent.model_config import load_llm_config, LLM_REQUEST_TIMEOUT, get_context_window
 from agent.etl_pipeline.codegen_policy import llm_codegen_extra_context, plan_policy_block
 from agent.etl_pipeline.io_snippets import (
     resolve_path_pyspark_helper,
     resolve_path_fabric_pyspark_helper,
 )
+from agent.etl_pipeline.payload_trimmer import trim_payload, _FLOOR_TRIM_CONFIG, _CODEGEN_TRIM_CONFIG
 import logging
 logger = logging.getLogger("agent.etl_pipeline.llm_codegen")
 
@@ -37,20 +43,33 @@ class LLMInfraError(Exception):
     """Raised for LLM infrastructure errors like rate limits or timeouts."""
     pass
 
-class ConnectorConfigError(Exception):
-    """Raised when a connector is referenced but credentials are missing."""
-    pass
-
 _CODE_CACHE = {}
+_FAILURE_CACHE: dict[str, tuple[str, float]] = {}  # key -> (error_msg, expiry_time)
 
-try:
-    import tiktoken
-    _encoding = tiktoken.get_encoding("cl100k_base")
-    def _estimate_tokens(text: str) -> int:
-        return len(_encoding.encode(text, disallowed_special=()))
-except ImportError:
-    def _estimate_tokens(text: str) -> int:
-        return max(1, len(text) // 4)
+def _is_failure_cached(cache_key: str) -> str | None:
+    entry = _FAILURE_CACHE.get(cache_key)
+    if entry and time.time() < entry[1]:
+        return entry[0]  # return cached error
+    return None
+
+def _write_failure_cache(cache_key: str, error: str, ttl_seconds: int = 300):
+    _FAILURE_CACHE[cache_key] = (error, time.time() + ttl_seconds)
+
+def _estimate_tokens(text: str | dict) -> int:
+    if isinstance(text, dict):
+        try:
+            text = json.dumps(text, default=str)
+        except Exception:
+            text = str(text)
+    try:
+        import tiktoken
+        enc = tiktoken.get_encoding("cl100k_base")
+        return len(enc.encode(text, disallowed_special=()))
+    except (ImportError, Exception):
+        is_json_like = text.lstrip().startswith(("{", "["))
+        chars_per_token = 2 if is_json_like else 4
+        return max(1, len(text) // chars_per_token)
+
 
 # Actions the planner may emit — LLM must implement each one correctly for the target engine.
 _PLAN_PARAMS = """
@@ -314,7 +333,8 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 def _safe_max_tokens(prompt_text: str, engine_key: str) -> int:
-    context_window = 128000
+    cfg = load_llm_config(purpose="etl_codegen")
+    context_window = get_context_window(cfg.model) if cfg else 128_000
     # Measured: sql-tsql system prompt ≈ 7500 tokens; python ≈ 4500; pyspark ≈ 5000
     overhead_map = {
         "sql-tsql": 8000,
@@ -336,97 +356,34 @@ def _classify_column(
     sem_schema: dict | None = None,
     ds_name: str = "",
 ) -> str:
-    """
-    Classify a column into: id | metric | categorical | date | string | metadata
-    Priority: metadata prefix → semantic schema → col_meta tags → dtype → name keywords
-    """
-    c = str(col_name).lower().strip()
+    from agent.etl_pipeline.semantic_classifier import profile_column
     meta = col_meta or {}
-
-    # 1. Metadata columns — always fast-exit
-    if c.startswith("etl_") or c in ("run_id", "_rn", "_dedup_rn"):
-        return "metadata"
-
-    # 2. Compute dtype/target_dtype once
-    dtype = str(meta.get("dtype") or meta.get("inferred_type") or "").lower()
-    tdtype = str(meta.get("target_dtype") or "").lower()
-
-    _ID_SUBTYPES   = {"email","phone","zip_code","ssn","uuid","pk","fk","ip_address","national_id","passport"}
-    _MET_SUBTYPES  = {"currency","amount","age","percentage","quantity","score","rating","balance"}
-    _CAT_SUBTYPES  = {"status_flag","country","gender","boolean_int","flag","category","enum"}
-    _DATE_SUBTYPES = {"date","datetime","timestamp","time","year","month"}
-
-    def _resolve_sub(sub: str, stype: str):
-        if sub in _ID_SUBTYPES:   return "id"
-        if sub in _MET_SUBTYPES:  return "metric"
-        if sub in _CAT_SUBTYPES:  return "categorical"
-        if sub in _DATE_SUBTYPES: return "date"
-        if stype in ("id","metric","categorical","date"): return stype
-        if stype == "text": return "string"
-        return None
-
-    # 3. Semantic schema (highest authority)
+    dtype = meta.get("dtype") or meta.get("target_dtype") or meta.get("inferred_type") or "string"
+    semantic_type = meta.get("semantic_type") or ""
+    
     if sem_schema:
         desc = sem_schema.get(f"{ds_name}.{col_name}") or {}
-        result = _resolve_sub(
-            desc.get("sub_type", "").lower(),
-            desc.get("semantic_type", "").lower()
-        )
-        if result:
-            return result
-
-    # 4. col_meta semantic tags
-    result = _resolve_sub(
-        meta.get("sub_type", "").lower(),
-        meta.get("semantic_type", "").lower()
-    )
-    if result:
-        return result
-
-    # 5. dtype inference
-    if any(x in dtype or x in tdtype for x in ("date","time","stamp")):
+        if desc.get("semantic_type"):
+            semantic_type = desc.get("semantic_type")
+            
+    prof = profile_column(col_name, dtype, semantic_type)
+    if prof.is_temporal:
         return "date"
-    if any(x in dtype or x in tdtype for x in ("int","float","double","decimal","numeric","real","money","bigint","smallint","tinyint")):
+    if prof.is_numeric:
         return "metric"
-    if "bool" in dtype or "bit" in tdtype:
+    if prof.is_categorical:
         return "categorical"
-
-    # 6. Column name keywords (last resort)
-    if c.endswith("_at") or any(x in c for x in ("date","time","dob","stamp","_dt","_ts")):
-        return "date"
-    if any(x in c for x in ("phone","email","ssn","zip","postal","npi","ein","tin","passport")):
+    if prof.is_identifier:
         return "id"
-    if c.endswith(("id","key","_key","code","num","_no","_nbr")):
-        return "id"
-    if any(x in c for x in ("amount","price","fee","cost","credit","debit","qty","count","total","score","grade","rate","balance","revenue","salary")):
-        return "metric"
-    if any(x in c for x in ("status","gender","category","type","flag","country","city","state","region","tier","segment","priority","rank")):
-        return "categorical"
-
     return "string"
 
 
 def _is_numeric_column(col_name: str, col_meta: dict) -> bool:
-    approved_tag = (col_meta.get("semantic_type") or "").lower().strip()
-    if approved_tag == "metric":
-        return True
-    if approved_tag in ("id", "date", "categorical", "text"):
-        return False
+    from agent.etl_pipeline.semantic_classifier import profile_column
+    dtype = col_meta.get("dtype") or col_meta.get("target_dtype") or col_meta.get("inferred_type") or "string"
+    semantic_type = col_meta.get("semantic_type") or ""
+    return profile_column(col_name, dtype, semantic_type).is_numeric
 
-    c_lower = str(col_name).lower()
-    # Identifiers, phones, emails, and dates are semantically NOT numeric measures
-    if any(x in c_lower for x in ("phone", "email", "name", "date", "time", "dob", "student_id", "course_id", "instructor", "department")):
-        return False
-    dtype = str(col_meta.get("dtype") or col_meta.get("inferred_type") or "").lower()
-    target_dtype = str(col_meta.get("target_dtype") or "").lower()
-    if any(x in dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
-        return True
-    if any(x in target_dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
-        return True
-    # Fallback keyword checks
-    if any(x in c_lower for x in ("credit", "fee", "amount", "price", "quantity", "qty", "count")):
-        return True
-    return False
 
 
 def _consolidate_and_filter_datasets(
@@ -648,126 +605,54 @@ _PYSPARK_READ_TEMPLATES: Dict[str, str] = {
 }
 
 
+def _get_blob_read_template(conn: dict) -> str:
+    account = conn.get("storage_account") or conn.get("account") or "{storage_account}"
+    container = conn.get("container_name") or conn.get("container") or "{container_name}"
+    return (
+        f'df = spark.read.option("header","true")'
+        f'.csv("wasbs://{container}@{account}.blob.core.windows.net/{{loc}}")'
+    )
+
+
 def _read_hint_for_payload(engine_key: str, payload: Dict[str, Any]) -> str:
     ctx = payload.get("source_context") or {}
     src_type = str(ctx.get("type") or "unknown")
     loc = str(ctx.get("location") or "data_file")
 
-    # 1.9: Connector manifest validation gate
-    if src_type in ("blob_storage", "azure_sql", "sql_server", "postgres") and not ctx.get("resolved_connection"):
+    # Connector validation gate: only enforce when the payload has been explicitly flagged
+    # as requiring a resolved connection (i.e., connector_validation_required=True).
+    # Standard blob sessions use env-var credentials via _read_blob_pandas / _resolve_data_path
+    # and do NOT need resolved_connection in source_context.
+    if (
+        payload.get("connector_validation_required")
+        and src_type in ("blob_storage", "azure_sql", "sql_server", "postgres")
+        and not ctx.get("resolved_connection")
+    ):
         raise ConnectorConfigError(
             f"Source type '{src_type}' requires resolved_connection details before codegen; "
             "connector validation must complete first."
         )
 
     if engine_key == "pyspark":
-        tmpl = _PYSPARK_READ_TEMPLATES.get(src_type, _PYSPARK_READ_TEMPLATES["unknown"])
+        if src_type == "blob_storage":
+            conn = ctx.get("resolved_connection") or {}
+            tmpl = _get_blob_read_template(conn)
+        else:
+            tmpl = _PYSPARK_READ_TEMPLATES.get(src_type, _PYSPARK_READ_TEMPLATES["unknown"])
     else:
-        tmpl = _READ_TEMPLATES.get(src_type, _READ_TEMPLATES["unknown"])
+        if src_type == "blob_storage":
+            conn = ctx.get("resolved_connection") or {}
+            from agent.etl_pipeline.io_snippets import _get_pandas_blob_read_snippet
+            tmpl = _get_pandas_blob_read_snippet(loc, conn)
+            return tmpl
+        else:
+            tmpl = _READ_TEMPLATES.get(src_type, _READ_TEMPLATES["unknown"])
     return tmpl.format(loc=loc)
 
 
 def _trim_payload_for_window(payload: dict, engine_key: str, force_level: int = 0) -> dict:
-    """
-    Trim payload according to tiered levels to fit within model context window.
-    Level 0: No trimming if estimated tokens <= 8000.
-    Level 1: Slim source_metadata, cap manual_review to 8, cap blocked to 5.
-    Level 2: Additionally cap steps to top 25, cap domain_rules to 15, relationships.joins to 10.
-    """
-    payload_json = json.dumps(payload, default=str)
-    tokens = _estimate_tokens(payload_json)
-
-    if force_level == 0 and tokens <= 8000:
-        return payload
-
-    trimmed = dict(payload)
-
-    # Level 1 Trimming
-    if force_level >= 1 or tokens > 8000:
-        sm = trimmed.get("source_metadata") or {}
-        slim_sm = {}
-        for ds, meta in sm.items():
-            if not isinstance(meta, dict):
-                continue
-            slim_sm[ds] = {
-                "row_count": meta.get("row_count"),
-                "columns": {
-                    col: {
-                        "dtype": cm.get("dtype") if isinstance(cm, dict) else None,
-                        "semantic_type": cm.get("semantic_type") if isinstance(cm, dict) else None,
-                        "sub_type": cm.get("sub_type") if isinstance(cm, dict) else None,
-                    }
-                    for col, cm in (meta.get("columns") or {}).items()
-                }
-            }
-        trimmed["source_metadata"] = slim_sm
-
-        mr = trimmed.get("manual_review") or []
-        if len(mr) > 8:
-            trimmed["manual_review"] = mr[:8]
-            trimmed["manual_review_truncated"] = f"...{len(mr)-8} more items omitted to fit context"
-
-        blocked = trimmed.get("blocked") or []
-        if len(blocked) > 5:
-            trimmed["blocked"] = blocked[:5]
-            trimmed["blocked_truncated"] = f"...{len(blocked)-5} more blocked items omitted"
-
-    # Re-estimate tokens
-    payload_json_2 = json.dumps(trimmed, default=str)
-    tokens_2 = _estimate_tokens(payload_json_2)
-
-    # Level 2 Trimming
-    if force_level >= 2 or tokens_2 > 12000:
-        ds = trimmed.get("datasets") or {}
-        _STEP_PRIORITIES = {
-            "cast_type": 1,
-            "strip_symbols": 2,
-            "fill_nulls": 3,
-            "zero_to_null": 4,
-            "lowercase": 5,
-            "uppercase": 5,
-            "trim": 5,
-            "sanitize_email": 6,
-            "normalize_phone": 6,
-            "hash_phone": 6,
-            "mask_phone": 6,
-            "clip_outliers": 7,
-            "flag_outliers": 7,
-            "clip_or_flag": 7,
-            "deduplicate": 8,
-        }
-        def get_priority(st):
-            return _STEP_PRIORITIES.get(str(st.get("action") or "").lower().strip(), 99)
-
-        for ds_name, block in ds.items():
-            if not isinstance(block, dict):
-                continue
-            steps = block.get("steps") or []
-            if len(steps) > 25:
-                sorted_steps = sorted(steps, key=get_priority)
-                keep_steps = sorted_steps[:25]
-                omitted_count = len(steps) - 25
-                for i, st in enumerate(keep_steps):
-                    st_copy = dict(st)
-                    st_copy["order"] = i + 1
-                    keep_steps[i] = st_copy
-                block["steps"] = keep_steps
-                block["omitted_steps_summary"] = f"+{omitted_count} more low-priority steps omitted — apply standard heuristics"
-
-        dr = trimmed.get("domain_rules") or {}
-        if len(dr) > 15:
-            trimmed["domain_rules"] = {k: dr[k] for k in list(dr.keys())[:15]}
-            trimmed["domain_rules_truncated"] = f"...{len(dr)-15} more domain rules omitted"
-
-        rel = trimmed.get("relationships") or {}
-        joins = rel.get("joins") or []
-        if len(joins) > 10:
-            rel_copy = dict(rel)
-            rel_copy["joins"] = joins[:10]
-            rel_copy["joins_truncated"] = f"...{len(joins)-10} more joins omitted"
-            trimmed["relationships"] = rel_copy
-
-    return trimmed
+    from agent.etl_pipeline.payload_trimmer import trim_payload, _FLOOR_TRIM_CONFIG
+    return trim_payload(payload, _FLOOR_TRIM_CONFIG)
 
 
 def _build_dynamic_sql_prompt(payload: dict, base_prompt: str) -> str:
@@ -993,9 +878,6 @@ def _call_llm(
     if not client or not model:
         return f"{LLM_ERROR_PREFIX} No LLM credentials (configure AZURE_OPENAI_* or OPENAI_API_KEY)."
 
-    # Trim payload first before embedding it into user message
-    payload = _trim_payload_for_codegen(payload, engine_key)
-
     # 1.5 dynamic system prompt injection
     system = SYSTEM_PROMPTS.get(engine_key, SYSTEM_PROMPTS["python"])
     if engine_key in ("sql-tsql", "sql-ansi"):
@@ -1008,7 +890,7 @@ def _call_llm(
     # 1.1 Floor check: if max_tokens < 3000, force level 2 trim and rebuild message
     if max_tokens < 3000:
         logger.info(f"Available tokens too small ({max_tokens}). Forcing Level 2 payload trim...")
-        payload = _trim_payload_for_window(payload, engine_key, force_level=2)
+        payload = trim_payload(payload, _FLOOR_TRIM_CONFIG)
         user_parts = _build_user_message_parts(engine_key, payload, fix_errors, previous_output)
         user_message = "\n\n".join(user_parts)
         max_tokens = _safe_max_tokens(user_message, engine_key)
@@ -1084,16 +966,17 @@ def _build_retry_context(code: str, errors: List[str]) -> str:
         if m:
             error_lines.add(int(m.group(1)))
     
-    if not error_lines:
-        return code[:8000]
-        
-    excerpt_lines = []
-    for ln in sorted(error_lines):
-        start = max(0, ln - 5)
-        end = min(len(lines), ln + 5)
-        excerpt_lines.append(f"... (lines {start + 1}-{end}) ...")
-        excerpt_lines.extend(lines[start:end])
-    return "\n".join(excerpt_lines[:150])
+    if error_lines:
+        excerpt_lines = []
+        for ln in sorted(error_lines):
+            start = max(0, ln - 10)
+            end = min(len(lines), ln + 10)
+            excerpt_lines.append(f"... (lines {start + 1}-{end}) ...")
+            excerpt_lines.extend(lines[start:end])
+        return "\n".join(excerpt_lines[:150])
+    else:
+        error_msg = "; ".join(errors) if isinstance(errors, list) else str(errors)
+        return f"[FULL REWRITE REQUESTED]\nPrevious attempt failed with: {error_msg}\nGenerate a completely new implementation."
 
 
 _RETRY_BUDGET: Dict[str, int] = {
@@ -1105,118 +988,46 @@ _RETRY_BUDGET: Dict[str, int] = {
 }
 
 
-def _trim_payload_for_codegen(payload: dict, engine_key: str) -> dict:
-    """
-    Trim payload fields to keep total token estimate under 80,000.
-    Priority: keep datasets/steps + business_rules. Trim manual_review, 
-    source_metadata, and narration fields if needed.
-    """
-    import copy
-    p = copy.deepcopy(payload)
-    est = _estimate_tokens(json.dumps(p))
-    TARGET = 80_000
-
-    if est <= TARGET:
-        return p
-
-    # Step 1: strip narration/policy fields first (not needed for codegen)
-    for key in ("plan_narrator_output", "policy_block", "rule_provenance"):
-        p.pop(key, None)
-    if _estimate_tokens(json.dumps(p)) <= TARGET:
-        return p
-
-    # Step 2: slim source_metadata to column names + dtype only
-    for ds, meta in (p.get("source_metadata") or {}).items():
-        if not isinstance(meta, dict):
-            continue
-        cols_dict = meta.get("columns") or {}
-        meta["columns"] = {}
-        for col, cmeta in cols_dict.items():
-            meta["columns"][col] = {
-                "dtype": cmeta.get("dtype") if isinstance(cmeta, dict) else None,
-                "semantic_type": cmeta.get("semantic_type") if isinstance(cmeta, dict) else None,
-            }
-    if _estimate_tokens(json.dumps(p)) <= TARGET:
-        return p
-
-    # Step 3: trim manual_review to top 20 items
-    if len(p.get("manual_review") or []) > 20:
-        p["manual_review"] = p["manual_review"][:20]
-
-    # Step 4: If still too large, keep only steps + business_rules per dataset
-    # (drop all column-level metadata — LLM uses step params, not column descriptions)
-    if _estimate_tokens(json.dumps(p)) > TARGET:
-        for ds_name, ds_data in (p.get("datasets") or {}).items():
-            if isinstance(ds_data, dict):
-                ds_data.pop("column_descriptions", None)
-                ds_data.pop("semantic_tags", None)
-                ds_data.pop("quality_summary", None)
-                
-    # Also trim source_metadata completely if still over limit
-    if _estimate_tokens(json.dumps(p)) > TARGET:
-        p.pop("source_metadata", None)
-
-    return p
 
 
-
-def generate_etl_with_llm(
-    plan: Dict[str, Any],
-    assessment: Dict[str, Any],
-    engine: str = "python",
-    *,
-    sql_dialect: str = "tsql",
-    output_mode: str = "dataframe_only",
-    output_path: Optional[str] = None,
-    validation_errors: Optional[List[str]] = None,
-    validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
-) -> str:
-    with _CODEGEN_LOCK:
-        return _generate_etl_with_llm_impl(
-            plan,
-            assessment,
-            engine,
-            sql_dialect=sql_dialect,
-            output_mode=output_mode,
-            output_path=output_path,
-            validation_errors=validation_errors,
-            validate_fn=validate_fn,
-        )
-
-
-def _generate_etl_with_llm_impl(
-    plan: Dict[str, Any],
-    assessment: Dict[str, Any],
-    engine: str = "python",
-    *,
-    sql_dialect: str = "tsql",
-    output_mode: str = "dataframe_only",
-    output_path: Optional[str] = None,
-    validation_errors: Optional[List[str]] = None,
-    validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
-) -> str:
-    """
-    Generate ETL source text via LLM for python | sql-* | pyspark.
-    For ADF use generate_adf_with_llm instead.
-    """
-    engine_key = normalize_codegen_engine(engine, sql_dialect)
-    if engine_key == "adf":
-        return f"{LLM_ERROR_PREFIX} Use generate_adf_with_llm for ADF engine."
-
-    # 1.8: Plan signature caching
+def _get_cache_key(plan: Dict[str, Any], assessment: Dict[str, Any], engine_key: str) -> str:
     import hashlib
     try:
         blob = json.dumps(assessment, sort_keys=True, default=str)
     except Exception:
         blob = str(assessment)
     assess_sig = hashlib.sha256(blob.encode("utf-8", errors="ignore")).hexdigest()[:16]
-    cache_key = f"{plan.get('plan_id')}_{assess_sig}_{engine_key}"
+    return f"{plan.get('plan_id')}_{assess_sig}_{engine_key}"
+
+
+async def _reset_circuit_breaker(plan_id: str, delay: int = 300):
+    await asyncio.sleep(delay)
+    _PLAN_FAILURE_COUNTS[plan_id] = 0
+    logger.info(f"Circuit breaker reset for plan_id: {plan_id}")
+
+
+async def generate_etl_with_llm(
+    plan: Dict[str, Any],
+    assessment: Dict[str, Any],
+    engine: str = "python",
+    *,
+    sql_dialect: str = "tsql",
+    output_mode: str = "dataframe_only",
+    output_path: Optional[str] = None,
+    validation_errors: Optional[List[str]] = None,
+    validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    engine_key = normalize_codegen_engine(engine, sql_dialect)
+    cache_key = _get_cache_key(plan, assessment, engine_key)
+
+    # Check failure cache first:
+    if cached_err := _is_failure_cached(cache_key):
+        return None, f"[Cached failure] {cached_err}"
 
     if not validation_errors:
         now = time.time()
         if cache_key in _CODE_CACHE:
             _entry = _CODE_CACHE[cache_key]
-            # Support both old tuple format and new dict format
             if isinstance(_entry, dict):
                 cached_code = _entry["code"]
                 cached_time = _entry["time"]
@@ -1229,14 +1040,65 @@ def _generate_etl_with_llm_impl(
             if now - cached_time < 3600:
                 if cached_ok:
                     logger.info("Returning cached generated code for key: %s", cache_key)
-                    return cached_code
+                    return cached_code, None
                 else:
                     logger.info("Skipping failed cached code for key: %s — will regenerate", cache_key)
                     _CODE_CACHE.pop(cache_key, None)
 
+    plan_id = plan.get("plan_id", "unknown")
+    async with _PLAN_LOCKS[plan_id]:
+        if _PLAN_FAILURE_COUNTS[plan_id] >= _MAX_PLAN_FAILURES:
+            return None, "Circuit open: too many failures for this plan"
+
+        # Execute blocking LLM call in a thread pool
+        code, err = await asyncio.to_thread(
+            _generate_etl_with_llm_impl,
+            plan,
+            assessment,
+            engine,
+            sql_dialect=sql_dialect,
+            output_mode=output_mode,
+            output_path=output_path,
+            validation_errors=validation_errors,
+            validate_fn=validate_fn,
+            cache_key=cache_key,
+        )
+
+        if code is None:
+            _PLAN_FAILURE_COUNTS[plan_id] += 1
+            if _PLAN_FAILURE_COUNTS[plan_id] >= _MAX_PLAN_FAILURES:
+                asyncio.create_task(_reset_circuit_breaker(plan_id, 300))
+        else:
+            _PLAN_FAILURE_COUNTS[plan_id] = 0  # reset on success
+            
+        return code, err
+
+
+def _generate_etl_with_llm_impl(
+    plan: Dict[str, Any],
+    assessment: Dict[str, Any],
+    engine: str = "python",
+    *,
+    sql_dialect: str = "tsql",
+    output_mode: str = "dataframe_only",
+    output_path: Optional[str] = None,
+    validation_errors: Optional[List[str]] = None,
+    validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
+    cache_key: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    engine_key = normalize_codegen_engine(engine, sql_dialect)
+    if engine_key == "adf":
+        return None, "Use generate_adf_with_llm for ADF engine."
+
+    if not cache_key:
+        cache_key = _get_cache_key(plan, assessment, engine_key)
+
     payload = _build_codegen_payload(
         plan, assessment, output_mode=output_mode, output_path=output_path
     )
+    # Trim ONCE before retry loop (Fix 4)
+    trimmed_payload = trim_payload(payload, _CODEGEN_TRIM_CONFIG)
+
     prev: Optional[str] = None
     fix_errors = list(validation_errors or [])
     
@@ -1254,14 +1116,25 @@ def _generate_etl_with_llm_impl(
         else:
             prev = None
 
-        code = _call_llm(
-            engine_key,
-            payload,
-            fix_errors=fix_errors or None,
-            previous_output=prev,
-        )
+        try:
+            code = _call_llm(
+                engine_key,
+                trimmed_payload,
+                fix_errors=fix_errors or None,
+                previous_output=prev,
+            )
+        except (LLMInfraError, ConnectorConfigError) as exc:
+            last_error = str(exc)
+            _write_failure_cache(cache_key, last_error)
+            if isinstance(exc, ConnectorConfigError):
+                return None, f"Connector configuration error: {exc}. Check your source connection settings."
+            if attempt < max_retries:
+                continue
+            return None, f"LLM infrastructure error: {last_error}"
+
         if is_llm_generation_error(code):
-            return code
+            _write_failure_cache(cache_key, code)
+            return None, code
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}
@@ -1284,7 +1157,7 @@ def _generate_etl_with_llm_impl(
 
             if ok:
                 _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
-                return code
+                return code, None
             if attempt < max_retries:
                 fix_errors = errs
                 continue
@@ -1292,7 +1165,8 @@ def _generate_etl_with_llm_impl(
             warning = "\n".join(f"# VALIDATION WARNING: {e}" for e in errs)
             res_code = f"{warning}\n\n{code}"
             _CODE_CACHE[cache_key] = {"code": res_code, "time": time.time(), "ok": False}
-            return res_code
+            _write_failure_cache(cache_key, f"Validation errors: {errs}")
+            return res_code, f"Validation errors: {errs}"
         else:
             if validate_fn:
                 import inspect
@@ -1311,62 +1185,100 @@ def _generate_etl_with_llm_impl(
 
                 if ok:
                     _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
-                    return code
+                    return code, None
                 if attempt < max_retries:
                     fix_errors = errs
                     continue
             _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
-            return code
+            return code, None
 
-    return code
+    return code, None
 
 
-def generate_adf_with_llm(
+async def generate_adf_with_llm(
     plan: Dict[str, Any],
     assessment: Dict[str, Any],
     *,
     validation_errors: Optional[List[str]] = None,
     validate_fn: Optional[Callable[[Dict[str, Any]], Tuple[bool, List[str]]]] = None,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Returns (adf_object, error_message).
     error_message empty on success; on LLM failure error_message is set and first element may be None.
     """
     payload = _build_codegen_payload(plan, assessment)
-    payload = _trim_payload_for_codegen(payload, "adf")
-    raw = _call_llm("adf", payload, fix_errors=validation_errors)
-    if is_llm_generation_error(raw):
-        return None, raw
-
-    obj, parse_errs = parse_adf_json_from_llm(raw)
-    if obj is None:
-        fixed_raw = _call_llm(
-            "adf",
-            payload,
-            fix_errors=parse_errs or ["invalid JSON"],
-            previous_output=raw,
-        )
-        if not is_llm_generation_error(fixed_raw):
-            obj, parse_errs = parse_adf_json_from_llm(fixed_raw)
-            raw = fixed_raw
-
-    if obj is None:
-        return None, f"{LLM_ERROR_PREFIX} ADF JSON parse failed: {'; '.join(parse_errs)}"
-
-    if validate_fn:
-        ok, errs = validate_fn(obj)
-        if not ok and errs:
-            fixed_raw = _call_llm(
+    trimmed = trim_payload(payload, _CODEGEN_TRIM_CONFIG)
+    last_error = None
+    fix_errors = list(validation_errors or [])
+    raw = ""
+    
+    MAX_ADF_RETRIES = 3
+    for attempt in range(MAX_ADF_RETRIES):
+        prev_out = raw if attempt > 0 else None
+        
+        try:
+            raw = await asyncio.to_thread(
+                _call_llm,
                 "adf",
-                payload,
-                fix_errors=errs,
-                previous_output=raw,
+                trimmed,
+                fix_errors=fix_errors or None,
+                previous_output=prev_out,
             )
-            if not is_llm_generation_error(fixed_raw):
-                obj2, _ = parse_adf_json_from_llm(fixed_raw)
-                if obj2 is not None:
-                    ok2, _ = validate_fn(obj2)
-                    if ok2:
-                        return obj2, ""
-                    obj = obj2
-    return obj, ""
+        except Exception as e:
+            last_error = str(e)
+            trimmed["_adf_fix_context"] = {
+                "attempt": attempt + 1,
+                "parse_error": last_error,
+                "prev_output_snippet": ""
+            }
+            continue
+
+        if is_llm_generation_error(raw):
+            last_error = raw
+            trimmed["_adf_fix_context"] = {
+                "attempt": attempt + 1,
+                "parse_error": raw,
+                "prev_output_snippet": ""
+            }
+            continue
+            
+        parsed, errs = parse_adf_json_from_llm(raw)
+        if parsed:
+            if validate_fn:
+                ok, val_errs = validate_fn(parsed)
+                if ok:
+                    return parsed, None
+                else:
+                    last_error = "; ".join(val_errs)
+                    fix_errors = val_errs
+            else:
+                return parsed, None
+        else:
+            last_error = "; ".join(errs)
+            fix_errors = errs
+
+        # On failure, add error context for next attempt
+        trimmed["_adf_fix_context"] = {
+            "attempt": attempt + 1,
+            "parse_error": last_error,
+            "prev_output_snippet": (raw or "")[:2000]
+        }
+
+    return None, f"ADF JSON generation failed after {MAX_ADF_RETRIES} attempts: {last_error}"
+
+
+def run_codegen_sync(coro):
+    """Bridge async code into a synchronous calling environment."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(lambda: asyncio.run(coro))
+            return future.result()
+    else:
+        return asyncio.run(coro)
+

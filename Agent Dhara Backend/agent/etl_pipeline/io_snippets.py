@@ -30,6 +30,30 @@ def _resolve_data_path(location: str) -> str:
     if account and container and not os.path.isabs(loc):
         return f"abfss://{container}@{account}.dfs.core.windows.net/{loc.lstrip('/')}"
     return os.path.join(base, loc) if not os.path.isabs(loc) else loc
+
+def _read_blob_pandas(location: str, account: str, container: str) -> pd.DataFrame:
+    import os
+    import io
+    import pandas as pd
+    from azure.storage.blob import BlobServiceClient
+    key = os.environ.get("AZURE_STORAGE_KEY") or os.environ.get("AZURE_STORAGE_CONNECTION_STRING") or ""
+    if "DefaultEndpointsProtocol" in key:
+        client = BlobServiceClient.from_connection_string(key)
+    else:
+        client = BlobServiceClient(account_url=f"https://{account}.blob.core.windows.net", credential=key)
+    with client.get_blob_client(container, location) as bc:
+        data = bc.download_blob().readall()
+        low = location.lower()
+        if low.endswith(".json"):
+            return pd.read_json(io.BytesIO(data))
+        elif low.endswith((".xlsx", ".xls")):
+            return pd.read_excel(io.BytesIO(data), sheet_name=0)
+        elif low.endswith(".parquet"):
+            return pd.read_parquet(io.BytesIO(data))
+        elif low.endswith(".xml"):
+            return pd.read_xml(io.BytesIO(data))
+        else:
+            return pd.read_csv(io.BytesIO(data))
 '''.strip()
 
 
@@ -110,9 +134,20 @@ def output_extension_for_format(fmt: str, fallback_ext: str) -> str:
     return mapping.get(fmt, fallback_ext or ".parquet")
 
 
+def _get_pandas_blob_read_snippet(loc: str, conn: dict, fmt: str = "csv") -> str:
+    account = conn.get("storage_account") or conn.get("account") or "ACCOUNT"
+    container = conn.get("container_name") or conn.get("container") or "CONTAINER"
+    comment = f"  # uses read_{fmt} internally" if fmt in ("xml", "json", "excel", "parquet") else ""
+    return f'_read_blob_pandas("{loc}", "{account}", "{container}"){comment}'
+
+
 def python_read_snippet(entry: Dict[str, Any]) -> str:
     loc = _escape_path(entry["location"])
     fmt = entry.get("format") or "csv"
+    if entry.get("source_type") == "blob_storage":
+        conn = entry.get("resolved_connection") or {}
+        return _get_pandas_blob_read_snippet(loc, conn, fmt=fmt)
+
     if fmt == "sql_table":
         cref = entry.get("connection_ref") or "DHARA_SQL_CONNECTION_STRING"
         table = entry["location"]
@@ -121,6 +156,7 @@ def python_read_snippet(entry: Dict[str, Any]) -> str:
             f'create_engine(os.environ["{cref}"]))'
         )
     path_expr = f'_resolve_data_path("{loc}")'
+
     if fmt == "parquet":
         return f"pd.read_parquet({path_expr})"
     if fmt == "excel":

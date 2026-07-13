@@ -52,3 +52,17 @@ Agent Dhara Backend/agent/data/checkpointer.db
 
 # Cache directory
 Agent Dhara Backend/agent/data/cache/
+
+# Runtime outputs — never commit
+Agent Dhara Backend/agent/output/
+Agent Dhara Backend/agent/output/reports/
+Agent Dhara Backend/config/schema_cache.json
+Agent Dhara Backend/agent/chat_graph/data/checkpointer.db
+Agent Dhara Backend/agent/chat_graph/data/*.db
+*.db
+*.sqlite
+
+# Python artifacts
+*.pyo
+venv/
+.venv/

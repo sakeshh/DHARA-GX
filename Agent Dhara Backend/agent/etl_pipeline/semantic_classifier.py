@@ -310,3 +310,78 @@ def classify_column_semantic(
         "inferred_by": "heuristic",
         "original_semantic_type": col_meta.get("semantic_type"),
     })
+
+
+class ColumnProfile:
+    def __init__(
+        self,
+        name: str,
+        dtype: str,
+        semantic_type: str,
+        sub_type: str = "unknown",
+        pii_level: str = "none"
+    ):
+        self.name = name
+        self.dtype = dtype.lower().strip() if dtype else "string"
+        self.semantic_type = semantic_type.lower().strip() if semantic_type else "string"
+        self.sub_type = sub_type.lower().strip() if sub_type else "unknown"
+        self.pii_level = pii_level.lower().strip() if pii_level else "none"
+
+    @property
+    def is_numeric(self) -> bool:
+        if self.semantic_type == "metric":
+            return True
+        if self.semantic_type in ("id", "date", "categorical", "text", "metadata"):
+            return False
+        c_lower = self.name.lower()
+        if any(x in c_lower for x in ("phone", "email", "name", "date", "time", "dob", "student_id", "course_id", "instructor", "department")):
+            return False
+        if any(x in self.dtype for x in ("int", "float", "double", "decimal", "numeric", "real")):
+            return True
+        return False
+
+    @property
+    def is_categorical(self) -> bool:
+        if self.semantic_type == "categorical":
+            return True
+        if "bool" in self.dtype or "bit" in self.dtype:
+            return True
+        c_lower = self.name.lower()
+        if any(x in c_lower for x in ("status", "gender", "category", "type", "flag", "country", "city", "state", "region", "tier", "segment", "priority", "rank")):
+            return True
+        return False
+
+    @property
+    def is_temporal(self) -> bool:
+        if self.semantic_type == "date":
+            return True
+        if any(x in self.dtype for x in ("date", "time", "stamp")):
+            return True
+        c_lower = self.name.lower()
+        if c_lower.endswith("_at") or any(x in c_lower for x in ("date", "time", "dob", "stamp", "_dt", "_ts")):
+            return True
+        return False
+
+    @property
+    def is_identifier(self) -> bool:
+        if self.semantic_type == "id":
+            return True
+        c_lower = self.name.lower()
+        if any(x in c_lower for x in ("phone", "email", "ssn", "zip", "postal", "npi", "ein", "tin", "passport")):
+            return True
+        if c_lower.endswith(("id", "key", "_key", "code", "num", "_no", "_nbr")):
+            return True
+        return False
+
+
+def profile_column(col_name: str, dtype: str, semantic_type: str = "") -> ColumnProfile:
+    """Single canonical classification — used by all callers."""
+    desc = classify_column_semantic(col_name, {"dtype": dtype, "semantic_type": semantic_type})
+    return ColumnProfile(
+        name=col_name,
+        dtype=dtype,
+        semantic_type=desc.get("semantic_type") or semantic_type or "string",
+        sub_type=desc.get("sub_type") or "unknown",
+        pii_level=desc.get("pii_level") or "none"
+    )
+

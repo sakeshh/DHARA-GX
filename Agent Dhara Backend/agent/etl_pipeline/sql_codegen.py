@@ -159,74 +159,34 @@ def _classify_column(
     sem_schema: dict | None = None,
     ds_name: str = "",
 ) -> str:
-    """
-    Classify a column into: id | metric | categorical | date | string | metadata
-    Priority: metadata prefix → semantic schema → col_meta tags → dtype → name keywords
-    """
-    c = str(col_name).lower().strip()
+    from agent.etl_pipeline.semantic_classifier import profile_column
     meta = col_meta or {}
-
-    # 1. Metadata columns — always fast-exit
-    if c.startswith("etl_") or c in ("run_id", "_rn", "_dedup_rn"):
-        return "metadata"
-
-    # 2. Compute dtype/target_dtype once
-    dtype = str(meta.get("dtype") or meta.get("inferred_type") or "").lower()
-    tdtype = str(meta.get("target_dtype") or "").lower()
-
-    _ID_SUBTYPES   = {"email","phone","zip_code","ssn","uuid","pk","fk","ip_address","national_id","passport"}
-    _MET_SUBTYPES  = {"currency","amount","age","percentage","quantity","score","rating","balance"}
-    _CAT_SUBTYPES  = {"status_flag","country","gender","boolean_int","flag","category","enum"}
-    _DATE_SUBTYPES = {"date","datetime","timestamp","time","year","month"}
-
-    def _resolve_sub(sub: str, stype: str):
-        if sub in _ID_SUBTYPES:   return "id"
-        if sub in _MET_SUBTYPES:  return "metric"
-        if sub in _CAT_SUBTYPES:  return "categorical"
-        if sub in _DATE_SUBTYPES: return "date"
-        if stype in ("id","metric","categorical","date"): return stype
-        if stype == "text": return "string"
-        return None
-
-    # 3. Semantic schema (highest authority)
+    dtype = meta.get("dtype") or meta.get("target_dtype") or meta.get("inferred_type") or "string"
+    semantic_type = meta.get("semantic_type") or ""
+    
     if sem_schema:
         desc = sem_schema.get(f"{ds_name}.{col_name}") or {}
-        result = _resolve_sub(
-            desc.get("sub_type", "").lower(),
-            desc.get("semantic_type", "").lower()
-        )
-        if result:
-            return result
-
-    # 4. col_meta semantic tags
-    result = _resolve_sub(
-        meta.get("sub_type", "").lower(),
-        meta.get("semantic_type", "").lower()
-    )
-    if result:
-        return result
-
-    # 5. dtype inference
-    if any(x in dtype or x in tdtype for x in ("date","time","stamp")):
+        if desc.get("semantic_type"):
+            semantic_type = desc.get("semantic_type")
+            
+    prof = profile_column(col_name, dtype, semantic_type)
+    if prof.is_temporal:
         return "date"
-    if any(x in dtype or x in tdtype for x in ("int","float","double","decimal","numeric","real","money","bigint","smallint","tinyint")):
+    if prof.is_numeric:
         return "metric"
-    if "bool" in dtype or "bit" in tdtype:
+    if prof.is_categorical:
         return "categorical"
-
-    # 6. Column name keywords (last resort)
-    if c.endswith("_at") or any(x in c for x in ("date","time","dob","stamp","_dt","_ts")):
-        return "date"
-    if any(x in c for x in ("phone","email","ssn","zip","postal","npi","ein","tin","passport")):
+    if prof.is_identifier:
         return "id"
-    if c.endswith(("id","key","_key","code","num","_no","_nbr")):
-        return "id"
-    if any(x in c for x in ("amount","price","fee","cost","credit","debit","qty","count","total","score","grade","rate","balance","revenue","salary")):
-        return "metric"
-    if any(x in c for x in ("status","gender","category","type","flag","country","city","state","region","tier","segment","priority","rank")):
-        return "categorical"
-
     return "string"
+
+
+def _is_numeric_column(col_name: str, col_meta: dict) -> bool:
+    from agent.etl_pipeline.semantic_classifier import profile_column
+    dtype = col_meta.get("dtype") or col_meta.get("target_dtype") or col_meta.get("inferred_type") or "string"
+    semantic_type = col_meta.get("semantic_type") or ""
+    return profile_column(col_name, dtype, semantic_type).is_numeric
+
 
 
 def compile_column_expression(col_name: str, transforms: List[dict], col_meta: dict, business_rules: dict, sem_schema: dict = None, ds_name: str = "") -> str:

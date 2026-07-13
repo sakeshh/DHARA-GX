@@ -65,3 +65,20 @@ def is_llm_enabled(*, purpose: str = "general") -> bool:
 
 LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "120"))
 
+
+_MODEL_CONTEXT_WINDOWS: dict[str, int] = {
+    "gpt-4o":              128_000,
+    "gpt-4o-mini":         128_000,
+    "gpt-4":                 8_192,
+    "gpt-4-turbo":         128_000,
+    "gpt-35-turbo":         16_385,
+    "gpt-4-32k":            32_768,
+}
+
+def get_context_window(model: str) -> int:
+    for key, window in _MODEL_CONTEXT_WINDOWS.items():
+        if key in model.lower():
+            return window
+    return 128_000  # safe default for unknown models
+
+

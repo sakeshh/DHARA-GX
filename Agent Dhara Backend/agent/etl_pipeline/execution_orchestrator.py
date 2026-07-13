@@ -135,12 +135,15 @@ def post_etl_regen_if_needed(
     pre_hints = [f"[{u['dataset']}] {u['column']}: {u['issue_type']} uncovered in plan" for u in uncovered]
     fix_hints = pre_hints + fix_hints
     
-    patched_code = generate_etl_with_llm(
+    from agent.etl_pipeline.llm_codegen import run_codegen_sync
+
+    coro = generate_etl_with_llm(
         original_plan, assessment, engine=engine,
         validation_errors=fix_hints
     )
+    patched_code, err = run_codegen_sync(coro)
     
-    if patched_code.startswith("# Error") or patched_code.startswith("Error:"):
+    if err or not patched_code or patched_code.startswith("# Error") or patched_code.startswith("Error:"):
         return None
     
     return patched_code
