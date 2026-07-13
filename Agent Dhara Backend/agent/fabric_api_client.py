@@ -268,11 +268,23 @@ class FabricAPIClient:
             elif status in ("Failed", "Cancelled"):
                 mapped_status = "Failed"
                 
+            error_detail = None
+            if mapped_status == "Failed":
+                error_detail = data.get("failureReason")
+                if not error_detail and "error" in data:
+                    err_obj = data["error"]
+                    if isinstance(err_obj, dict):
+                        error_detail = err_obj.get("message") or err_obj.get("code")
+                    else:
+                        error_detail = str(err_obj)
+                if not error_detail:
+                    error_detail = "Execution failed without detail message"
+
             return {
                 "status": mapped_status,
                 "raw_status": status,
                 "ok": mapped_status == "Succeeded",
-                "error": data.get("failureReason") if mapped_status == "Failed" else None
+                "error": error_detail
             }
         except Exception as e:
             logger.warning(f"Failed to check run status for job {run_id}: {e}")
@@ -359,3 +371,20 @@ class FabricAPIClient:
                 }
             ]
         }
+
+    def resolve_lakehouse_id_by_name(self, workspace_id: str, name: str) -> Optional[str]:
+        """Finds lakehouse ID in workspace by displayName."""
+        if self.mock_mode:
+            return name
+        url = f"{self.base_url}/workspaces/{workspace_id}/items"
+        try:
+            res = requests.get(url, headers=self._headers(), timeout=15)
+            res.raise_for_status()
+            items = res.json().get("value", [])
+            for item in items:
+                if item.get("displayName") == name and item.get("type") == "Lakehouse":
+                    return item.get("id")
+            return None
+        except Exception as e:
+            logger.warning(f"Could not list items to resolve lakehouse name '{name}': {e}")
+            return None

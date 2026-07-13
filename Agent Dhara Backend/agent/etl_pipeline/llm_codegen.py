@@ -10,11 +10,12 @@ import os
 import re
 import time
 import asyncio
+import threading
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-# Per-plan-id async locks — only blocks the same plan, not all plans
-_PLAN_LOCKS: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+# Per-plan-id locks — process-wide cross-thread coordination
+_PLAN_LOCKS: dict[str, threading.Lock] = defaultdict(threading.Lock)
 _PLAN_FAILURE_COUNTS: dict[str, int] = defaultdict(int)
 _MAX_PLAN_FAILURES = 3  # after this, circuit-open for 5 min
 
@@ -44,6 +45,7 @@ class LLMInfraError(Exception):
     pass
 
 _CODE_CACHE = {}
+_VALIDATOR_ACCEPTS_NDR: dict[str, bool] = {}
 _FAILURE_CACHE: dict[str, tuple[str, float]] = {}  # key -> (error_msg, expiry_time)
 
 def _is_failure_cached(cache_key: str) -> str | None:
@@ -256,7 +258,7 @@ ANSI SQL REQUIREMENTS:
 
 PYSPARK REQUIREMENTS:
 - Module docstring with plan_id.
-- from pyspark.sql import DataFrame; from pyspark.sql import functions as F
+- from pyspark.sql import SparkSession, DataFrame; from pyspark.sql import functions as F
 - One transform_<dataset>(df: DataFrame) -> DataFrame per dataset.
 - Use withColumn, dropDuplicates, percentile_approx for IQR — same semantics as pandas plan.
 - never_drop_rows: coalesce/fill only, no filter that drops null-quality rows.
@@ -345,9 +347,26 @@ def _safe_max_tokens(prompt_text: str, engine_key: str) -> int:
     }
     system_overhead = overhead_map.get(engine_key, 5000)
     input_tokens = _estimate_tokens(prompt_text)
-    available = context_window - input_tokens - system_overhead
-    cap = 16000 if engine_key != "adf" else 6000
-    return max(2000, min(cap, available))   # ← raise floor from 1500 to 2000
+    available = context_window - input_tokens - system_overhead - 500  # 500 buffer
+    
+    # Model-specific caps to prevent out-of-limits API errors
+    cap_map = {
+        "gpt-4o-mini": 16000,
+        "gpt-4o": 4096,
+        "gpt-4": 4096,
+        "gpt-35-turbo": 4096,
+    }
+    model_name = (cfg.model.lower() if cfg else "gpt-4o")
+    cap = 4096
+    for k, v in cap_map.items():
+        if k in model_name:
+            cap = v
+            break
+            
+    if engine_key == "adf":
+        cap = min(cap, 6000)
+        
+    return max(2000, min(cap, available))
 
 
 def _classify_column(
@@ -489,12 +508,13 @@ def _consolidate_and_filter_datasets(
         sorted_steps = sorted(filtered_steps, key=get_step_priority)
         
         # Re-assign order field
+        import copy
         for idx, st in enumerate(sorted_steps):
-            st_copy = dict(st)
+            st_copy = copy.deepcopy(st)
             st_copy["order"] = idx + 1
             sorted_steps[idx] = st_copy
             
-        cleaned_block = dict(block)
+        cleaned_block = copy.deepcopy(block)
         cleaned_block["steps"] = sorted_steps
         cleaned_datasets[ds_name] = cleaned_block
         
@@ -597,7 +617,6 @@ _PYSPARK_READ_TEMPLATES: Dict[str, str] = {
     "csv_file": 'df = spark.read.option("header","true").csv(r"{loc}")',
     "parquet": 'df = spark.read.parquet(r"{loc}")',
     "json": 'df = spark.read.json(r"{loc}")',
-    "blob_storage": 'df = spark.read.csv("wasbs://container@account.blob.core.windows.net/{loc}")',
     "sql_server": (
         'df = spark.read.format("jdbc").option("dbtable", "{loc}").load()'
     ),
@@ -679,26 +698,27 @@ def _build_dynamic_sql_prompt(payload: dict, base_prompt: str) -> str:
     joins = rel.get("joins") or []
     has_joins = len(joins) > 0
     
-    lines = base_prompt.splitlines()
-    filtered_lines = []
+    SECTION_GUARDS = {
+        "Incremental Loading": has_incremental,
+        "Outlier Mitigation Safety": has_outliers,
+        "Reusable Outlier Procedure": has_outliers,
+        "Multi-Format Date Parsing": has_dates,
+        "Active curated views": has_joins,
+        "Idempotent and Production-Safe views": has_joins,
+    }
     
+    lines = base_prompt.splitlines()
+    result, skip = [], False
     for line in lines:
-        if "Incremental Loading" in line and not has_incremental:
-            continue
-        if "Outlier Mitigation Safety" in line and not has_outliers:
-            continue
-        if "Reusable Outlier Procedure" in line and not has_outliers:
-            continue
-        if "Multi-Format Date Parsing" in line and not has_dates:
-            continue
-        if "Active curated views" in line and not has_joins:
-            continue
-        if "Idempotent and Production-Safe views" in line and not has_joins:
-            continue
+        heading = next((k for k in SECTION_GUARDS if k in line), None)
+        if heading is not None:
+            skip = not SECTION_GUARDS[heading]
+        if not skip:
+            result.append(line)
+        if skip and line.strip() == "":  # blank line = end of section
+            skip = False
             
-        filtered_lines.append(line)
-        
-    return "\n".join(filtered_lines)
+    return "\n".join(result)
 
 
 def _build_user_message_parts(
@@ -711,7 +731,7 @@ def _build_user_message_parts(
     user_parts = [
         f"Target engine: {engine_key}",
         f"ETL policy (must follow):\n{payload.get('policy') or ''}",
-        f"Generate complete ETL for this approved plan:\n{json.dumps(payload, indent=2, default=str)}",
+        f"Generate complete ETL for this approved plan:\n{json.dumps(payload, separators=(',', ':'), default=str)}",
     ]
     manifest = payload.get("connector_manifest") or {}
     m_ds = manifest.get("datasets") or {}
@@ -771,7 +791,12 @@ def _build_user_message_parts(
     manual = payload.get("manual_review") or []
     if manual:
         mr_lines = []
-        for item in manual[:12]:
+        PII_ACTIONS = {"hash_phone", "mask_phone", "hash_email", "exclude"}
+        manual_sorted = sorted(
+            manual,
+            key=lambda x: 0 if str(x.get("action") or x.get("catalog_guidance") or "").lower().strip() in PII_ACTIONS else 1
+        )
+        for item in manual_sorted[:20]:
             ds = item.get("dataset") or "?"
             col = item.get("column") or "?"
             msg = item.get("message") or item.get("guidance") or ""
@@ -1046,7 +1071,9 @@ async def generate_etl_with_llm(
                     _CODE_CACHE.pop(cache_key, None)
 
     plan_id = plan.get("plan_id", "unknown")
-    async with _PLAN_LOCKS[plan_id]:
+    lock = _PLAN_LOCKS[plan_id]
+    await asyncio.to_thread(lock.acquire)
+    try:
         if _PLAN_FAILURE_COUNTS[plan_id] >= _MAX_PLAN_FAILURES:
             return None, "Circuit open: too many failures for this plan"
 
@@ -1067,11 +1094,16 @@ async def generate_etl_with_llm(
         if code is None:
             _PLAN_FAILURE_COUNTS[plan_id] += 1
             if _PLAN_FAILURE_COUNTS[plan_id] >= _MAX_PLAN_FAILURES:
-                asyncio.create_task(_reset_circuit_breaker(plan_id, 300))
+                def reset_circuit():
+                    _PLAN_FAILURE_COUNTS[plan_id] = 0
+                    logger.info(f"Circuit breaker reset for plan_id: {plan_id}")
+                threading.Timer(300.0, reset_circuit).start()
         else:
             _PLAN_FAILURE_COUNTS[plan_id] = 0  # reset on success
             
         return code, err
+    finally:
+        lock.release()
 
 
 def _generate_etl_with_llm_impl(
@@ -1128,6 +1160,11 @@ def _generate_etl_with_llm_impl(
             _write_failure_cache(cache_key, last_error)
             if isinstance(exc, ConnectorConfigError):
                 return None, f"Connector configuration error: {exc}. Check your source connection settings."
+            if "truncated" in last_error.lower() and attempt < max_retries:
+                logger.info(f"LLM output truncated. Retrying with harder payload trim...")
+                trimmed_payload = trim_payload(trimmed_payload, _FLOOR_TRIM_CONFIG)
+                fix_errors = []
+                continue
             if attempt < max_retries:
                 continue
             return None, f"LLM infrastructure error: {last_error}"
@@ -1140,13 +1177,20 @@ def _generate_etl_with_llm_impl(
         rules = plan.get("business_rules") or {}
         never_drop_rows = bool(rules.get("never_drop_rows"))
 
-        if validator:
+        active_validator = validate_fn if validate_fn is not None else validator
+        if active_validator:
             import inspect
-            sig = inspect.signature(validator)
-            if "never_drop_rows" in sig.parameters:
-                res = validator(code, never_drop_rows=never_drop_rows)
+            fn_key = f"fn_{id(active_validator)}" if validate_fn is not None else engine_key
+            accepts_ndr = _VALIDATOR_ACCEPTS_NDR.get(fn_key)
+            if accepts_ndr is None:
+                sig = inspect.signature(active_validator)
+                accepts_ndr = "never_drop_rows" in sig.parameters
+                _VALIDATOR_ACCEPTS_NDR[fn_key] = accepts_ndr
+
+            if accepts_ndr:
+                res = active_validator(code, never_drop_rows=never_drop_rows)
             else:
-                res = validator(code)
+                res = active_validator(code)
             
             if len(res) == 3:
                 ok, errs, warnings = res
@@ -1159,6 +1203,7 @@ def _generate_etl_with_llm_impl(
                 _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
                 return code, None
             if attempt < max_retries:
+                logger.info(f"[Retry Debug] Attempt {attempt + 1} code failed validation with errors: {errs}. Code snippet:\n{code[:1200]}")
                 fix_errors = errs
                 continue
             # After max retries, return with validation warnings prepended
@@ -1168,27 +1213,7 @@ def _generate_etl_with_llm_impl(
             _write_failure_cache(cache_key, f"Validation errors: {errs}")
             return res_code, f"Validation errors: {errs}"
         else:
-            if validate_fn:
-                import inspect
-                sig = inspect.signature(validate_fn)
-                if "never_drop_rows" in sig.parameters:
-                    res = validate_fn(code, never_drop_rows=never_drop_rows)
-                else:
-                    res = validate_fn(code)
-                
-                if len(res) == 3:
-                    ok, errs, warnings = res
-                    if warnings:
-                        logger.warning(f"[Validation Advisory] {warnings}")
-                else:
-                    ok, errs = res
-
-                if ok:
-                    _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
-                    return code, None
-                if attempt < max_retries:
-                    fix_errors = errs
-                    continue
+            logger.warning(f"No validator or validate_fn found for engine '{engine_key}' — skipping validation")
             _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
             return code, None
 
@@ -1226,6 +1251,8 @@ async def generate_adf_with_llm(
             )
         except Exception as e:
             last_error = str(e)
+            import copy
+            trimmed = copy.deepcopy(trimmed)
             trimmed["_adf_fix_context"] = {
                 "attempt": attempt + 1,
                 "parse_error": last_error,
@@ -1235,6 +1262,8 @@ async def generate_adf_with_llm(
 
         if is_llm_generation_error(raw):
             last_error = raw
+            import copy
+            trimmed = copy.deepcopy(trimmed)
             trimmed["_adf_fix_context"] = {
                 "attempt": attempt + 1,
                 "parse_error": raw,
@@ -1258,6 +1287,8 @@ async def generate_adf_with_llm(
             fix_errors = errs
 
         # On failure, add error context for next attempt
+        import copy
+        trimmed = copy.deepcopy(trimmed)
         trimmed["_adf_fix_context"] = {
             "attempt": attempt + 1,
             "parse_error": last_error,
@@ -1280,5 +1311,9 @@ def run_codegen_sync(coro):
             future = executor.submit(lambda: asyncio.run(coro))
             return future.result()
     else:
-        return asyncio.run(coro)
+        new_loop = asyncio.new_event_loop()
+        try:
+            return new_loop.run_until_complete(coro)
+        finally:
+            new_loop.close()
 

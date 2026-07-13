@@ -44,6 +44,42 @@ def _check_spark_session_import(source: str, tree: ast.AST) -> List[str]:
     return errs
 
 
+def _check_pyspark_imports(source: str, tree: ast.AST) -> List[str]:
+    errs: List[str] = []
+    
+    # Check DataFrame import
+    if "DataFrame" in source:
+        imported = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "") in ("pyspark.sql", "pyspark.sql.dataframe", "pyspark.sql.types"):
+                for n in node.names or []:
+                    if n.name in ("DataFrame", "*"):
+                        imported = True
+            elif isinstance(node, ast.Import):
+                for n in node.names or []:
+                    if n.name == "pyspark.sql" or n.name == "pyspark":
+                        imported = True
+        if not imported:
+            errs.append("DataFrame is referenced but not imported — add: from pyspark.sql import DataFrame")
+            
+    # Check functions as F import
+    if "F." in source:
+        imported = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "") in ("pyspark.sql", "pyspark.sql.functions"):
+                for n in node.names or []:
+                    if (n.name == "functions" and n.asname == "F") or (n.name == "F") or n.name == "*":
+                        imported = True
+            elif isinstance(node, ast.Import):
+                for n in node.names or []:
+                    if (n.name == "pyspark.sql.functions" and n.asname == "F") or (n.name == "pyspark.sql.functions" and n.name == "F"):
+                        imported = True
+        if not imported:
+            errs.append("functions as F is referenced but not imported — add: from pyspark.sql import functions as F")
+            
+    return errs
+
+
 def _check_never_drop_rows(source: str, plan: Dict[str, Any] | None) -> List[str]:
     if not plan:
         return []
@@ -207,6 +243,7 @@ def validate_pyspark_source(
     errs.extend(_check_dead_join_variables(source))
     errs.extend(_check_io_antipatterns(source, plan))
     errs.extend(_check_spark_session_import(source, tree))
+    errs.extend(_check_pyspark_imports(source, tree))
     errs.extend(_check_never_drop_rows(source, plan))
 
     if plan:

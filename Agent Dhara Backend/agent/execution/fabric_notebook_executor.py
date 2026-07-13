@@ -49,10 +49,13 @@ class FabricNotebookExecutor(Executor):
         
         # 2. Poll all triggered notebooks for status
         logger.info(f"Triggered {len(runs)} notebook jobs successfully. Polling runs...")
-        status_res = poll_multiple_notebooks_status(
-            runs=runs,
-            timeout_seconds=kwargs.get("timeout_s", 600),
-            poll_interval=kwargs.get("poll_interval_s", 10)
+        import asyncio
+        status_res = asyncio.run(
+            poll_multiple_notebooks_status(
+                runs=runs,
+                timeout_seconds=kwargs.get("timeout_s", 600),
+                poll_interval=kwargs.get("poll_interval_s", 10)
+            )
         )
         
         duration = (time.time() - t0) * 1000

@@ -29,32 +29,37 @@ def _clean_env_value(v: Optional[str]) -> Optional[str]:
 
 def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
     """
-    Modifies the run_pipeline execution in the pyspark_code to only load and write
-    for target_ds, making the notebook execution fully independent.
+    Wraps all dfs assignments for non-target datasets in `if False:` blocks
+    instead of commenting individual lines, preserving syntax validity.
     """
-    lines = []
-    in_run_pipeline = False
-    for line in pyspark_code.splitlines():
-        # Check if we are inside run_pipeline definition
-        if line.strip().startswith("def run_pipeline("):
-            in_run_pipeline = True
-            lines.append(line)
-            continue
-        elif in_run_pipeline and line.startswith("def "):
-            in_run_pipeline = False
-            
-        if in_run_pipeline:
-            # If it's a load, transform, log or write line for another dataset, comment it out
-            # We look for dfs["other_ds"] or if "other_ds" in dfs references
-            match = re.search(r'dfs\["([^"]+)"\]|dfs\[\'([^\']+)\'\]|if\s+"([^"]+)"\s+in\s+dfs|if\s+\'([^\']+)\'\s+in\s+dfs', line)
-            if match:
-                matched_ds = next(g for g in match.groups() if g is not None)
-                if matched_ds != target_ds:
-                    # Comment it out
-                    lines.append("    # [Disabled for independent run] " + line.strip())
-                    continue
-        lines.append(line)
-    return "\n".join(lines)
+    lines = pyspark_code.splitlines()
+    result = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = re.match(r'^(\s*)dfs\[[\"\']([^\"\']+)[\"\']\]\s*=', line)
+        if m and m.group(2) != target_ds:
+            # Collect the full assignment block (until next line that has less or equal indentation)
+            block = [line]
+            indent = len(m.group(1))
+            i += 1
+            while i < len(lines):
+                next_line = lines[i]
+                if next_line.strip() == "" or (len(next_line) - len(next_line.lstrip())) > indent:
+                    block.append(next_line)
+                    i += 1
+                else:
+                    break
+            result.append(f"{m.group(1)}if False:  # [Disabled: {m.group(2)}]")
+            for bl in block:
+                result.append("    " + bl)
+        else:
+            result.append(line)
+            i += 1
+    return "\n".join(result)
+
+def _is_uuid(s: str) -> bool:
+    return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', s, re.I))
 
 def deploy_and_run_notebook(
     session_id: str,
@@ -76,14 +81,27 @@ def deploy_and_run_notebook(
 
     client = FabricAPIClient()
     
-    # 1. Parse dataset names from generated PySpark code
-    ds_match = re.search(r"DATASETS\s*=\s*(\[.*?\])", pyspark_code)
+    # Resolve lakehouse name to UUID if not already a UUID
+    if lh_id and not _is_uuid(lh_id):
+        resolved = client.resolve_lakehouse_id_by_name(workspace_id, lh_id)
+        if resolved:
+            logger.info(f"Resolved lakehouse name '{lh_id}' to UUID '{resolved}'")
+            lh_id = resolved
+        else:
+            logger.warning(f"Could not resolve lakehouse name '{lh_id}' to a UUID. Proceeding with name.")
+    
+    # 1. Parse dataset names from generated PySpark code (support multi-line)
+    ds_match = re.search(r"DATASETS\s*=\s*(\[[\s\S]*?\])", pyspark_code)
     datasets: List[str] = []
     if ds_match:
         try:
-            datasets = ast.literal_eval(ds_match.group(1))
+            cleaned_arr = re.sub(r"#.*", "", ds_match.group(1))
+            datasets = ast.literal_eval(cleaned_arr)
         except Exception as e:
             logger.warning(f"Could not parse DATASETS array from code: {e}")
+            
+    if not datasets:
+        datasets = re.findall(r"def transform_(\w+)\s*\(", pyspark_code)
             
     if not datasets:
         datasets = ["clean"]
@@ -94,10 +112,11 @@ def deploy_and_run_notebook(
     for ds_name in datasets:
         # Generate safe clean name, e.g. "orders.csv" -> "orders"
         safe_name = make_safe_shortcut_name(ds_name)
+        short_session = session_id[:8] if session_id else "default"
         if notebook_name:
-            nb_name = f"{notebook_name}_{safe_name}"
+            nb_name = f"{notebook_name}_{short_session}_{safe_name}"
         else:
-            nb_name = f"dhara_clean_{safe_name}"
+            nb_name = f"dhara_{short_session}_{safe_name}"
         
         # Customize code to run ONLY this dataset
         custom_code = _customize_code_for_dataset(pyspark_code, ds_name)
@@ -146,7 +165,7 @@ def deploy_and_run_notebook(
         "message": f"Successfully deployed {len(runs)} notebook(s) and triggered execution in Fabric."
     }
 
-def poll_multiple_notebooks_status(
+async def poll_multiple_notebooks_status(
     runs: List[Dict[str, Any]],
     timeout_seconds: int = 600,
     poll_interval: int = 10
@@ -181,7 +200,8 @@ def poll_multiple_notebooks_status(
                 pending_runs.remove(run)
                 
         if pending_runs:
-            time.sleep(poll_interval)
+            import asyncio
+            await asyncio.sleep(poll_interval)
             
     if pending_runs:
         logger.warning(f"{len(pending_runs)} notebook(s) timed out after {timeout_seconds}s.")

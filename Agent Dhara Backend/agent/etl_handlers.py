@@ -1359,9 +1359,10 @@ def etl_generate_code(
                 inject_errors=fix_hints,
             )
             if not ok and not is_llm_generation_error(code):
-                logger.info(
-                    "etl_generate_code LLM validation failed session=%s — using template fallback",
+                logger.warning(
+                    "etl_generate_code LLM validation failed session=%s. Errors: %s — using template fallback",
                     sid,
+                    errs,
                 )
             if not ok:
                 generated_by = "template"
