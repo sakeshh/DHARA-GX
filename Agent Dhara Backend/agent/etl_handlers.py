@@ -339,6 +339,7 @@ def etl_plan_start(
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
     ctx = _ctx(sess)
+    ctx["session_id"] = sid
     assess = _get_assessment(sess, assessment_result)
 
     if not assess:
@@ -1534,6 +1535,18 @@ def etl_execute_sql(
             "session_id": sid,
             "error": "NO_CODE",
             "message": "No generated SQL/PySpark code found for this session. Generate code first."
+        }
+
+    # Hard gate: never deploy/execute code that failed validation
+    if flow.get("validation_ok") is False:
+        return {
+            "ok": False,
+            "session_id": sid,
+            "error": "CODE_VALIDATION_FAILED",
+            "message": (
+                "Generated code failed validation — refusing to deploy. "
+                f"Errors: {flow.get('validation_errors', [])}"
+            ),
         }
 
     if is_fabric:

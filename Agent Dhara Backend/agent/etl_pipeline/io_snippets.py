@@ -53,19 +53,14 @@ def _resolve_data_path(location: str) -> str:
 
 
 def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakehouse_id: Optional[str] = None) -> str:
-    """Path resolver for code running INSIDE a Fabric Spark Notebook."""
-    if workspace_id and lakehouse_id:
-        return f'''
-def _resolve_data_path(location: str) -> str:
-    """Resolve path relative to the attached default Lakehouse using absolute ABFSS URL."""
-    loc = (location or "").strip()
-    if not loc or loc == "unknown":
-        raise ValueError("location is missing")
-    if loc.lower().startswith(("abfss://", "wasbs://", "https://", "http://")):
-        return loc
-    return f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}/{{loc.lstrip('/')}}"
-'''.strip()
-    
+    """Path resolver for code running INSIDE a Fabric Spark Notebook.
+
+    Always uses the local lakehouse mount path (/lakehouse/default/) which is
+    automatically authenticated by the Fabric platform — no credential/OAuth
+    orchestration is needed inside the Spark session.  The workspace_id and
+    lakehouse_id args are accepted for API compatibility but are not embedded
+    in the generated path.
+    """
     return '''
 def _resolve_data_path(location: str) -> str:
     """Resolve path relative to the attached default Lakehouse."""
@@ -74,8 +69,11 @@ def _resolve_data_path(location: str) -> str:
         raise ValueError("location is missing")
     if loc.lower().startswith(("abfss://", "wasbs://", "https://", "http://")):
         return loc
-    # In Fabric Notebooks, the default attached lakehouse is mounted under /lakehouse/default
-    return f"/lakehouse/default/{loc.lstrip('/')}"
+    clean_loc = loc.lstrip("/")
+    # Ensure the mandatory Files/ or Tables/ prefix is present
+    if not clean_loc.startswith(("Files/", "Tables/")):
+        clean_loc = f"Files/{clean_loc}"
+    return f"/lakehouse/default/{clean_loc}"
 '''.strip()
 
 
@@ -190,12 +188,7 @@ def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
 def pyspark_write_snippet(entry: Dict[str, Any]) -> str:
     if entry.get("source_type") == "fabric_files_zone" or entry.get("execution_target") == "fabric":
         table_name = entry.get("clean_table_name") or "dataset_clean"
-        # Use semicolons as line separators — the emitter will split on them
-        return (
-            f'df.write.format("delta").mode("overwrite").save(_resolve_data_path("Tables/{table_name}"))'
-            f';spark.sql("DROP TABLE IF EXISTS {table_name}")'
-            f';spark.sql("CREATE TABLE {table_name} USING delta LOCATION \'" + _resolve_data_path("Tables/{table_name}") + "\'")'
-        )
+        return f'df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable("{table_name}")'
         
     fmt = entry.get("format") or "csv"
     op = entry.get("output_path") or "cleaned/out.parquet"
@@ -219,6 +212,8 @@ def _iqr_bounds(df, col: str, multiplier: float = 1.5):
         F.percentile_approx(F.col(col), 0.75).alias("q3"),
         F.percentile_approx(F.col(col), 0.50).alias("median"),
     ).first()
+    if not row or row["q1"] is None or row["q3"] is None:
+        return row, 0.0, -float('inf'), float('inf')
     iqr = float(row["q3"] - row["q1"])
     lower = float(row["q1"] - multiplier * iqr)
     upper = float(row["q3"] + multiplier * iqr)

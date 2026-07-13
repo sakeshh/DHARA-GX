@@ -325,6 +325,13 @@ class FabricAPIClient:
                         "defaultLakehouse": lakehouse_id,
                         "defaultLakehouseWorkspace": self.workspace_id
                     }
+                },
+                "dependencies": {
+                    "lakehouse": {
+                        "default_lakehouse": lakehouse_id,
+                        "default_lakehouse_name": "",
+                        "default_lakehouse_workspace_id": self.workspace_id
+                    }
                 }
             },
             "cells": [

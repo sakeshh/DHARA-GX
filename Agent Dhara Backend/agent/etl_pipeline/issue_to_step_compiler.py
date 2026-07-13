@@ -283,7 +283,21 @@ def compile_issues_to_steps(
                 llm_recommendation=mr_item.get("llm_recommendation")
             ))
             
-    return datasets_steps, manual_review
+    # Deduplicate steps by (action, column) to avoid redundant operations
+    deduplicated_datasets_steps = {}
+    for ds, steps in datasets_steps.items():
+        seen = set()
+        deduped = []
+        for step in steps:
+            key = (step.get("action"), step.get("column"))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(step)
+        for idx, step in enumerate(deduped):
+            step["order"] = idx + 1
+        deduplicated_datasets_steps[ds] = deduped
+            
+    return deduplicated_datasets_steps, manual_review
 
 
 def preprocess_suggestions_in_place(

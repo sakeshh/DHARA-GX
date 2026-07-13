@@ -1214,11 +1214,22 @@ def _generate_etl_with_llm_impl(
     if not validation_errors:
         now = time.time()
         if cache_key in _CODE_CACHE:
-            cached_code, cached_time = _CODE_CACHE[cache_key]
+            _entry = _CODE_CACHE[cache_key]
+            # Support both old tuple format and new dict format
+            if isinstance(_entry, dict):
+                cached_code = _entry["code"]
+                cached_time = _entry["time"]
+                cached_ok = _entry.get("ok", True)
+            else:
+                cached_code, cached_time = _entry
+                cached_ok = True
             if now - cached_time < 3600:
-                import logging
-                logging.getLogger("agent.etl_pipeline.llm_codegen").info(f"Returning cached generated code for key: {cache_key}")
-                return cached_code
+                if cached_ok:
+                    logger.info("Returning cached generated code for key: %s", cache_key)
+                    return cached_code
+                else:
+                    logger.info("Skipping failed cached code for key: %s — will regenerate", cache_key)
+                    del _CODE_CACHE[cache_key]
 
     payload = _build_codegen_payload(
         plan, assessment, output_mode=output_mode, output_path=output_path
@@ -1270,7 +1281,7 @@ def _generate_etl_with_llm_impl(
                 ok, errs = res
 
             if ok:
-                _CODE_CACHE[cache_key] = (code, time.time())
+                _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
                 return code
             if attempt < max_retries:
                 fix_errors = errs
@@ -1278,7 +1289,7 @@ def _generate_etl_with_llm_impl(
             # After max retries, return with validation warnings prepended
             warning = "\n".join(f"# VALIDATION WARNING: {e}" for e in errs)
             res_code = f"{warning}\n\n{code}"
-            _CODE_CACHE[cache_key] = (res_code, time.time())
+            _CODE_CACHE[cache_key] = {"code": res_code, "time": time.time(), "ok": False}
             return res_code
         else:
             if validate_fn:
@@ -1297,12 +1308,12 @@ def _generate_etl_with_llm_impl(
                     ok, errs = res
 
                 if ok:
-                    _CODE_CACHE[cache_key] = (code, time.time())
+                    _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
                     return code
                 if attempt < max_retries:
                     fix_errors = errs
                     continue
-            _CODE_CACHE[cache_key] = (code, time.time())
+            _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
             return code
 
     return code

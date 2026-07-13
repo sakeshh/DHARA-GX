@@ -1,5 +1,5 @@
 {
-    "data_quality_issues_v2.json": {
+    "data_quality_issues_v2.csv": {
         "user_id": "object",
         "name": "object",
         "country": "object"

@@ -144,6 +144,8 @@ def classify_column_semantic(
             name_matched_subtype = "zip_code"
         elif "uuid" in col_lower or "guid" in col_lower:
             name_matched_subtype = "uuid"
+        elif col_lower == "id" or col_lower.endswith("_id") or col_lower.endswith("key"):
+            name_matched_subtype = "id_key"
         elif any(kw in col_lower for kw in ("amount", "price", "fee", "cost", "revenue", "sales", "income", "salary", "balance")):
             name_matched_subtype = "currency"
         elif "age" in col_lower or "years" in col_lower:
@@ -215,6 +217,12 @@ def classify_column_semantic(
         sub_type = "uuid"
         pii_level = "none"
         fill_strategy = "flag"
+        transform_hints = ["trim"]
+    elif final_sub == "id_key":
+        semantic_type = "id"
+        sub_type = "id_key"
+        pii_level = "none"
+        fill_strategy = "none"
         transform_hints = ["trim"]
     elif final_sub == "currency":
         semantic_type = "metric"

@@ -4,6 +4,7 @@ import re
 import os
 from typing import Any, Dict, List, Optional
 
+from pyspark.sql import SparkSession
 from agent.etl_pipeline.codegen_policy import plan_policy_block
 from agent.etl_pipeline.codegen_shared import outlier_multiplier, step_params
 from agent.etl_pipeline.join_emitters import (
@@ -78,7 +79,7 @@ def _emit_outliers_spark(action: str, col: str, df: str, params: Dict[str, Any])
         if med is not None:
             lines.append(f"_median = {med}")
         else:
-            lines.append(f"_median = _stats['median']")
+            lines.append(f"_median = float(_stats['median']) if _stats is not None and _stats['median'] is not None else 0.0")
         lines.append(
             f"{df} = {df}.withColumn({c},"
             f" F.when((F.col({c}) < F.lit(_lower)) | (F.col({c}) > F.lit(_upper)), F.lit(_median))"
@@ -147,9 +148,12 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
             f"{df} = {df}.withColumn({c}, F.when(~F.col({c}).cast('string').rlike('[a-zA-Z0-9]'), F.lit(None)).otherwise(F.col({c})))"
         ]
     if act == "nullify_dummy_dates":
+        col_clean = _safe(col)
         return [
             f"# Nullify dummy dates (e.g. 1900-01-01)",
-            f"{df} = {df}.withColumn({c}, F.when((F.to_date(F.col({c})).eqNullSafe(F.lit('1900-01-01'))) | ((F.month(F.to_date(F.col({c}))) == 1) & (F.dayofmonth(F.to_date(F.col({c}))) == 1)), F.lit(None)).otherwise(F.col({c})))"
+            f"{df} = {df}.withColumn('_tmp_date_{col_clean}', F.to_date(F.col({c})))",
+            f"{df} = {df}.withColumn({c}, F.when((F.col('_tmp_date_{col_clean}').eqNullSafe(F.lit('1900-01-01'))) | ((F.month(F.col('_tmp_date_{col_clean}')) == 1) & (F.dayofmonth(F.col('_tmp_date_{col_clean}')) == 1)), F.lit(None)).otherwise(F.col({c})))",
+            f"{df} = {df}.drop('_tmp_date_{col_clean}')"
         ]
     if act == "range_clip":
         lo = params.get("min_value") or params.get("lower_bound") or 0

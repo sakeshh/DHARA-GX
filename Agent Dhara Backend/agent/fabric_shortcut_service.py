@@ -185,7 +185,8 @@ def create_shortcuts_for_blobs(
     for blob_path in selected_blob_paths:
         clean_blob_path = blob_path.replace("azure_blob:", "")
         shortcut_name = make_safe_shortcut_name(clean_blob_path)
-        files_zone_path = f"Files/raw/{shortcut_name}"
+        _, ext = os.path.splitext(clean_blob_path)
+        files_zone_path = f"Files/raw/{shortcut_name}{ext}"
         
         # Build standard OneLake URI: abfss://workspace@onelake.dfs.fabric.microsoft.com/Lakehouse/Files/raw/ndta_csv
         lakehouse_folder = get_lakehouse_folder(lakehouse)

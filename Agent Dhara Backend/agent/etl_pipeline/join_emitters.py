@@ -273,7 +273,7 @@ def emit_pyspark_write_outputs(plan: Dict[str, Any], manifest: Dict[str, Any]) -
         lines.append(f'if "{ds_name}" in dfs:')
         lines.append(f'    _out = _resolve_data_path("{op}")')
         lines.append(f'    OUTPUT_PATHS[{ds_name!r}] = _out')
-        lines.append(f"    logging.getLogger('agent_dhara').info('Writing %s -> %s', {ds_name!r}, _out)")
+        lines.append(f"    logger.info('Writing %s -> %s', {ds_name!r}, _out)")
         if ".json(" in wsnip:
             lines.append(f'    dfs["{ds_name}"].write.mode("overwrite").json(_out)')
         elif ".parquet(" in wsnip:
@@ -304,7 +304,7 @@ def emit_pyspark_write_outputs(plan: Dict[str, Any], manifest: Dict[str, Any]) -
             lines.append(f'    _out = _resolve_data_path("{op}")')
             lines.append(f"    OUTPUT_PATHS[{jname!r}] = _out")
             lines.append(
-                f"    logging.getLogger('agent_dhara').info('Writing %s -> %s', {jname!r}, _out)"
+                f"    logger.info('Writing %s -> %s', {jname!r}, _out)"
             )
             lines.append(f'    dfs[{jname!r}].write.mode("overwrite").parquet(_out)')
     lines.append("")
@@ -330,7 +330,7 @@ def emit_pyspark_load(plan: Dict[str, Any], manifest: Dict[str, Any]) -> List[st
         lines.append(f'dfs["{ds_name}"] = {snip}')
         if required:
             cols = [c for c in required if c]
-            lines.append(f'    _require_columns(dfs["{ds_name}"], {cols!r}, "{ds_name}")')
+            lines.append(f'_require_columns(dfs["{ds_name}"], {cols!r}, "{ds_name}")')
     lines.append("")
     return lines
 
