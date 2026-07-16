@@ -54,8 +54,111 @@ def _is_failure_cached(cache_key: str) -> str | None:
         return entry[0]  # return cached error
     return None
 
-def _write_failure_cache(cache_key: str, error: str, ttl_seconds: int = 300):
+def _write_failure_cache(cache_key: str, error: str, ttl_seconds: int = 30):
     _FAILURE_CACHE[cache_key] = (error, time.time() + ttl_seconds)
+
+_PYSPARK_REQUIRED_IMPORTS = [
+    ("from pyspark.sql import SparkSession, DataFrame", ["SparkSession", "DataFrame"]),
+    ("from pyspark.sql import functions as F", ["F."]),
+    ("import logging", ["logging."]),
+]
+
+def _inject_pyspark_imports(code: str) -> str:
+    """
+    Ensure required PySpark module-level imports are present at the top of the file.
+    If the LLM placed them inside function bodies, we inject them at the module level
+    so that the import check always passes without needing a retry.
+    """
+    if not code or not code.strip():
+        return code
+
+    lines = code.splitlines(keepends=True)
+
+    # Step 1: Determine the end of the module docstring block
+    insert_at = 0
+    i = 0
+    if lines and lines[0].strip().startswith('"""'):
+        # Multi-line or single-line module docstring
+        if lines[0].strip().count('"""') >= 2 and len(lines[0].strip()) > 3:
+            # Single-line docstring: e.g. """plan_id: ..."""
+            insert_at = 1
+            i = 1
+        else:
+            # Multi-line: scan forward until closing """
+            i = 1
+            while i < len(lines):
+                if '"""' in lines[i]:
+                    i += 1
+                    break
+                i += 1
+            insert_at = i
+
+    # Step 2: Skip any blank lines and comments immediately after the docstring
+    while insert_at < len(lines):
+        stripped = lines[insert_at].strip()
+        if not stripped or stripped.startswith("#"):
+            insert_at += 1
+        else:
+            break
+
+    # Step 3: Check what is already in the header (first 40 lines after insert_at)
+    header = "".join(lines[:min(insert_at + 40, len(lines))])
+
+    to_inject = []
+    # Only look at the true module-level header (lines before insert_at + 15 lines after)
+    true_header = "".join(lines[:min(insert_at + 15, len(lines))])
+
+    for import_line, triggers in _PYSPARK_REQUIRED_IMPORTS:
+        # Only inject if any trigger token is referenced in the entire source
+        if not any(t in code for t in triggers):
+            continue
+        # Check if this exact import statement is already in the header
+        if import_line in true_header:
+            continue
+        to_inject.append(import_line + "\n")
+
+    if not to_inject:
+        return code
+
+    injected = lines[:insert_at] + to_inject + ["\n"] + lines[insert_at:]
+    return "".join(injected)
+
+
+def _inject_pyspark_fabric_ids(code: str) -> str:
+    """
+    Ensure the fallback values in _resolve_data_path are correctly populated
+    with the actual workspace_id and lakehouse_id from the environment.
+    """
+    if not code:
+        return code
+        
+    ws_id = os.getenv("FABRIC_WORKSPACE_ID") or ""
+    lh_id = os.getenv("FABRIC_LAKEHOUSE_ID") or os.getenv("FABRIC_LAKEHOUSE_NAME") or ""
+    
+    if lh_id and not (len(lh_id) == 36 and lh_id.count("-") == 4):
+        try:
+            from agent.fabric_api_client import FabricAPIClient
+            client = FabricAPIClient()
+            resolved = client.resolve_lakehouse_id_by_name(ws_id, lh_id)
+            if resolved:
+                lh_id = resolved
+        except Exception:
+            pass
+            
+    # Locate ws_id = "" and lh_id = "" patterns and replace them
+    code = re.sub(
+        r'ws_id\s*=\s*["\']["\']',
+        f'ws_id = "{ws_id}"',
+        code
+    )
+    code = re.sub(
+        r'lh_id\s*=\s*["\']["\']',
+        f'lh_id = "{lh_id}"',
+        code
+    )
+    return code
+
+
 
 def _estimate_tokens(text: str | dict) -> int:
     if isinstance(text, dict):
@@ -258,7 +361,11 @@ ANSI SQL REQUIREMENTS:
 
 PYSPARK REQUIREMENTS:
 - Module docstring with plan_id.
-- from pyspark.sql import SparkSession, DataFrame; from pyspark.sql import functions as F
+- CRITICAL: The FIRST lines of code after the docstring MUST be module-level imports (before any def or class):
+    from pyspark.sql import SparkSession, DataFrame
+    from pyspark.sql import functions as F
+    import logging
+  DO NOT place these inside function bodies. They must be at the very top of the file.
 - One transform_<dataset>(df: DataFrame) -> DataFrame per dataset.
 - Use withColumn, dropDuplicates, percentile_approx for IQR — same semantics as pandas plan.
 - never_drop_rows: coalesce/fill only, no filter that drops null-quality rows.
@@ -424,9 +531,6 @@ def _consolidate_and_filter_datasets(
         
         "zero_to_null": 30,
         
-        "fill_or_drop": 40,
-        "fill_nulls_simple": 40,
-        
         "parse_dates": 50,
         
         "regex_replace": 60,
@@ -441,6 +545,9 @@ def _consolidate_and_filter_datasets(
         "flag_outliers": 72,
         "clip_outliers": 73,
         "cap_outliers": 74,
+        
+        "fill_or_drop": 78,
+        "fill_nulls_simple": 78,
         
         "deduplicate": 80,
         "validate_referential_integrity_or_stage": 90
@@ -1172,6 +1279,11 @@ def _generate_etl_with_llm_impl(
         if is_llm_generation_error(code):
             _write_failure_cache(cache_key, code)
             return None, code
+
+        # Auto-inject missing PySpark module-level imports and Fabric IDs before validation
+        if engine_key == "pyspark":
+            code = _inject_pyspark_imports(code)
+            code = _inject_pyspark_fabric_ids(code)
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}

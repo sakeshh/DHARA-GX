@@ -129,7 +129,7 @@ def _check_resolve_helper_quality(source: str) -> List[str]:
             "or DHARA_BLOB_BASE_PATH — not abfss://{location} only"
         )
     if "_resolve_data_path" in source and "def _resolve_data_path" in source:
-        body = source.split("def _resolve_data_path", 1)[-1][:800]
+        body = source.split("def _resolve_data_path", 1)[-1][:2000]
         if "/lakehouse/default" not in body and "onelake.dfs.fabric.microsoft.com" not in body:
             if "AZURE_STORAGE_ACCOUNT" not in body and "dfs.core.windows.net" not in body:
                 if re.search(r"abfss://", body, re.I):

@@ -537,6 +537,7 @@ def generate_python_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> str
         for st in steps:
             action = str(st.get("action") or "")
             col = st.get("column")
+            lines.append(f"    # Step: {action} on {col}")
             if st.get("note"):
                 lines.append(f"    # Note: {st['note']}")
             for sl in _log_destructive(ds_var, ds_name, action, col):

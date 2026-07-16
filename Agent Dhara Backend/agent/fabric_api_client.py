@@ -37,9 +37,11 @@ class FabricAPIClient:
         
         # Check if we should run in mock mode
         self.mock_mode = os.getenv("DHARA_FABRIC_MOCK", "0").strip().lower() in ("1", "true", "yes")
-        if not self.mock_mode and not self.workspace_id:
-            logger.warning("FABRIC_WORKSPACE_ID not set. Defaulting to Fabric MOCK mode.")
-            self.mock_mode = True
+        if not self.mock_mode:
+            if not self.workspace_id:
+                raise ValueError("FABRIC_WORKSPACE_ID environment variable is missing or empty.")
+            if not self.lakehouse_id:
+                raise ValueError("FABRIC_LAKEHOUSE_ID / FABRIC_LAKEHOUSE_NAME environment variable is missing or empty.")
             
     def _acquire_token(self) -> Optional[str]:
         if self.mock_mode:
@@ -65,6 +67,7 @@ class FabricAPIClient:
                 return self.token
             except Exception as e:
                 logger.error(f"Failed to acquire token via Service Principal: {e}")
+                raise RuntimeError(f"Fabric token acquisition failed via Service Principal: {e}") from e
                 
         # Fall back to DefaultAzureCredential
         logger.info("Falling back to DefaultAzureCredential for Fabric API token.")
@@ -75,10 +78,8 @@ class FabricAPIClient:
             self.token = token_response.token
             return self.token
         except Exception as e:
-            logger.warning(f"Could not acquire Fabric token via DefaultAzureCredential: {e}")
-            logger.warning("Defaulting to Fabric MOCK mode for REST API operations.")
-            self.mock_mode = True
-            return "mock-token"
+            logger.error(f"Could not acquire Fabric token via DefaultAzureCredential: {e}")
+            raise RuntimeError(f"Fabric token acquisition failed: {e}") from e
 
     def _headers(self) -> Dict[str, str]:
         token = self._acquire_token()
@@ -327,11 +328,17 @@ class FabricAPIClient:
         import base64
         import json
         
+        # Query lakehouse displayName to set the name in dependencies
+        lakehouse_name = self.resolve_lakehouse_name_by_id(self.workspace_id, lakehouse_id) or ""
+        
         notebook_json = {
             "nbformat": 4,
             "nbformat_minor": 2,
             "metadata": {
                 "language_info": {"name": "python"},
+                "kernel_info": {
+                    "name": "synapse_pyspark"
+                },
                 "trident": {
                     "lakehouse": {
                         "defaultLakehouse": lakehouse_id,
@@ -341,8 +348,13 @@ class FabricAPIClient:
                 "dependencies": {
                     "lakehouse": {
                         "default_lakehouse": lakehouse_id,
-                        "default_lakehouse_name": "",
-                        "default_lakehouse_workspace_id": self.workspace_id
+                        "default_lakehouse_name": lakehouse_name,
+                        "default_lakehouse_workspace_id": self.workspace_id,
+                        "known_lakehouses": [
+                            {
+                                "id": lakehouse_id
+                            }
+                        ]
                     }
                 }
             },
@@ -372,6 +384,23 @@ class FabricAPIClient:
             ]
         }
 
+    def resolve_lakehouse_name_by_id(self, workspace_id: str, item_id: str) -> Optional[str]:
+        """Finds lakehouse displayName in workspace by ID."""
+        if self.mock_mode:
+            return "mock-lakehouse"
+        url = f"{self.base_url}/workspaces/{workspace_id}/items"
+        try:
+            res = requests.get(url, headers=self._headers(), timeout=15)
+            res.raise_for_status()
+            items = res.json().get("value", [])
+            for item in items:
+                if item.get("id") == item_id and item.get("type") == "Lakehouse":
+                    return item.get("displayName")
+            return None
+        except Exception as e:
+            logger.warning(f"Could not list items to resolve lakehouse ID '{item_id}': {e}")
+            return None
+
     def resolve_lakehouse_id_by_name(self, workspace_id: str, name: str) -> Optional[str]:
         """Finds lakehouse ID in workspace by displayName."""
         if self.mock_mode:
@@ -388,3 +417,4 @@ class FabricAPIClient:
         except Exception as e:
             logger.warning(f"Could not list items to resolve lakehouse name '{name}': {e}")
             return None
+

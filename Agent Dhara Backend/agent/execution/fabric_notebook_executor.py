@@ -29,11 +29,22 @@ class FabricNotebookExecutor(Executor):
         logger.info(f"Executing Fabric PySpark ETL plan '{plan.plan_id}' (one notebook per dataset).")
         
         # 1. Deploy notebooks per dataset and trigger concurrent execution runs
-        deploy_res = deploy_and_run_notebook(
-            session_id=session_id,
-            pyspark_code=plan.code,
-            lakehouse_id=lakehouse_id
-        )
+        try:
+            deploy_res = deploy_and_run_notebook(
+                session_id=session_id,
+                pyspark_code=plan.code,
+                lakehouse_id=lakehouse_id
+            )
+        except Exception as e:
+            duration = (time.time() - t0) * 1000
+            logger.exception(f"Fabric notebooks deployment/execution failed: {e}")
+            return ExecutionResult(
+                ok=False,
+                engine=self.engine_type(),
+                run_id="failed-deploy",
+                duration_ms=duration,
+                error=f"Fabric connection or initialization failed: {str(e)}"
+            )
         
         if not deploy_res.get("ok"):
             duration = (time.time() - t0) * 1000

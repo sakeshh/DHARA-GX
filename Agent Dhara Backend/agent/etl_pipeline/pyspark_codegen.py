@@ -313,10 +313,19 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
     
     if manifest.get("datasets"):
         if use_fabric:
-            # For Fabric notebooks, always use /lakehouse/default/ relative paths.
-            # The notebook has the lakehouse attached, so ABFSS URLs are unnecessary
-            # and can cause issues with spark.sql CREATE TABLE commands.
-            lines.append(resolve_path_fabric_pyspark_helper(None, None))
+            # For Fabric notebooks, construct the dynamic OneLake ABFSS path.
+            ws_id = os.getenv("FABRIC_WORKSPACE_ID") or ""
+            lh_id = os.getenv("FABRIC_LAKEHOUSE_ID") or os.getenv("FABRIC_LAKEHOUSE_NAME") or ""
+            if lh_id and not (len(lh_id) == 36 and lh_id.count("-") == 4):
+                try:
+                    from agent.fabric_api_client import FabricAPIClient
+                    client = FabricAPIClient()
+                    resolved = client.resolve_lakehouse_id_by_name(ws_id, lh_id)
+                    if resolved:
+                        lh_id = resolved
+                except Exception:
+                    pass
+            lines.append(resolve_path_fabric_pyspark_helper(ws_id, lh_id))
         else:
             lines.append(resolve_path_pyspark_helper())
         lines.append("")
@@ -341,7 +350,10 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
                     lines.append(f"    logger.warning('Column {col} requires manual review — skipping automation')")
 
         for st in sorted(block.get("steps") or [], key=lambda x: int(x.get("order") or 0)):
-            for sl in _emit_spark(str(st.get("action")), st.get("column"), var, step_meta=st):
+            action = str(st.get("action") or "")
+            col = st.get("column")
+            lines.append(f"    # Step: {action} on {col}")
+            for sl in _emit_spark(action, col, var, step_meta=st):
                 lines.append(f"    {sl}")
         for sl in _emit_valid_values_spark(var, ds_name, rules):
             lines.append(f"    {sl}")

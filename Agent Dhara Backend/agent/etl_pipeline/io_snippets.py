@@ -77,17 +77,13 @@ def _resolve_data_path(location: str) -> str:
 
 
 def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakehouse_id: Optional[str] = None) -> str:
-    """Path resolver for code running INSIDE a Fabric Spark Notebook.
-
-    Always uses the local lakehouse mount path (/lakehouse/default/) which is
-    automatically authenticated by the Fabric platform — no credential/OAuth
-    orchestration is needed inside the Spark session.  The workspace_id and
-    lakehouse_id args are accepted for API compatibility but are not embedded
-    in the generated path.
-    """
-    return '''
+    """Path resolver for code running INSIDE a Fabric Spark Notebook."""
+    ws = str(workspace_id or "").strip()
+    lh = str(lakehouse_id or "").strip()
+    
+    return f'''
 def _resolve_data_path(location: str) -> str:
-    """Resolve path relative to the attached default Lakehouse."""
+    """Resolve path relative to the attached default Lakehouse using ABFSS."""
     loc = (location or "").strip()
     if not loc or loc == "unknown":
         raise ValueError("location is missing")
@@ -96,8 +92,27 @@ def _resolve_data_path(location: str) -> str:
     clean_loc = loc.lstrip("/")
     # Ensure the mandatory Files/ or Tables/ prefix is present
     if not clean_loc.startswith(("Files/", "Tables/")):
-        clean_loc = f"Files/{clean_loc}"
-    return f"/lakehouse/default/{clean_loc}"
+        clean_loc = f"Files/{{clean_loc}}"
+        
+    # Attempt to resolve from spark config dynamically
+    try:
+        from pyspark.sql import SparkSession
+        spark = SparkSession.builder.getOrCreate()
+        ws_id = spark.conf.get("trident.workspace.id") or spark.conf.get("spark.workspace.id")
+        lh_id = spark.conf.get("trident.lakehouse.id") or spark.conf.get("spark.lakehouse.id")
+    except Exception:
+        ws_id = None
+        lh_id = None
+        
+    # Fallback to hardcoded values from deployment configuration
+    if not ws_id or not lh_id:
+        ws_id = "{ws}"
+        lh_id = "{lh}"
+        
+    if ws_id and lh_id:
+        return f"abfss://{{ws_id}}@onelake.dfs.fabric.microsoft.com/{{lh_id}}/{{clean_loc}}"
+        
+    return f"/lakehouse/default/{{clean_loc}}"
 '''.strip()
 
 

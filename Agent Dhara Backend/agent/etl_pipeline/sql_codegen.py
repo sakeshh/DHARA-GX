@@ -740,8 +740,6 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 "cast_type": 21,
                 "zero_to_null": 30,
                 "nullify_punctuation": 32,
-                "fill_or_drop": 40,
-                "fill_nulls_simple": 40,
                 "parse_dates": 50,
                 "nullify_dummy_dates": 51,
                 "regex_replace": 60,
@@ -755,6 +753,8 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
                 "flag_outliers": 72,
                 "clip_outliers": 73,
                 "cap_outliers": 74,
+                "fill_or_drop": 78,
+                "fill_nulls_simple": 78,
                 "deduplicate": 80,
                 "validate_referential_integrity_or_stage": 90
             }
