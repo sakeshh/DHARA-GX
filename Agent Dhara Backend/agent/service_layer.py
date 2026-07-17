@@ -345,10 +345,7 @@ def build_dq_scorecard(result: Dict[str, Any]) -> Dict[str, Any]:
 
         summ = (dq_ds.get(ds_name) or {}).get("summary") or {}
         raw_score = summ.get("dq_score_0_100")
-        try:
-            score = float(raw_score) if raw_score is not None else 0.0
-        except Exception:
-            score = 0.0
+        score_source = "computed"
 
         issues = (dq_ds.get(ds_name) or {}).get("issues") or []
         if not isinstance(issues, list):
@@ -369,7 +366,33 @@ def build_dq_scorecard(result: Dict[str, Any]) -> Dict[str, Any]:
         total_low += low
         total_affected_by_high += affected_high
 
-        if score >= 70:
+        if raw_score is not None:
+            try:
+                score = float(raw_score)
+            except Exception:
+                score = 0.0
+        else:
+            if issues or row_count > 0:
+                n = max(1, row_count)
+                high_cnt = sum(int(i.get("count") or 1) for i in issues if (i.get("severity") or "").lower() == "high")
+                med_cnt = sum(int(i.get("count") or 1) for i in issues if (i.get("severity") or "").lower() == "medium")
+                low_cnt = sum(int(i.get("count") or 1) for i in issues if (i.get("severity") or "").lower() == "low")
+                
+                frac_h = min(1.0, high_cnt / n)
+                frac_m = min(1.0, med_cnt / n)
+                frac_l = min(1.0, low_cnt / n)
+                
+                raw_penalty = (3.0 * frac_h) + (1.0 * frac_m) + (0.3 * frac_l)
+                max_penalty = 3.0 + 1.0 + 0.3
+                score = 100.0 * max(0.0, 1.0 - (raw_penalty / max_penalty))
+                score_source = "count_estimated"
+            else:
+                score = None
+                score_source = "unavailable"
+
+        if score is None:
+            readiness = "UNKNOWN"
+        elif score >= 70:
             readiness = "READY"
         elif score >= 35:
             readiness = "NEEDS_WORK"
@@ -379,7 +402,8 @@ def build_dq_scorecard(result: Dict[str, Any]) -> Dict[str, Any]:
         per_dataset.append(
             {
                 "name": ds_name,
-                "dq_score": round(score, 1),
+                "dq_score": round(score, 1) if score is not None else "N/A",
+                "score_source": score_source,
                 "readiness": readiness,
                 "row_count": row_count,
                 "high": high,
@@ -389,17 +413,25 @@ def build_dq_scorecard(result: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
 
-    order = {"BLOCKED": 0, "NEEDS_WORK": 1, "READY": 2}
-    per_dataset.sort(key=lambda x: (order[x["readiness"]], x["dq_score"]))
+    order = {"BLOCKED": 0, "NEEDS_WORK": 1, "READY": 2, "UNKNOWN": 3}
+    per_dataset.sort(
+        key=lambda x: (
+            order.get(x["readiness"], 3),
+            float(x["dq_score"]) if isinstance(x["dq_score"], (int, float)) else -1.0
+        )
+    )
 
+    valid_scores = [d["dq_score"] for d in per_dataset if isinstance(d["dq_score"], (int, float))]
     overall_score = (
-        sum(d["dq_score"] for d in per_dataset) / len(per_dataset) if per_dataset else 0.0
+        sum(valid_scores) / len(valid_scores) if valid_scores else None
     )
 
     if any(d["readiness"] == "BLOCKED" for d in per_dataset):
         verdict = "BLOCKED"
     elif any(d["readiness"] == "NEEDS_WORK" for d in per_dataset):
         verdict = "NEEDS_WORK"
+    elif any(d["readiness"] == "UNKNOWN" for d in per_dataset):
+        verdict = "UNKNOWN"
     else:
         verdict = "READY"
 
@@ -412,7 +444,7 @@ def build_dq_scorecard(result: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "verdict": verdict,
-        "overall_dq_score": round(overall_score, 1),
+        "overall_dq_score": round(overall_score, 1) if overall_score is not None else "N/A",
         "total_issues": {"high": total_high, "medium": total_medium, "low": total_low},
         "total_rows": total_rows,
         "rows_affected_by_high": total_affected_by_high,
@@ -1544,14 +1576,14 @@ def build_html_report(result: Dict[str, Any]) -> str:
             if sql_code:
                 sql_html = f"""<div class="code-wrap">
                     <span class="code-title">SQL suggestion</span>
-                    <pre><code class="language-sql">{esc(sql_code)}</code></pre>
+                    <pre data-raw="{esc_attr(sql_code)}"><code class="language-sql">{esc(sql_code)}</code></pre>
                 </div>"""
                 
             pandas_html = ""
             if pandas_code:
                 pandas_html = f"""<div class="code-wrap">
                     <span class="code-title">Pandas suggestion</span>
-                    <pre><code class="language-python">{esc(pandas_code)}</code></pre>
+                    <pre data-raw="{esc_attr(pandas_code)}"><code class="language-python">{esc(pandas_code)}</code></pre>
                 </div>"""
             
             cards.append(f"""

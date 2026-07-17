@@ -12,6 +12,7 @@ import re
 import ast
 import time
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 
 from agent.fabric_api_client import FabricAPIClient
@@ -30,33 +31,90 @@ def _clean_env_value(v: Optional[str]) -> Optional[str]:
 def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
     """
     Wraps all dfs assignments for non-target datasets in `if False:` blocks
-    instead of commenting individual lines, preserving syntax validity.
+    using AST transformation to ensure 100% syntactic correctness.
     """
-    lines = pyspark_code.splitlines()
-    result = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        m = re.match(r'^(\s*)dfs\[[\"\']([^\"\']+)[\"\']\]\s*=', line)
-        if m and m.group(2) != target_ds:
-            # Collect the full assignment block (until next line that has less or equal indentation)
-            block = [line]
-            indent = len(m.group(1))
-            i += 1
-            while i < len(lines):
-                next_line = lines[i]
-                if next_line.strip() == "" or (len(next_line) - len(next_line.lstrip())) > indent:
-                    block.append(next_line)
-                    i += 1
-                else:
-                    break
-            result.append(f"{m.group(1)}if False:  # [Disabled: {m.group(2)}]")
-            for bl in block:
-                result.append("    " + bl)
-        else:
-            result.append(line)
-            i += 1
-    return "\n".join(result)
+    try:
+        tree = ast.parse(pyspark_code)
+        
+        class DatasetFilterTransformer(ast.NodeTransformer):
+            def __init__(self, target: str):
+                self.target = target
+
+            def visit_Assign(self, node):
+                # Check if target is dfs['some_ds'] where some_ds != target
+                for target_node in node.targets:
+                    if isinstance(target_node, ast.Subscript):
+                        if isinstance(target_node.value, ast.Name) and target_node.value.id == "dfs":
+                            slice_val = None
+                            if isinstance(target_node.slice, ast.Constant):
+                                slice_val = target_node.slice.value
+                            elif isinstance(target_node.slice, ast.Index) and isinstance(target_node.slice.value, ast.Constant):
+                                slice_val = target_node.slice.value.value
+                            elif isinstance(target_node.slice, ast.String):
+                                slice_val = target_node.slice.s
+                                
+                            if slice_val and slice_val != self.target:
+                                return ast.If(
+                                    test=ast.Constant(value=False),
+                                    body=[node],
+                                    orelse=[]
+                                )
+                return self.generic_visit(node)
+                
+        transformer = DatasetFilterTransformer(target_ds)
+        new_tree = transformer.visit(tree)
+        ast.fix_missing_locations(new_tree)
+        return ast.unparse(new_tree)
+    except Exception as e:
+        logger.warning(f"AST transformation failed, falling back to line-based matching: {e}")
+        # Fallback to line-based if AST parsing/unparsing fails
+        lines = pyspark_code.splitlines()
+        result = []
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            m = re.match(r'^(\s*)dfs\[[\"\']([^\"\']+)[\"\']\]\s*=', line)
+            if m and m.group(2) != target_ds:
+                block = [line]
+                indent = len(m.group(1))
+                i += 1
+                while i < len(lines):
+                    next_line = lines[i]
+                    if next_line.strip() == "" or (len(next_line) - len(next_line.lstrip())) > indent:
+                        block.append(next_line)
+                        i += 1
+                    else:
+                        break
+                result.append(f"{m.group(1)}if False:  # [Disabled: {m.group(2)}]")
+                for bl in block:
+                    result.append("    " + bl)
+            else:
+                result.append(line)
+                i += 1
+        return "\n".join(result)
+
+
+def _extract_datasets_from_code(pyspark_code: str) -> List[str]:
+    # Parse dataset names from generated PySpark code (support multi-line)
+    ds_match = re.search(r"DATASETS\s*=\s*(\[[\s\S]*?\])", pyspark_code)
+    datasets: List[str] = []
+    if ds_match:
+        try:
+            cleaned_arr = re.sub(r"#.*", "", ds_match.group(1))
+            datasets = ast.literal_eval(cleaned_arr)
+        except Exception as e:
+            logger.warning(f"Could not parse DATASETS array from code: {e}")
+            
+    if not datasets:
+        datasets = re.findall(r"def transform_(\w+)\s*\(", pyspark_code)
+        # Filter out generic or system helper names if any
+        datasets = [d for d in datasets if d not in ("data_quality_issues", "data_quality_issues_v2")]
+            
+    if not datasets:
+        logger.warning("No datasets found in code, falling back to ['default']")
+        datasets = ["default"]
+        
+    return datasets
 
 def _is_uuid(s: str) -> bool:
     return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', s, re.I))
@@ -71,6 +129,8 @@ def deploy_and_run_notebook(
     Deploys one Microsoft Fabric Notebook per dataset in the PySpark script,
     attaches the default lakehouse, and triggers concurrent run jobs.
     """
+    import html
+    pyspark_code = html.unescape(pyspark_code or "")
     workspace_id = _clean_env_value(os.getenv("FABRIC_WORKSPACE_ID"))
     lh_id = lakehouse_id or _clean_env_value(os.getenv("FABRIC_LAKEHOUSE_NAME") or os.getenv("FABRIC_LAKEHOUSE_ID"))
     
@@ -90,21 +150,7 @@ def deploy_and_run_notebook(
         else:
             logger.warning(f"Could not resolve lakehouse name '{lh_id}' to a UUID. Proceeding with name.")
     
-    # 1. Parse dataset names from generated PySpark code (support multi-line)
-    ds_match = re.search(r"DATASETS\s*=\s*(\[[\s\S]*?\])", pyspark_code)
-    datasets: List[str] = []
-    if ds_match:
-        try:
-            cleaned_arr = re.sub(r"#.*", "", ds_match.group(1))
-            datasets = ast.literal_eval(cleaned_arr)
-        except Exception as e:
-            logger.warning(f"Could not parse DATASETS array from code: {e}")
-            
-    if not datasets:
-        datasets = re.findall(r"def transform_(\w+)\s*\(", pyspark_code)
-            
-    if not datasets:
-        datasets = ["clean"]
+    datasets = _extract_datasets_from_code(pyspark_code)
 
     logger.info(f"Deploying {len(datasets)} dataset notebook(s) to Fabric Workspace '{workspace_id}' (Lakehouse: {lh_id})")
     
@@ -185,7 +231,7 @@ async def poll_multiple_notebooks_status(
             notebook_id = run["notebook_id"]
             run_id = run["run_id"]
             
-            status_res = client.get_run_status(notebook_id, run_id)
+            status_res = await asyncio.to_thread(client.get_run_status, notebook_id, run_id)
             status = status_res.get("status")
             
             if status == "Succeeded":
@@ -200,7 +246,6 @@ async def poll_multiple_notebooks_status(
                 pending_runs.remove(run)
                 
         if pending_runs:
-            import asyncio
             await asyncio.sleep(poll_interval)
             
     if pending_runs:

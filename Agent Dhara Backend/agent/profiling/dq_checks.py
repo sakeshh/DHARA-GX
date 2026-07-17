@@ -707,6 +707,9 @@ def analyze_dataset_quality(
         sev_w = {"high": wh, "medium": wm, "low": wl}
 
         high_rows, med_rows, low_rows = set(), set(), set()
+        synth_idx = n
+        has_synthesized = False
+        
         for it in issues:
             sev = str(it.get("severity") or "low").lower()
             rows = it.get("row_indexes") or []
@@ -717,13 +720,31 @@ def analyze_dataset_quality(
                     med_rows.update(rows)
                 else:
                     low_rows.update(rows)
+            else:
+                cnt = int(it.get("count") or 1)
+                cnt = min(cnt, n)
+                dummy_rows = range(synth_idx, synth_idx + cnt)
+                synth_idx += cnt
+                has_synthesized = True
+                if sev == "high":
+                    high_rows.update(dummy_rows)
+                elif sev == "medium":
+                    med_rows.update(dummy_rows)
+                else:
+                    low_rows.update(dummy_rows)
+
+        if has_synthesized:
+            import logging
+            logging.getLogger("agent.profiling.dq_checks").debug(
+                f"DQ scoring: count-based index synthesis used for issues without row_indexes (dataset size: {n})"
+            )
 
         med_rows = set(med_rows) - set(high_rows)
         low_rows = set(low_rows) - set(high_rows) - set(med_rows)
 
-        frac_h = len(high_rows) / max(1, n)
-        frac_m = len(med_rows) / max(1, n)
-        frac_l = len(low_rows) / max(1, n)
+        frac_h = min(1.0, len(high_rows) / max(1, n))
+        frac_m = min(1.0, len(med_rows) / max(1, n))
+        frac_l = min(1.0, len(low_rows) / max(1, n))
 
         raw_penalty = (sev_w["high"] * frac_h) + (sev_w["medium"] * frac_m) + (sev_w["low"] * frac_l)
         max_penalty = sev_w["high"] + sev_w["medium"] + sev_w["low"]

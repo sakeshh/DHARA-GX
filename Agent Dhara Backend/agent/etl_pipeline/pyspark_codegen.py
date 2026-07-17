@@ -31,36 +31,42 @@ def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
     c = repr(str(col))
     strat = params.get("fill_strategy")
     fval = params.get("fill_value")
+    dtype_str = f"dict({df}.dtypes)[{c}]"
+    
     if strat == "median":
         if fval is not None:
-            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({df}.schema[{c}].dataType)))"]
+            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
         return [
             f"_med = {df}.select(F.percentile_approx(F.col({c}), 0.5).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med).cast({df}.schema[{c}].dataType)))",
+            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med).cast({dtype_str})))",
         ]
     if strat == "mean":
         if fval is not None:
-            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({df}.schema[{c}].dataType)))"]
+            return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
         return [
             f"_avg = {df}.select(F.avg(F.col({c}).cast('double')).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({df}.schema[{c}].dataType)))",
+            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({dtype_str})))",
         ]
     if strat == "value" and fval is not None:
         if str(fval).strip().lower() in ("none", "null", ""):
             return [
-                f"# Warning: fill_value is empty/null/none for column {col}",
-                f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(None).cast({df}.schema[{c}].dataType)))"
+                f"# Warning: fill_value is empty/null/none for column {col}; keeping original values as-is",
             ]
-        return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({repr(fval)}).cast({df}.schema[{c}].dataType)))"]
+        return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({repr(fval)}).cast({dtype_str})))"]
     if strat == "value":
-        return [
-            f"# WARNING: fill_value is None for column {col} — using empty string default",
-            f'{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit("").cast({df}.schema[{c}].dataType)))'
-        ]
+        is_text_safe = not any(k in str(col).lower() for k in ("id", "key", "code", "ref", "date", "time", "email", "phone", "num", "val", "amount", "price", "credit"))
+        if is_text_safe:
+            return [
+                f"# WARNING: fill_value is None for column {col} — using empty string default",
+                f'{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit("").cast({dtype_str})))'
+            ]
+        else:
+            return [
+                f"# WARNING: fill_value is None for column {col} — defaulting to None to prevent invalid data/casts; keeping original values as-is",
+            ]
     # Default fallback to satisfy validation
     return [
-        f"# Warning: no fill_strategy for {col}; defaulting to coalesce with None/null",
-        f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(None).cast({df}.schema[{c}].dataType)))"
+        f"# Warning: no fill_strategy for {col}; keeping original values as-is",
     ]
 
 
@@ -114,11 +120,25 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
     if act in ("fill_or_drop", "fill_nulls_simple"):
         return _emit_fill_spark(col, df, params)
     if act == "coerce_numeric":
+        is_key = any(k in str(col).lower() for k in ("id", "key", "code", "ref"))
+        if is_key:
+            return [
+                f"# Coerce numeric on key: keep as string to prevent loss of leading zeros or alphanumeric chars",
+                f"{df} = {df}.withColumn({c}, F.trim(F.col({c}).cast('string')))"
+            ]
         return [f"{df} = {df}.withColumn({c}, F.col({c}).cast('double'))"]
     if act == "zero_to_null":
-        return [f"{df} = {df}.withColumn({c}, F.when(F.col({c}) == 0, F.lit(None)).otherwise(F.col({c})))"]
+        return [f"{df} = {df}.withColumn({c}, F.when((F.col({c}) == 0) | (F.col({c}) == '0'), F.lit(None)).otherwise(F.col({c})))"]
     if act == "cast_type":
         target_type = params.get("target_type") or params.get("cast_to") or "long"
+        is_key = any(k in str(col).lower() for k in ("id", "key", "code", "ref"))
+        is_int_target = any(it in str(target_type).lower() for it in ("long", "int", "integer"))
+        if is_key and is_int_target:
+            return [
+                f"{df} = {df}.withColumn({c}, "
+                f"F.when(F.col({c}).cast('string').rlike(r'^\\d+$'), F.col({c}).cast({repr(target_type)}))"
+                f".otherwise(F.lit(None).cast({repr(target_type)})))"
+            ]
         return [f"{df} = {df}.withColumn({c}, F.col({c}).cast({repr(target_type)}))"]
     if act == "parse_dates":
         return [f"{df} = {df}.withColumn({c}, F.to_timestamp(F.col({c})))"]
@@ -223,7 +243,7 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
                 f"            _new_rows = _orphans",
                 f"            for _c in _parent_df.columns:",
                 f"                if _c != {repr(rel_col)}:",
-                f"                    _new_rows = _new_rows.withColumn(_c, F.lit(None).cast(_parent_df.schema[_c].dataType))",
+                f"                    _new_rows = _new_rows.withColumn(_c, F.lit(None).cast(dict(_parent_df.dtypes)[_c]))",
                 f"            all_dfs[{repr(rel_ds)}] = _parent_df.unionByName(_new_rows)",
                 f"            logger.info(f'Created unknown dimension records in {rel_ds}')",
             ])
@@ -313,7 +333,6 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
     
     if manifest.get("datasets"):
         if use_fabric:
-            # For Fabric notebooks, construct the dynamic OneLake ABFSS path.
             ws_id = os.getenv("FABRIC_WORKSPACE_ID") or ""
             lh_id = os.getenv("FABRIC_LAKEHOUSE_ID") or os.getenv("FABRIC_LAKEHOUSE_NAME") or ""
             if lh_id and not (len(lh_id) == 36 and lh_id.count("-") == 4):

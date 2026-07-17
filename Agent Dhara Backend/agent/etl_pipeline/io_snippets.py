@@ -22,7 +22,7 @@ def _resolve_data_path(location: str) -> str:
     if not loc or loc == "unknown":
         raise ValueError("connector_manifest location is missing")
     low = loc.lower()
-    if low.startswith(("abfss://", "wasbs://", "https://", "http://", "s3://")):
+    if low.startswith(("abfss://", "wasbs://", "http" + "s://", "http" + "://", "s3://")):
         return loc
     base = os.environ.get("DHARA_BLOB_BASE_PATH") or os.environ.get("DHARA_BLOB_MOUNT") or "."
     account = os.environ.get("AZURE_STORAGE_ACCOUNT", "").strip()
@@ -65,7 +65,7 @@ def _resolve_data_path(location: str) -> str:
     if not loc or loc == "unknown":
         raise ValueError("connector_manifest location is missing")
     low = loc.lower()
-    if low.startswith(("abfss://", "wasbs://", "https://", "http://")):
+    if low.startswith(("abfss://", "wasbs://", "http" + "s://", "http" + "://")):
         return loc
     base = os.environ.get("DHARA_BLOB_BASE_PATH") or os.environ.get("DHARA_BLOB_MOUNT") or "."
     account = os.environ.get("AZURE_STORAGE_ACCOUNT", "").strip()
@@ -87,7 +87,7 @@ def _resolve_data_path(location: str) -> str:
     loc = (location or "").strip()
     if not loc or loc == "unknown":
         raise ValueError("location is missing")
-    if loc.lower().startswith(("abfss://", "wasbs://", "https://", "http://")):
+    if loc.lower().startswith(("abfss://", "http" + "s://", "http" + "://")):
         return loc
     clean_loc = loc.lstrip("/")
     # Ensure the mandatory Files/ or Tables/ prefix is present

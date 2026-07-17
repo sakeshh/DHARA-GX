@@ -65,11 +65,11 @@
 
 | Priority | Dataset | Column | Severity | Suggested Fix | Risk |
 |---|---|---|---|---|---|
-| 1 | `data_quality_issues.csv` | `email` | medium | Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input. | Data loss if records are rejected without proper validation. |
-| 2 | `data_quality_issues.csv` | `id` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Potentially missing valid records if not properly validated. |
-| 3 | `data_quality_issues.csv` | `id` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Data integrity issues if not handled properly. |
-| 4 | `data_quality_issues.csv` | `name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Minor data quality issues if not addressed. |
-| 5 | `data_quality_issues.csv` | `name` | low | Deduplicate after normalization. | Potential loss of unique records if not handled correctly. |
+| 1 | `data_quality_issues.csv` | `email` | medium | Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input. | High risk of data loss if invalid emails are not handled properly. |
+| 2 | `data_quality_issues.csv` | `id` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Potential misinterpretation of data if not addressed. |
+| 3 | `data_quality_issues.csv` | `id` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Data integrity issues if sentinel values are not handled. |
+| 4 | `data_quality_issues.csv` | `name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Low risk but can lead to data inconsistency. |
+| 5 | `data_quality_issues.csv` | `name` | low | Collapse consecutive spaces with REGEXP_REPLACE or str.strip in ETL. | Low risk but can affect data quality. |
 
 ### What might still be missed
 

@@ -9,6 +9,7 @@ import json
 import os
 import re
 import time
+import html
 import asyncio
 import threading
 from collections import defaultdict
@@ -34,7 +35,7 @@ from agent.etl_pipeline.io_snippets import (
     resolve_path_pyspark_helper,
     resolve_path_fabric_pyspark_helper,
 )
-from agent.etl_pipeline.payload_trimmer import trim_payload, _FLOOR_TRIM_CONFIG, _CODEGEN_TRIM_CONFIG
+from agent.etl_pipeline.payload_trimmer import trim_payload, _FLOOR_TRIM_CONFIG, _CODEGEN_TRIM_CONFIG, TrimConfig
 import logging
 logger = logging.getLogger("agent.etl_pipeline.llm_codegen")
 
@@ -158,6 +159,112 @@ def _inject_pyspark_fabric_ids(code: str) -> str:
     )
     return code
 
+
+def _inject_pyspark_datasets_decl(code: str) -> str:
+    if not code:
+        return code
+    if "DATASETS" in code and re.search(r"\bDATASETS\s*=\s*\[", code):
+        return code
+    
+    datasets = re.findall(r"def transform_(\w+)\s*\(", code)
+    if not datasets:
+        datasets = ["default"]
+        
+    decl = f"DATASETS = {repr(datasets)}\n"
+    
+    lines = code.splitlines(keepends=True)
+    insert_at = 0
+    i = 0
+    if lines and lines[0].strip().startswith('"""'):
+        if lines[0].strip().count('"""') >= 2 and len(lines[0].strip()) > 3:
+            insert_at = 1
+        else:
+            i = 1
+            while i < len(lines):
+                if '"""' in lines[i]:
+                    i += 1
+                    break
+                i += 1
+            insert_at = i
+            
+    while insert_at < len(lines):
+        stripped = lines[insert_at].strip()
+        if not stripped or stripped.startswith("#"):
+            insert_at += 1
+        else:
+            break
+            
+    injected = lines[:insert_at] + [decl] + lines[insert_at:]
+    return "".join(injected)
+
+
+
+def _inject_pyspark_helpers(code: str) -> str:
+    if not code:
+        return code
+        
+    from agent.etl_pipeline.io_snippets import (
+        pyspark_iqr_bounds_helper,
+        pyspark_production_helpers,
+        pyspark_prefix_non_key_columns_helper,
+    )
+    
+    # Strip invalid df.fillna({"col": None}) or df.fillna(value=None) or df.fillna(None)
+    # Handles both single and multiple keys mapped to None
+    code = re.sub(
+        r"\b(\w+)\s*=\s*\1\.fillna\s*\(\s*\{\s*(?:['\"][^'\"]+['\"]\s*:\s*None\s*,\s*)*['\"][^'\"]+['\"]\s*:\s*None\s*\}\s*\)",
+        r"# skipped empty fillna for \1",
+        code
+    )
+    code = re.sub(
+        r"\b(\w+)\s*=\s*\1\.fillna\s*\(\s*None\s*\)",
+        r"# skipped empty fillna for \1",
+        code
+    )
+    
+    to_inject = []
+    if "_iqr_bounds" in code and "def _iqr_bounds" not in code:
+        to_inject.append(pyspark_iqr_bounds_helper() + "\n\n")
+        
+    if "_prefix_columns" in code and "def _prefix_columns" not in code:
+        to_inject.append(pyspark_prefix_non_key_columns_helper() + "\n\n")
+        
+    for helper_name in ("_warn_nulls_in_columns", "_warn_duplicate_keys", "_require_columns", "_log_row_count"):
+        if helper_name in code and f"def {helper_name}" not in code:
+            to_inject.append(pyspark_production_helpers() + "\n\n")
+            break
+            
+    if not to_inject:
+        return code
+        
+    lines = code.splitlines(keepends=True)
+    insert_at = 0
+    i = 0
+    if lines and lines[0].strip().startswith('"""'):
+        if lines[0].strip().count('"""') >= 2 and len(lines[0].strip()) > 3:
+            insert_at = 1
+        else:
+            i = 1
+            while i < len(lines):
+                if '"""' in lines[i]:
+                    i += 1
+                    break
+                i += 1
+            insert_at = i
+            
+    while insert_at < len(lines):
+        stripped = lines[insert_at].strip()
+        if (not stripped or 
+            stripped.startswith("#") or 
+            stripped.startswith("import ") or 
+            stripped.startswith("from ") or 
+            stripped.startswith("DATASETS =")):
+            insert_at += 1
+        else:
+            break
+            
+    injected = lines[:insert_at] + to_inject + lines[insert_at:]
+    return "".join(injected)
 
 
 def _estimate_tokens(text: str | dict) -> int:
@@ -366,8 +473,11 @@ PYSPARK REQUIREMENTS:
     from pyspark.sql import functions as F
     import logging
   DO NOT place these inside function bodies. They must be at the very top of the file.
+- DATASETS DECLARATION: At the module level, ALWAYS declare: `DATASETS = ["<dataset_name>"]` (one entry per dataset).
 - One transform_<dataset>(df: DataFrame) -> DataFrame per dataset.
-- Use withColumn, dropDuplicates, percentile_approx for IQR — same semantics as pandas plan.
+- Outliers/IQR: NEVER use approxQuantile directly (e.g. df.approxQuantile(...)[0]) — it is unsafe and crashes on all-null columns. ALWAYS call the provided _iqr_bounds(df, col, multiplier=1.5) helper function which returns a 4-tuple: stats_row, iqr, lower, upper = _iqr_bounds(df, col). ALWAYS unpack all 4 variables (e.g., _stats, _iqr, _lower, _upper = _iqr_bounds(df, col)) and use _lower and _upper for outlier checks.
+- NO INVENTED DEFAULTS: NEVER invent fill values (e.g. 'unknown@example.com', 0) unless fill_value is explicitly provided in the step params. If no fill_value is given in the step params, DO NOT generate any fillna or coalesce code for that column (keep the original column as-is). NEVER emit fillna(None) or fillna({{'col': None}}) as it is invalid PySpark.
+- SAFE CASTS: NEVER emit F.col(c).cast('long') on ID/key/code/ref columns without first checking the column only contains digits. Use F.when(F.col(c).rlike(r'^\\d+$'), F.col(c).cast('long')).otherwise(F.lit(None)) for safe numeric casts on potential business keys.
 - never_drop_rows: coalesce/fill only, no filter that drops null-quality rows.
 - I/O: use connector_manifest read_snippet_pyspark and write_snippet_pyspark per dataset.
 - NEVER use spark.read.csv for .xml files. Use format("com.databricks.spark.xml") for format=xml.
@@ -438,6 +548,9 @@ def _strip_markdown_fences(text: str) -> str:
     code = (text or "").strip()
     code = re.sub(r"^```[a-zA-Z0-9_-]*\s*\n?", "", code)
     code = re.sub(r"\n?```\s*$", "", code)
+    code = code.strip()
+    if "&" in code:
+        code = html.unescape(code)
     return code.strip()
 
 
@@ -516,6 +629,7 @@ def _consolidate_and_filter_datasets(
     datasets: Dict[str, Any],
     source_metadata: Dict[str, Any],
     sem_schema: Dict[str, Any] = None,
+    strict_mode: bool = False,
 ) -> Dict[str, Any]:
     cleaned_datasets = {}
     
@@ -576,18 +690,20 @@ def _consolidate_and_filter_datasets(
             col = step.get("column")
             
             # 1. Type-aware filtering: trim/lower/upper/sanitize_email are string-only
-            if action in ("trim", "lowercase", "uppercase", "sanitize_email"):
+            if not strict_mode and action in ("trim", "lowercase", "uppercase", "sanitize_email"):
                 if col:
                     col_meta = columns_meta.get(col) or {}
                     col_class = _classify_column(col, col_meta, sem_schema, ds_name)
                     if col_class in ("metric", "date", "metadata"):
+                        logger.info(f"[Step Filter] Dropped '{action}' on '{col}' — classifier={col_class} (ds={ds_name})")
                         continue
             
             # Type-aware filtering: outlier logic is numeric-only
-            if action in ("flag_outliers", "clip_or_flag", "clip_outliers", "cap_outliers"):
+            if not strict_mode and action in ("flag_outliers", "clip_or_flag", "clip_outliers", "cap_outliers"):
                 if col:
                     col_meta = columns_meta.get(col) or {}
                     if not _is_numeric_column(col, col_meta):
+                        logger.info(f"[Step Filter] Dropped '{action}' on '{col}' — non-numeric (ds={ds_name})")
                         continue
                         
             # 2. Operation Deduplication / Normalization
@@ -602,6 +718,7 @@ def _consolidate_and_filter_datasets(
             is_internal_trim = (norm_action == "trim") and (step.get("source_issue_type") == "internal_whitespace" or step.get("issue_type") == "internal_whitespace")
             op_key = (norm_action, str(col).lower() if col else None, is_internal_trim)
             if op_key in seen_operations:
+                logger.info(f"[Step Filter] Dropped duplicate/normalized '{action}' on '{col}' (ds={ds_name})")
                 continue
             seen_operations.add(op_key)
             
@@ -634,6 +751,7 @@ def _build_codegen_payload(
     *,
     output_mode: str = "dataframe_only",
     output_path: Optional[str] = None,
+    strict_mode: bool = False,
 ) -> Dict[str, Any]:
     source_metadata: Dict[str, Any] = {}
     sem_schema = plan.get("semantic_schema") or {}
@@ -656,7 +774,14 @@ def _build_codegen_payload(
     
     # Consolidate, deduplicate, type-filter and sort plan steps before passing to LLM
     raw_datasets = plan.get("datasets") or {}
-    cleaned_datasets = _consolidate_and_filter_datasets(raw_datasets, source_metadata, plan.get("semantic_schema"))
+    strict = strict_mode or bool(
+        plan.get("strict_mode")
+        or plan.get("settings", {}).get("strict_mode", False)
+        or (plan.get("business_rules") or {}).get("strict_mode", False)
+    )
+    cleaned_datasets = _consolidate_and_filter_datasets(
+        raw_datasets, source_metadata, plan.get("semantic_schema"), strict_mode=strict
+    )
     
     from agent.etl_pipeline.dq_gate import evaluate_dq_gate
     try:
@@ -1148,6 +1273,7 @@ async def generate_etl_with_llm(
     output_path: Optional[str] = None,
     validation_errors: Optional[List[str]] = None,
     validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
+    strict_mode: bool = False,
 ) -> Tuple[Optional[str], Optional[str]]:
     engine_key = normalize_codegen_engine(engine, sql_dialect)
     cache_key = _get_cache_key(plan, assessment, engine_key)
@@ -1196,6 +1322,7 @@ async def generate_etl_with_llm(
             validation_errors=validation_errors,
             validate_fn=validate_fn,
             cache_key=cache_key,
+            strict_mode=strict_mode,
         )
 
         if code is None:
@@ -1224,6 +1351,7 @@ def _generate_etl_with_llm_impl(
     validation_errors: Optional[List[str]] = None,
     validate_fn: Optional[Callable[[str], Tuple[bool, List[str]]]] = None,
     cache_key: Optional[str] = None,
+    strict_mode: bool = False,
 ) -> Tuple[Optional[str], Optional[str]]:
     engine_key = normalize_codegen_engine(engine, sql_dialect)
     if engine_key == "adf":
@@ -1233,10 +1361,8 @@ def _generate_etl_with_llm_impl(
         cache_key = _get_cache_key(plan, assessment, engine_key)
 
     payload = _build_codegen_payload(
-        plan, assessment, output_mode=output_mode, output_path=output_path
+        plan, assessment, output_mode=output_mode, output_path=output_path, strict_mode=strict_mode
     )
-    # Trim ONCE before retry loop (Fix 4)
-    trimmed_payload = trim_payload(payload, _CODEGEN_TRIM_CONFIG)
 
     prev: Optional[str] = None
     fix_errors = list(validation_errors or [])
@@ -1248,6 +1374,30 @@ def _generate_etl_with_llm_impl(
     
     code = ""
     for attempt in range(max_retries + 1):
+        import copy
+        if attempt == 0:
+            trimmed_payload = trim_payload(payload, _CODEGEN_TRIM_CONFIG)
+        elif attempt == 1:
+            logger.info("Attempt 2: applying aggressive payload trim")
+            p_copy = copy.deepcopy(payload)
+            p_copy.pop("source_metadata", None)
+            p_copy.pop("domain_rules", None)
+            if "manual_review" in p_copy:
+                p_copy["manual_review"] = p_copy["manual_review"][:5]
+            aggressive_config = TrimConfig(mode="codegen", token_budget=30_000, field_priority=["manual_review"])
+            trimmed_payload = trim_payload(p_copy, aggressive_config)
+        else:
+            logger.info("Attempt 3: applying minimal payload trim")
+            p_copy = copy.deepcopy(payload)
+            keys_to_keep = ("datasets", "business_rules", "output_mode", "output_path", "plan_id", "connector_manifest")
+            minimal_payload = {k: p_copy[k] for k in keys_to_keep if k in p_copy}
+            minimal_payload["additional_instruction"] = (
+                "CRITICAL: Generate only the core transform steps and transformations. "
+                "Do not include any I/O helper functions (like _resolve_data_path or read_blob_pandas) "
+                "or dataset loading/writing boilerplate, as they will be injected deterministically post-generation."
+            )
+            trimmed_payload = minimal_payload
+
         if fix_errors and attempt > 0:
             prev = _build_retry_context(code, fix_errors)
         elif validation_errors:
@@ -1284,6 +1434,8 @@ def _generate_etl_with_llm_impl(
         if engine_key == "pyspark":
             code = _inject_pyspark_imports(code)
             code = _inject_pyspark_fabric_ids(code)
+            code = _inject_pyspark_datasets_decl(code)
+            code = _inject_pyspark_helpers(code)
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}

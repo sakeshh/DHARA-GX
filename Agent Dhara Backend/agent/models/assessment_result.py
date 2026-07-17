@@ -29,7 +29,7 @@ class DataQualitySummary(BaseModel):
     high_severity: int = 0
     medium_severity: int = 0
     low_severity: int = 0
-    dq_score_0_100: float = 100.0
+    dq_score_0_100: Optional[float] = None
     estimated_clean_rows_after_high: Optional[int] = None
     estimated_clean_rows_after_high_and_medium: Optional[int] = None
 

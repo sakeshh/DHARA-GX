@@ -192,6 +192,30 @@ def _check_io_antipatterns(source: str, plan: Dict[str, Any] | None) -> List[str
     return errs
 
 
+def _check_approx_quantile_usage(source: str) -> List[str]:
+    errs = []
+    if "approxQuantile" in source and "_iqr_bounds" not in source:
+        errs.append("use _iqr_bounds helper instead of df.approxQuantile()[index] — unsafe on null columns")
+    return errs
+
+
+def _check_datasets_declaration(source: str) -> List[str]:
+    errs = []
+    if "DATASETS" not in source or not re.search(r"\bDATASETS\s*=\s*\[", source):
+        errs.append("DATASETS = [...] declaration is missing at the module level")
+    return errs
+
+
+def _check_iqr_bounds_unpacking(source: str) -> List[str]:
+    errs = []
+    # Exclude the function definition itself to find if it is actually called
+    called_source = source.replace("def _iqr_bounds", "")
+    if "_iqr_bounds" in called_source:
+        if not re.search(r"(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*=\s*_iqr_bounds", source):
+            errs.append("outlier bounds: always unpack all 4 variables from _iqr_bounds(df, col) helper: stats, iqr, lower, upper = _iqr_bounds(df, col)")
+    return errs
+
+
 def validate_pyspark_source(
     source: str,
     plan: Dict[str, Any] | None = None,
@@ -245,6 +269,9 @@ def validate_pyspark_source(
     errs.extend(_check_spark_session_import(source, tree))
     errs.extend(_check_pyspark_imports(source, tree))
     errs.extend(_check_never_drop_rows(source, plan))
+    errs.extend(_check_approx_quantile_usage(source))
+    errs.extend(_check_datasets_declaration(source))
+    errs.extend(_check_iqr_bounds_unpacking(source))
 
     if plan:
         allowed = _plan_columns(plan)
