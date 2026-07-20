@@ -106,14 +106,49 @@ def _emit_outliers_spark(action: str, col: str, df: str, params: Dict[str, Any])
     return lines
 
 
-def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[str, Any]] = None) -> List[str]:
+def _emit_spark(
+    action: str,
+    col: str | None,
+    df: str,
+    step_meta: Optional[Dict[str, Any]] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    ds_name: Optional[str] = None,
+) -> List[str]:
     params = step_params(step_meta)
     act = (action or "").lower()
     if act == "deduplicate":
-        if not col or str(col).lower() in ("row-level", "[row-level]"):
-            return [f"{df} = {df}.dropDuplicates()"]
+        keys = []
+        if plan and ds_name:
+            keys = plan.get("business_keys", {}).get(ds_name) or []
+        if col and str(col).lower() not in ("row-level", "[row-level]"):
+            step_cols = [c.strip() for c in str(col).split(",") if c.strip()]
+            keys.extend(step_cols)
+        unique_keys = []
+        for k in keys:
+            if k not in unique_keys:
+                unique_keys.append(k)
+        if unique_keys:
+            watermark_col = None
+            if plan:
+                watermark_col = plan.get("business_rules", {}).get("watermark_column")
+            w_cols = ", ".join(repr(k) for k in unique_keys)
+            order_expr = "F.lit(1)"
+            if watermark_col:
+                order_expr = f"F.col({repr(watermark_col)}).desc()"
+            return [
+                f"# Business-key deduplication based on: {unique_keys}",
+                f"from pyspark.sql import Window",
+                f"_w = Window.partitionBy({w_cols}).orderBy({order_expr})",
+                f"_before = {df}.count()",
+                f"{df} = {df}.withColumn('_rn', F.row_number().over(_w)).filter(F.col('_rn') == 1).drop('_rn')",
+                f"logger.info('deduplicate: dropped %d duplicate rows', _before - {df}.count())"
+            ]
         else:
-            return [f"{df} = {df}.dropDuplicates([{repr(str(col))}])"]
+            return [
+                f"_before = {df}.count()",
+                f"{df} = {df}.dropDuplicates()",
+                f"logger.info('deduplicate: dropped %d rows', _before - {df}.count())"
+            ]
     c = repr(str(col))
     if act == "trim":
         return [f'{df} = {df}.withColumn({c}, F.trim(F.col({c}).cast("string")))']
@@ -129,6 +164,18 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
         return [f"{df} = {df}.withColumn({c}, F.col({c}).cast('double'))"]
     if act == "zero_to_null":
         return [f"{df} = {df}.withColumn({c}, F.when((F.col({c}) == 0) | (F.col({c}) == '0'), F.lit(None)).otherwise(F.col({c})))"]
+    if act == "replace_sentinel_values":
+        svals = params.get("sentinel_values") or [-999.0, 999.0, 9999.0, 99999.0, 999999.0, -9999.0]
+        list_expr = []
+        for val in svals:
+            list_expr.append(repr(val))
+            if isinstance(val, (int, float)):
+                if val == int(val):
+                    list_expr.append(repr(int(val)))
+                    list_expr.append(repr(str(int(val))))
+                list_expr.append(repr(str(val)))
+        list_expr_str = ", ".join(sorted(list(set(list_expr))))
+        return [f"{df} = {df}.withColumn({c}, F.when(F.col({c}).isin([{list_expr_str}]), F.lit(None)).otherwise(F.col({c})))"]
     if act == "cast_type":
         target_type = params.get("target_type") or params.get("cast_to") or "long"
         is_key = any(k in str(col).lower() for k in ("id", "key", "code", "ref"))
@@ -145,7 +192,7 @@ def _emit_spark(action: str, col: str | None, df: str, step_meta: Optional[Dict[
     if act == "sanitize_email":
         return [
             f'{df} = {df}.withColumn({c}, F.lower(F.trim(F.col({c}).cast("string"))))',
-            f"{df} = {df}.withColumn({c}, F.when(F.col({c}).contains('@'), F.col({c})).otherwise(None))",
+            f"{df} = {df}.withColumn({c}, F.when(F.col({c}).rlike(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{{2,}}$'), F.col({c})).otherwise(None))",
         ]
     if act == "normalize_phone":
         return [f'{df} = {df}.withColumn({c}, F.regexp_replace(F.col({c}).cast("string"), "\\\\D", ""))']
@@ -372,7 +419,7 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
             action = str(st.get("action") or "")
             col = st.get("column")
             lines.append(f"    # Step: {action} on {col}")
-            for sl in _emit_spark(action, col, var, step_meta=st):
+            for sl in _emit_spark(action, col, var, step_meta=st, plan=plan, ds_name=ds_name):
                 lines.append(f"    {sl}")
         for sl in _emit_valid_values_spark(var, ds_name, rules):
             lines.append(f"    {sl}")

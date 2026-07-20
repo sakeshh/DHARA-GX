@@ -27,6 +27,7 @@ _ACTION_PRIORITY: Dict[str, int] = {
     "lowercase": 8,
     "uppercase": 8,
     "zero_to_null": 30,
+    "replace_sentinel_values": 31,
     "cast_type": 35,
     "coerce_numeric": 40,
     "parse_dates": 45,

@@ -267,6 +267,75 @@ def _inject_pyspark_helpers(code: str) -> str:
     return "".join(injected)
 
 
+def _inject_pyspark_run_pipeline(code: str, plan: Dict[str, Any]) -> str:
+    if not code:
+        return code
+    if "def run_pipeline" in code or "run_pipeline(spark)" in code:
+        return code
+
+    from agent.etl_pipeline.join_emitters import (
+        emit_pyspark_output_contract,
+        emit_pyspark_load,
+        emit_pyspark_joins,
+        emit_pyspark_write_outputs,
+    )
+
+    manifest = plan.get("connector_manifest") or {}
+    rules = plan.get("business_rules") or {}
+    rel = plan.get("relationships") or {}
+
+    # Strip any default empty logger info/messages at the end
+    code = re.sub(
+        r"# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev\..*$",
+        "",
+        code.strip(),
+        flags=re.DOTALL
+    )
+
+    lines = [code.strip(), ""]
+    
+    _safe = lambda name: re.sub(r"[^0-9a-zA-Z_]+", "_", name or "x").strip("_")
+
+    non_nullable = [str(c) for c in (rules.get("non_nullable") or []) if c]
+    if manifest.get("datasets") or rel.get("joins"):
+        for sl in emit_pyspark_output_contract(plan, manifest):
+            lines.append(sl)
+        lines.append("def run_pipeline(spark):")
+        lines.append("    dfs = {}")
+        for sl in emit_pyspark_load(plan, manifest):
+            lines.append(f"    {sl}")
+        for ds_name in (plan.get("datasets") or {}):
+            fn = f"transform_{_safe(ds_name)}"
+            lines.append(f'    if "{ds_name}" in dfs:')
+            lines.append(f'        dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
+            if non_nullable:
+                lines.append(f'        _warn_nulls_in_columns(dfs["{ds_name}"], {non_nullable!r}, "{ds_name}")')
+            lines.append(f'        _log_row_count(dfs["{ds_name}"], "{ds_name}")')
+        for sl in emit_pyspark_joins(plan):
+            lines.append(f"    {sl}")
+        for sl in emit_pyspark_write_outputs(plan, manifest):
+            lines.append(f"    {sl}")
+        lines.append("    return dfs, OUTPUT_PATHS")
+        lines.append("")
+        lines.append("# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev.")
+        lines.append("try:")
+        lines.append("    spark  # type: ignore[name-defined]")
+        lines.append("except NameError:")
+        lines.append("    from pyspark.sql import SparkSession")
+        lines.append('    spark = SparkSession.builder.appName("AgentDharaETL").getOrCreate()')
+        lines.append("_dfs, _paths = run_pipeline(spark)")
+    else:
+        lines.append("# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev.")
+        lines.append("try:")
+        lines.append("    spark  # type: ignore[name-defined]")
+        lines.append("except NameError:")
+        lines.append("    from pyspark.sql import SparkSession")
+        lines.append('    spark = SparkSession.builder.appName("AgentDharaETL").getOrCreate()')
+        lines.append("logger.info('Empty pipeline executed successfully')")
+        
+    return "\n".join(lines)
+
+
 def _estimate_tokens(text: str | dict) -> int:
     if isinstance(text, dict):
         try:
@@ -303,7 +372,8 @@ Supported plan step actions (implement ALL steps in order per dataset):
 - cast_type: nullable integer use Int64 (pandas) / long (spark); preserve nulls
 - coerce_numeric: safe numeric conversion
 - parse_dates: safe datetime parsing
-- sanitize_email: trim, lower, invalid emails -> null
+- sanitize_email: trim, lower, and validate with regex `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$` (if invalid, set to null, never drop row)
+- replace_sentinel_values: replace placeholder/sentinel values in params.sentinel_values list (e.g. -999, 999999) with NULL
 - normalize_phone: digits only
 - hash_phone: F.sha2(column.cast('string'), 256) for privacy (per business notes / manual_review)
 - mask_phone: keep last 4 digits with *** prefix
@@ -315,7 +385,7 @@ Supported plan step actions (implement ALL steps in order per dataset):
 - standardize_boolean: map yes/no/1/0/true/false to 0/1
 - replace_values: map values per business_rules.valid_values when provided
 - zero_to_null: replace 0 with null
-- deduplicate: drop duplicate rows (subset column if column set, else full row)
+- deduplicate: drop duplicate rows (subset column/business keys if set, else full row; preserve latest by sorting watermark if key dedup is used)
 - validate_referential_integrity_or_stage: emit validation/staging comments + checks, do not skip
 """
 
@@ -339,6 +409,11 @@ UNIVERSAL RULES (mandatory):
 10. BOOLEAN columns: ALWAYS standardize to 0/1 (int). Map: yes/true/1/y -> 1; no/false/0/n -> 0.
 11. CATEGORY/ENUM columns: if valid_values is provided in business_rules, enforce it — 
     map unknowns to NULL or a 'Other' category, never leave invalid values in clean output.
+12. ROW COUNT INTEGRITY (MANDATORY): The output row count must equal the input row count,
+    UNLESS the plan explicitly includes a "deduplicate" step or an explicit filtering step.
+    NEVER use .filter()/.where()/dropna()/inner-join to clean invalid formatting (nullify/flag instead).
+13. Every dataset's transformation/write pipeline must log its row counts:
+    logger.info("<dataset>: row_count=%s", df.count())
 """
 
 SYSTEM_PROMPTS: Dict[str, str] = {
@@ -640,10 +715,10 @@ def _consolidate_and_filter_datasets(
         "uppercase": 11,
         "sanitize_email": 12,
         
-        "coerce_numeric": 20,
-        "cast_type": 21,
-        
         "zero_to_null": 30,
+        "replace_sentinel_values": 31,
+        "cast_type": 35,
+        "coerce_numeric": 40,
         
         "parse_dates": 50,
         
@@ -1436,6 +1511,7 @@ def _generate_etl_with_llm_impl(
             code = _inject_pyspark_fabric_ids(code)
             code = _inject_pyspark_datasets_decl(code)
             code = _inject_pyspark_helpers(code)
+            code = _inject_pyspark_run_pipeline(code, plan)
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}

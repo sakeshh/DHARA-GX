@@ -29,7 +29,7 @@ _ISSUE_TO_ACTION_MAP.update({
     "invalid_url": "regex_replace",
     "repeated_token_in_string": "regex_replace",
     "encoding_corruption": "regex_replace",
-    "sentinel_numeric_value": "zero_to_null",
+    "sentinel_numeric_value": "replace_sentinel_values",
     "string_length_outlier": "flag_outliers",
     "custom_rule_violation": "review_manually",
     # String quality
@@ -107,7 +107,9 @@ def _apply_three_pass_overrides(
     it = sug.get("issue_type") or "unknown"
     was_manual = (sug.get("auto_fixable") is False) or (sug.get("suggested_action") == "review_manually")
     note = f"Baseline issue mapping for {it}"
-    params = {}
+    params = dict(sug.get("params") or {})
+    if action == "replace_sentinel_values" and "sentinel_values" not in params:
+        params["sentinel_values"] = [-999.0, 999.0, 9999.0, 99999.0, 999999.0, -9999.0]
 
     # Pass 1: Issue Baseline Mapping
     if not action or action == "noop":

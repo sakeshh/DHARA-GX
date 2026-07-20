@@ -59,6 +59,7 @@ _ACTION_CODE_MARKERS: Dict[str, List[str]] = {
     "drop_column": [".drop(columns=", ".drop("],
     "standardize_boolean": ["isin(", "standardize_boolean"],
     "zero_to_null": [".replace(", "zero_to_null", "F.when("],
+    "replace_sentinel_values": [".replace(", "replace_sentinel_values", "isin("],
     "range_clip": [".clip(lower=", "range_clip"],
     "replace_values": ["replace_values"],
     "regex_replace": [".str.replace(", "regex_replace", "regexp_replace", "F.regexp_replace"],
@@ -88,12 +89,25 @@ def validate_python_implements_plan(source: str, plan: Optional[Dict[str, Any]] 
         return []
     missing: List[str] = []
     seen: Set[str] = set()
-    for action in plan_actions(plan):
-        if not action or action in seen:
-            continue
-        seen.add(action)
-        if not _action_reflected_in_source(source, action):
-            missing.append(f"plan action not reflected in code: {action}")
+    for ds_name, block in (plan.get("datasets") or {}).items():
+        for step in (block or {}).get("steps") or []:
+            action = step.get("action")
+            if not action:
+                continue
+            params = step.get("params") or {}
+            is_noop = False
+            if action in ("fill_nulls_simple", "fill_or_drop"):
+                if not params.get("fill_strategy"):
+                    is_noop = True
+            if action == "noop":
+                is_noop = True
+            if is_noop:
+                continue
+            if action in seen:
+                continue
+            seen.add(action)
+            if not _action_reflected_in_source(source, action):
+                missing.append(f"plan action not reflected in code: {action}")
     return missing
 
 
@@ -131,7 +145,84 @@ def validate_etl_python_source(source: str, plan: Optional[Dict[str, Any]] = Non
         if d in low:
             filtered.append(f"disallowed usage: {d}")
     filtered.extend(validate_python_implements_plan(source, plan))
+    filtered.extend(_check_never_drop_rows_python(source, plan))
+    filtered.extend(_check_bare_deduplicate_python(source, plan))
+    filtered.extend(_check_semantic_rules_python(source))
+    filtered.extend(_check_row_count_logging_python(source))
     return (len(filtered) == 0), filtered
+
+
+def _check_never_drop_rows_python(source: str, plan: Dict[str, Any] | None) -> List[str]:
+    if not plan:
+        return []
+    rules = plan.get("business_rules") or {}
+    if not rules.get("never_drop_rows"):
+        return []
+    errs: List[str] = []
+    
+    import ast
+    try:
+        tree = ast.parse(source)
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                child.parent = parent
+                
+        lines = source.splitlines()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("dropna", "query"):
+                    curr = node
+                    is_assigned_or_returned = False
+                    while hasattr(curr, "parent"):
+                        curr = curr.parent
+                        if isinstance(curr, (ast.Assign, ast.Return)):
+                            is_assigned_or_returned = True
+                            break
+                    if is_assigned_or_returned:
+                        line = lines[node.lineno - 1]
+                        errs.append(f"never_drop_rows: do not use {node.func.attr}() to drop or filter rows: {line.strip()}")
+    except Exception:
+        pass
+    return errs
+
+
+def _check_bare_deduplicate_python(source: str, plan: Dict[str, Any] | None) -> List[str]:
+    if not plan:
+        return []
+    errs: List[str] = []
+    has_keys = bool(plan.get("business_keys"))
+    has_row_level = False
+    for ds_name, block in (plan.get("datasets") or {}).items():
+        steps = (block or {}).get("steps") or []
+        for s in steps:
+            if s.get("action") == "deduplicate":
+                col = str(s.get("column") or "").lower().strip()
+                if col in ("row-level", "[row-level]"):
+                    has_row_level = True
+                else:
+                    has_keys = True
+    import re
+    if has_keys and not has_row_level:
+        if re.search(r"\.drop_duplicates\s*\(\s*\)", source):
+            errs.append("Reject bare drop_duplicates(): key-aware deduplication must specify subset columns when near duplicates are possible")
+    return errs
+
+
+def _check_semantic_rules_python(source: str) -> List[str]:
+    errs: List[str] = []
+    if "contains('@')" in source or 'contains("@")' in source or "str.contains('@')" in source or 'str.contains("@")' in source or "'@' in " in source or '"@" in ' in source:
+        errs.append("naive contains('@') email checks are not allowed; use regex matching for sanitize_email")
+    return errs
+
+
+def _check_row_count_logging_python(source: str) -> List[str]:
+    if "def transform" not in source:
+        return []
+    errs: List[str] = []
+    # Require row count logging or calls in Python codegen output
+    if "log_row_count" not in source and "logger.info" not in source and "print(" not in source:
+        errs.append("Row-count logging is required before and after major stages")
+    return errs
 
 
 def validate_python_source(source: str) -> Tuple[bool, List[str]]:

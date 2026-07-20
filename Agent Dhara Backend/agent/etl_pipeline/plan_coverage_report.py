@@ -3,16 +3,37 @@ Plan step coverage report: cross-references assessment issues against plan steps
 """
 from typing import Any, Dict, List
 
+RESOLVING_ACTIONS = {
+    "whitespace": {"trim", "regex_replace"},
+    "nulls": {"fill_or_drop", "fill_nulls_simple"},
+    "invalid_date_format": {"parse_dates"},
+    "ancient_dates": {"parse_dates"},
+    "invalid_email": {"sanitize_email", "regex_replace"},
+    "pii_email": {"sanitize_email", "regex_replace"},
+    "proactive_sanitize_email": {"sanitize_email", "regex_replace"},
+    "invalid_phone": {"normalize_phone", "hash_phone", "mask_phone", "regex_replace"},
+    "pii_phone": {"normalize_phone", "hash_phone", "mask_phone", "regex_replace"},
+    "invalid_numeric": {"coerce_numeric", "cast_type"},
+    "mixed_types": {"coerce_numeric", "cast_type"},
+    "integer_stored_as_float": {"cast_type"},
+    "negative_values": {"clip_or_flag", "flag_outliers", "clip_outliers", "cap_outliers", "range_clip"},
+    "custom_range": {"clip_or_flag", "flag_outliers", "clip_outliers", "cap_outliers", "range_clip"},
+    "suspicious_zero": {"zero_to_null", "replace_sentinel_values"},
+    "duplicate_rows": {"deduplicate"},
+    "duplicate_primary_key": {"deduplicate"},
+    "duplicate_insensitive_values": {"deduplicate", "lowercase"},
+    "sentinel_numeric_value": {"replace_sentinel_values", "zero_to_null"},
+    "punctuation_only_value": {"nullify_punctuation"},
+    "dummy_dates": {"nullify_dummy_dates"},
+    "binary_like_column": {"standardize_boolean"},
+    "boolean_inconsistency": {"standardize_boolean"},
+    "custom_not_null": {"fill_or_drop", "fill_nulls_simple"},
+}
+
 def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
     """
     Compares the quality issues identified in the assessment against the steps
-    and manual review/blocked items defined in the ETL plan.
-    Returns:
-        Dict: {
-            "covered": List[Dict[str, Any]],
-            "uncovered": List[Dict[str, Any]],
-            "coverage_pct": float
-        }
+    and manual review/blocked items defined in the ETL plan, validating action-level coverage.
     """
     covered = []
     uncovered = []
@@ -27,36 +48,34 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
         c = str(col or "").strip()
         return c.lower() if c else "*"
 
-    # 1. Collect all columns with steps in the plan
-    planned_cols = set()
+    # 1. Collect all columns with steps in the plan mapped to their actions
+    planned_steps_map = {}
     datasets = (plan or {}).get("datasets") or {}
     for ds_name, ds_block in datasets.items():
         for step in (ds_block.get("steps") or []):
             col = step.get("column")
-            planned_cols.add((_clean_ds(ds_name), _clean_col(col)))
+            act = step.get("action")
+            if col and act:
+                key = (_clean_ds(ds_name), _clean_col(col))
+                planned_steps_map.setdefault(key, set()).add(str(act).lower())
                 
-    # 2. Collect columns in manual review
+    # 2. Collect columns in manual review, blocked, non_fixable
+    mr_cols = set()
     manual_review = (plan or {}).get("manual_review") or []
     for item in manual_review:
-        ds = item.get("dataset")
-        col = item.get("column")
-        planned_cols.add((_clean_ds(ds), _clean_col(col)))
+        mr_cols.add((_clean_ds(item.get("dataset")), _clean_col(item.get("column"))))
             
-    # 3. Collect columns in blocked
+    blocked_cols = set()
     blocked = (plan or {}).get("blocked") or []
     for item in blocked:
-        ds = item.get("dataset")
-        col = item.get("column")
-        planned_cols.add((_clean_ds(ds), _clean_col(col)))
+        blocked_cols.add((_clean_ds(item.get("dataset")), _clean_col(item.get("column"))))
 
-    # 3b. Collect columns in non_fixable
+    nf_cols = set()
     non_fixable = (plan or {}).get("non_fixable") or []
     for item in non_fixable:
-        ds = item.get("dataset")
-        col = item.get("column")
-        planned_cols.add((_clean_ds(ds), _clean_col(col)))
+        nf_cols.add((_clean_ds(item.get("dataset")), _clean_col(item.get("column"))))
             
-    # 4. Iterate over quality issues in the assessment
+    # 3. Iterate over quality issues in the assessment
     ass_datasets = (assessment or {}).get("datasets") or {}
     total_issues = 0
     
@@ -68,18 +87,34 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
             
         for issue in dq_issues:
             col = issue.get("column")
+            it = issue.get("type")
             total_issues += 1
             
             issue_detail = {
                 "dataset": ds_name,
                 "column": col or "",
-                "issue_type": issue.get("type"),
+                "issue_type": it,
                 "message": issue.get("message"),
                 "severity": issue.get("severity")
             }
             
             issue_key = (_clean_ds(ds_name), _clean_col(col))
-            if issue_key in planned_cols:
+            
+            is_covered = (
+                issue_key in mr_cols or 
+                issue_key in blocked_cols or 
+                issue_key in nf_cols
+            )
+            
+            if not is_covered:
+                actions_for_col = planned_steps_map.get(issue_key, set())
+                resolving = RESOLVING_ACTIONS.get(it) or set()
+                if actions_for_col & resolving:
+                    is_covered = True
+                elif not resolving and actions_for_col:
+                    is_covered = True
+            
+            if is_covered:
                 covered.append(issue_detail)
             else:
                 uncovered.append(issue_detail)

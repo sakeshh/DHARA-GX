@@ -1277,6 +1277,41 @@ def etl_generate_code(
     plan["business_keys"] = business_keys
     plan["generation_mode"] = generation_mode or plan.get("generation_mode") or flow.get("etl_intent", {}).get("generation_mode") or "full"
 
+    # Synchronize step filtering/consolidation to avoid LLM-validation discrepancies
+    strict = bool(
+        plan.get("strict_mode")
+        or plan.get("settings", {}).get("strict_mode", False)
+        or (plan.get("business_rules") or {}).get("strict_mode", False)
+    )
+    # Build source metadata for type-aware filtering
+    source_metadata_filt = {}
+    sem_schema_filt = plan.get("semantic_schema") or {}
+    for ds_name, meta in (assess.get("datasets") or {}).items():
+        cols = meta.get("columns") or {}
+        source_metadata_filt[ds_name] = {
+            "row_count": meta.get("row_count"),
+            "columns": {
+                col: {
+                    "dtype": cmeta.get("dtype") or cmeta.get("inferred_type"),
+                    "null_percentage": cmeta.get("null_percentage"),
+                    "semantic_type": (sem_schema_filt.get(f"{ds_name}.{col}") or {}).get("semantic_type") or cmeta.get("semantic_type", "unknown"),
+                    "sub_type": (sem_schema_filt.get(f"{ds_name}.{col}") or {}).get("sub_type") or cmeta.get("sub_type", "unknown"),
+                    "pii_level": (sem_schema_filt.get(f"{ds_name}.{col}") or {}).get("pii_level") or "none",
+                }
+                for col, cmeta in cols.items()
+                if isinstance(cmeta, dict)
+            },
+        }
+    from agent.etl_pipeline.llm_codegen import _consolidate_and_filter_datasets
+    filtered_datasets = _consolidate_and_filter_datasets(
+        plan.get("datasets") or {}, source_metadata_filt, sem_schema_filt, strict_mode=strict
+    )
+    plan["datasets"] = filtered_datasets
+    if "approved_plan" in flow:
+        flow["approved_plan"]["datasets"] = filtered_datasets
+    elif "plan" in flow:
+        flow["plan"]["datasets"] = filtered_datasets
+
     # Resolve default codegen engine and dialect dynamically using SourceDescriptor
     default_eng = "python"
     default_dialect = "tsql"

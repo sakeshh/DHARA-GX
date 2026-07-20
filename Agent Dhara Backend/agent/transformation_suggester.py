@@ -88,7 +88,7 @@ ISSUE_TO_ACTION = {
     "invalid_cin": "review_manually",
     "disposable_email": "review_manually",
     "encoding_corruption": "review_manually",
-    "sentinel_numeric_value": "zero_to_null",
+    "sentinel_numeric_value": "replace_sentinel_values",
     "string_length_outlier": "review_manually",
     "custom_rule_violation": "review_manually",
 }
@@ -263,6 +263,21 @@ def suggest_transformations(
                 continue
             if action == "coerce_numeric" and not _should_coerce_numeric(ds_name, col, issue_type, assessment_result):
                 action = "trim"
+            
+            params = {}
+            if issue_type == "sentinel_numeric_value":
+                unexp = issue.get("unexpected_values") or []
+                sentinels = []
+                for val in unexp:
+                    try:
+                        if val is not None:
+                            sentinels.append(float(val))
+                    except (ValueError, TypeError):
+                        pass
+                if not sentinels:
+                    sentinels = [-999.0, 999.0, 9999.0, 99999.0, 999999.0, -9999.0]
+                params["sentinel_values"] = list(set(sentinels))
+
             suggested.append(
                 {
                     "dataset": ds_name,
@@ -275,6 +290,7 @@ def suggest_transformations(
                     "row_count_affected": issue.get("count"),
                     "auto_fixable": True,
                     "provenance": RuleProvenance.AUTO_DETECTED,
+                    "params": params,
                 }
             )
             if col and action in ("coerce_numeric", "parse_dates"):

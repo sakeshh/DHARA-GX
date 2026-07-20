@@ -98,8 +98,62 @@ def _check_never_drop_rows(source: str, plan: Dict[str, Any] | None) -> List[str
         r"\.dropna\s*\(\s*subset\s*=", source
     ):
         errs.append("never_drop_rows: do not use dropna() — use fill/coalesce instead")
-    if re.search(r"\.filter\s*\(\s*F\.col", source) and "isNotNull" in source:
-        pass  # allow null checks on columns without dropping all rows — hard to prove
+    
+    import ast
+    try:
+        tree = ast.parse(source)
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                child.parent = parent
+                
+        lines = source.splitlines()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if node.func.attr in ("filter", "where"):
+                    curr = node
+                    is_assigned_or_returned = False
+                    while hasattr(curr, "parent"):
+                        curr = curr.parent
+                        if isinstance(curr, (ast.Assign, ast.Return)):
+                            is_assigned_or_returned = True
+                            break
+                    if is_assigned_or_returned:
+                        line = lines[node.lineno - 1]
+                        if not any(x in line for x in ("== 1", "==1", "row_number", "_rn", "isNotNull")):
+                            errs.append(f"never_drop_rows: generic filtering/selection using .{node.func.attr}() is restricted unless approved: {line.strip()}")
+    except Exception:
+        pass
+        
+    return errs
+
+
+def _check_bare_deduplicate_spark(source: str, plan: Dict[str, Any] | None) -> List[str]:
+    if not plan:
+        return []
+    errs: List[str] = []
+    has_keys = bool(plan.get("business_keys"))
+    has_row_level = False
+    for ds_name, block in (plan.get("datasets") or {}).items():
+        steps = (block or {}).get("steps") or []
+        for s in steps:
+            if s.get("action") == "deduplicate":
+                col = str(s.get("column") or "").lower().strip()
+                if col in ("row-level", "[row-level]"):
+                    has_row_level = True
+                else:
+                    has_keys = True
+    if has_keys and not has_row_level:
+        if "dropDuplicates()" in source.replace(" ", "") or "drop_duplicates()" in source.replace(" ", ""):
+            errs.append("Reject bare dropDuplicates(): key-aware deduplication must partition or subset when near duplicates are possible")
+    return errs
+
+
+def _check_row_count_logging_spark(source: str) -> List[str]:
+    if "def transform" not in source:
+        return []
+    errs: List[str] = []
+    if "log_row_count" not in source and "logger.info" not in source and "count()" not in source:
+        errs.append("Row-count logging is required before and after major stages")
     return errs
 
 
@@ -216,6 +270,15 @@ def _check_iqr_bounds_unpacking(source: str) -> List[str]:
     return errs
 
 
+def _check_semantic_rules(source: str) -> List[str]:
+    errs = []
+    if "contains('@')" in source or 'contains("@")' in source:
+        # Check if email cleansing is happening in the same block/context
+        if "email" in source.lower():
+            errs.append("Semantic error: naive contains('@') used for email validation. Use rlike with proper email regex instead.")
+    return errs
+
+
 def validate_pyspark_source(
     source: str,
     plan: Dict[str, Any] | None = None,
@@ -269,9 +332,12 @@ def validate_pyspark_source(
     errs.extend(_check_spark_session_import(source, tree))
     errs.extend(_check_pyspark_imports(source, tree))
     errs.extend(_check_never_drop_rows(source, plan))
+    errs.extend(_check_bare_deduplicate_spark(source, plan))
+    errs.extend(_check_row_count_logging_spark(source))
     errs.extend(_check_approx_quantile_usage(source))
     errs.extend(_check_datasets_declaration(source))
     errs.extend(_check_iqr_bounds_unpacking(source))
+    errs.extend(_check_semantic_rules(source))
 
     if plan:
         allowed = _plan_columns(plan)

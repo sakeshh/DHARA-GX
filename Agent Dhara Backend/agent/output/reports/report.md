@@ -65,11 +65,22 @@
 
 | Priority | Dataset | Column | Severity | Suggested Fix | Risk |
 |---|---|---|---|---|---|
-| 1 | `data_quality_issues.csv` | `email` | medium | Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input. | High risk of data loss if invalid emails are not handled properly. |
-| 2 | `data_quality_issues.csv` | `id` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Potential misinterpretation of data if not addressed. |
-| 3 | `data_quality_issues.csv` | `id` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Data integrity issues if sentinel values are not handled. |
-| 4 | `data_quality_issues.csv` | `name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Low risk but can lead to data inconsistency. |
-| 5 | `data_quality_issues.csv` | `name` | low | Collapse consecutive spaces with REGEXP_REPLACE or str.strip in ETL. | Low risk but can affect data quality. |
+| 99 | `data_quality_issues.csv` | `id` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `id` | medium | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `email` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `email` | medium | Correct formatting errors if minor, or reject record and request re-entry; add regex validation on email input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `email` | low | Apply trim/strip operations in ETL to remove leading and trailing space; enforce validation on input. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Collapse consecutive spaces with REGEXP_REPLACE or str.strip in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `email` | low | Collapse consecutive spaces with REGEXP_REPLACE or str.strip in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Check if missing values are expected (nullable column); enforce NOT NULL constraint if critical, or backfill from defaults. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `id` | medium | Replace sentinel values (-999, 9999999, etc.) with NULL; enforce domain constraints at source. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `[Row-level]` | medium | Rows that are identical except for one or two fields may be erroneous duplicates; deduplicate or merge. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Inconsistent all-caps entries may indicate data entry from legacy systems; normalize case in ETL. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `id` | low | Strings significantly longer than the column average may contain concatenated data or free-text errors. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `name` | low | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `id` | medium | Cast column values to float/int; investigate why non-numeric characters are present in numeric fields. | Fallback mode (LLM not configured). Validate before applying changes. |
 
 ### What might still be missed
 

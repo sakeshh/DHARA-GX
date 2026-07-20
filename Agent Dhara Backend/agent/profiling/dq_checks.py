@@ -742,13 +742,22 @@ def analyze_dataset_quality(
         med_rows = set(med_rows) - set(high_rows)
         low_rows = set(low_rows) - set(high_rows) - set(med_rows)
 
+        # Flat penalty based on issue diversity
+        num_high_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "high")
+        num_med_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "medium")
+        num_low_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "low")
+        
+        flat_penalty = (5.0 * num_high_types) + (2.5 * num_med_types) + (1.0 * num_low_types)
+
+        # Row fraction penalty
         frac_h = min(1.0, len(high_rows) / max(1, n))
         frac_m = min(1.0, len(med_rows) / max(1, n))
         frac_l = min(1.0, len(low_rows) / max(1, n))
 
-        raw_penalty = (sev_w["high"] * frac_h) + (sev_w["medium"] * frac_m) + (sev_w["low"] * frac_l)
-        max_penalty = sev_w["high"] + sev_w["medium"] + sev_w["low"]
-        dq_score = 100.0 * max(0.0, 1.0 - (raw_penalty / max(1e-9, max_penalty)))
+        row_penalty = (50.0 * frac_h) + (25.0 * frac_m) + (10.0 * frac_l)
+        
+        total_penalty = flat_penalty + row_penalty
+        dq_score = max(0.0, min(100.0, 100.0 - total_penalty))
 
         clean_est_high = max(0, n - len(high_rows))
         clean_est_high_med = max(0, n - len(high_rows.union(med_rows)))

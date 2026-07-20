@@ -134,8 +134,26 @@ def _emit_sanitize_email(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]
     c = _col_expr(col)
     return [
         f"{ds_var}[{c}] = {ds_var}[{c}].astype(str).str.strip().str.lower()",
-        f"_mask = ~{ds_var}[{c}].str.contains('@', na=False)",
+        f"_mask = ~{ds_var}[{c}].str.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{{2,}}$', na=False)",
         f"{ds_var}.loc[_mask, {c}] = pd.NA",
+    ]
+
+
+def _emit_replace_sentinel_values(col: str, ds_var: str, params: Dict[str, Any]) -> List[str]:
+    c = _col_expr(col)
+    svals = params.get("sentinel_values") or [-999.0, 999.0, 9999.0, 99999.0, 999999.0, -9999.0]
+    all_replace = []
+    for val in svals:
+        all_replace.append(val)
+        if isinstance(val, (int, float)):
+            if val == int(val):
+                all_replace.append(int(val))
+                all_replace.append(str(int(val)))
+            all_replace.append(str(val))
+    all_replace = list(set(all_replace))
+    return [
+        f"# Nullify sentinel values",
+        f"{ds_var}[{c}] = {ds_var}[{c}].replace({repr(all_replace)}, pd.NA)"
     ]
 
 
@@ -175,11 +193,36 @@ def _emit_standardize_boolean(col: str, ds_var: str, _p: Dict[str, Any]) -> List
     ]
 
 
-def _emit_deduplicate_col(col: str, ds_var: str, _p: Dict[str, Any]) -> List[str]:
-    if "," in col:
-        cols_list = ", ".join(repr(c.strip()) for c in col.split(",") if c.strip())
-        return [f"{ds_var} = {ds_var}.drop_duplicates(subset=[{cols_list}], keep='first')"]
-    return [f"{ds_var} = {ds_var}.drop_duplicates(subset=[{_col_expr(col)}], keep='first')"]
+def _emit_deduplicate_col(
+    col: str,
+    ds_var: str,
+    _p: Dict[str, Any],
+    plan: Optional[Dict[str, Any]] = None,
+    ds_name: Optional[str] = None,
+) -> List[str]:
+    keys = []
+    if plan and ds_name:
+        keys = plan.get("business_keys", {}).get(ds_name) or []
+    if col and str(col).lower() not in ("row-level", "[row-level]"):
+        step_cols = [c.strip() for c in str(col).split(",") if c.strip()]
+        keys.extend(step_cols)
+    unique_keys = []
+    for k in keys:
+        if k not in unique_keys:
+            unique_keys.append(k)
+            
+    if unique_keys:
+        watermark_col = None
+        if plan:
+            watermark_col = plan.get("business_rules", {}).get("watermark_column")
+        lines = []
+        if watermark_col:
+            lines.append(f"{ds_var} = {ds_var}.sort_values(by={repr(watermark_col)}, ascending=False)")
+        cols_list = ", ".join(repr(k) for k in unique_keys)
+        lines.append(f"{ds_var} = {ds_var}.drop_duplicates(subset=[{cols_list}], keep='first')")
+        return lines
+    else:
+        return [f"{ds_var} = {ds_var}.drop_duplicates()"]
 
 
 def _emit_zero_to_null(col: str, ds_var: str, params: Dict[str, Any]) -> List[str]:
@@ -351,6 +394,7 @@ _ACTION_REGISTRY: Dict[str, Callable[[str, str, Dict[str, Any]], List[str]]] = {
     "uppercase": _emit_uppercase,
     "standardize_boolean": _emit_standardize_boolean,
     "deduplicate": _emit_deduplicate_col,
+    "replace_sentinel_values": _emit_replace_sentinel_values,
     "zero_to_null": _emit_zero_to_null,
     "clip_or_flag": lambda c, v, p: _emit_outliers("clip_or_flag", c, v, p),
     "flag_outliers": lambda c, v, p: _emit_outliers("flag_outliers", c, v, p),
@@ -375,12 +419,14 @@ def _emit_step(
     col: Optional[str],
     ds_var: str,
     step_meta: Optional[Dict[str, Any]] = None,
+    plan: Optional[Dict[str, Any]] = None,
+    ds_name: Optional[str] = None,
 ) -> List[str]:
     params = step_params(step_meta)
     act = (action or "").lower()
+    if act == "deduplicate":
+        return _emit_deduplicate_col(col or "", ds_var, params, plan, ds_name)
     if not col or str(col).lower() in ("row-level", "[row-level]"):
-        if act == "deduplicate":
-            return _emit_deduplicate_ds(ds_var)
         return []
     handler = _ACTION_REGISTRY.get(act)
     if handler:
@@ -542,7 +588,7 @@ def generate_python_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> str
                 lines.append(f"    # Note: {st['note']}")
             for sl in _log_destructive(ds_var, ds_name, action, col):
                 lines.append(f"    {sl}")
-            for sl in _emit_step(action, col, ds_var, step_meta=st):
+            for sl in _emit_step(action, col, ds_var, step_meta=st, plan=plan, ds_name=ds_name):
                 lines.append(f"    {sl}")
             for sl in _log_destructive_after(ds_var, ds_name, action):
                 lines.append(f"    {sl}")

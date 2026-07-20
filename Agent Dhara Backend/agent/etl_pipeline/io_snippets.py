@@ -321,11 +321,8 @@ def _warn_nulls_in_columns(df, columns: list, label: str) -> None:
 
 
 def _log_row_count(df, label: str) -> None:
-  """Optional row count log (set DHARA_ETL_LOG_ROW_COUNTS=1)."""
+  """Log row count for audit trail."""
   import logging
-  import os
-  if os.environ.get("DHARA_ETL_LOG_ROW_COUNTS", "0").strip().lower() not in ("1", "true", "yes"):
-    return
   logging.getLogger("agent_dhara").info("%s: row_count=%s", label, df.count())
 '''.strip()
 
