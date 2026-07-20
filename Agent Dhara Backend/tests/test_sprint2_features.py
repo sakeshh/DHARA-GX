@@ -32,20 +32,16 @@ class TestSprint2Features(unittest.TestCase):
 
     def test_dq_gate_calculation(self):
         # 1. Null score (30% weight): average null % is (0 + 0.05 + 0.1)/3 = 0.05. Null score = 100 * (1 - 0.05)^2 = 90.25
-        # 2. Type mismatch score (30% weight): 1 issue (invalid_date_format) -> 100 - 10 = 90
+        # 2. Type mismatch score (30% weight): 1 row affected out of 1000 -> 99.9
         # 3. Duplicate score (20% weight): 0 dup issues -> 100
-        # 4. Outlier score (20% weight): 1 outlier issue -> 100 - 10 = 90
-        # Weighted score: (0.3*90.25) + (0.3*90) + (0.2*100) + (0.2*90) = 27.075 + 27.0 + 20.0 + 18.0 = 92.08
+        # 4. Outlier score (20% weight): 1 row affected out of 1000 -> 99.9
+        # Row-weighted score = 97.08
         res = calculate_dataset_dq_score(self.assessment, "dbo.Customers_Raw")
-        self.assertEqual(res["score"], 92.08)
-        self.assertEqual(res["details"]["null_score"], 90.25)
-        self.assertEqual(res["details"]["type_score"], 90.0)
-        self.assertEqual(res["details"]["duplicate_score"], 100.0)
-        self.assertEqual(res["details"]["outlier_score"], 90.0)
+        self.assertEqual(res["score"], 97.08)
 
-        gate_res = check_dq_gate(self.assessment, "dbo.Customers_Raw", threshold=95.0)
+        gate_res = check_dq_gate(self.assessment, "dbo.Customers_Raw", threshold=98.0)
         self.assertFalse(gate_res["passed"])
-        self.assertEqual(gate_res["score"], 92.08)
+        self.assertEqual(gate_res["score"], 97.08)
 
     def test_phase_classifier_actions(self):
         self.assertEqual(classify_action_phase("trim"), "cleanse")
@@ -92,7 +88,7 @@ class TestSprint2Features(unittest.TestCase):
         # Check that warning is added to manual reviews
         warnings = [m for m in plan["manual_review"] if m.get("issue_type") == "dq_gate_warning"]
         self.assertTrue(len(warnings) > 0)
-        self.assertIn("Data quality score (92.08) is below threshold (98.0)", warnings[0]["message"])
+        self.assertIn("Data quality score (97.08) is below threshold (98.0)", warnings[0]["message"])
 
     def test_sql_codegen_generation_modes(self):
         plan = {

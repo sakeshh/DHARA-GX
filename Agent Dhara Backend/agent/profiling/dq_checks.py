@@ -697,6 +697,27 @@ def analyze_dataset_quality(
                         "fixability": "COMPLEX"
                     })
         
+    # Run PII scanner on text columns and convert findings to DQIssues (P0 task)
+    try:
+        from agent.pii_masking import scan_dataframe_for_pii
+        pii_findings = scan_dataframe_for_pii(df)
+        for f in pii_findings:
+            pii_t = f.get("pii_type")
+            issue_type = "pii_email" if pii_t == "email" else "pii_phone" if pii_t == "phone" else "pii_sensitive"
+            issues.append({
+                "severity": str(f.get("severity") or "medium").lower(),
+                "type": issue_type,
+                "column": f.get("column") or "",
+                "count": f.get("matches_in_sample") or 1,
+                "row_indexes": [],
+                "sample_values": [],
+                "message": f.get("message") or f"Embedded PII detected in column '{f.get('column')}'",
+                "source": "pii_scanner",
+                "fixability": "COMPLEX"
+            })
+    except Exception as e:
+        logger.warning(f"PII content scanning failed for {name}: {e}")
+
     # Calculate Scorecard Summary Metrics
     try:
         score_cfg = thresholds.get("dq_score") or {}
@@ -765,6 +786,9 @@ def analyze_dataset_quality(
         dq_score = None
         clean_est_high = None
         clean_est_high_med = None
+
+    from agent.etl_pipeline.dq_issue_schema import normalize_issue_dict
+    issues = [normalize_issue_dict(i, name, "profiler") for i in issues]
 
     return make_json_serializable({
         "issues": issues,

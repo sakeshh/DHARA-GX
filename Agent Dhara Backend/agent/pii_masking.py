@@ -17,6 +17,7 @@ _PII_PATTERNS = {
     "credit_card": re.compile(r"\b(?:\d{4}[\s\-]?){3}\d{4}\b"),
     "aadhaar": re.compile(r"\b[2-9]\d{3}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
     "ip_address": re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"),
+    "pan": re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),
 }
 
 
@@ -40,29 +41,57 @@ def _mask_generic(s: str) -> str:
     return s[:2] + "***" + s[-2:]
 
 
-def is_sensitive_column(name: str) -> bool:
+def is_sensitive_column(name: str, sample_values: Optional[List[Any]] = None) -> bool:
     n = (name or "").lower()
-    return any(
-        k in n
-        for k in (
-            "password",
-            "passwd",
-            "secret",
-            "token",
-            "api_key",
-            "apikey",
-            "ssn",
-            "pan",
-            "credit",
-            "card",
-            "email",
-            "phone",
-            "mobile",
-            "address",
-            "aadhaar",
-            "aadhar",
-        )
+    
+    # 1. Heuristic name check
+    sensitive_keywords = (
+        "password", "passwd", "secret", "token", "api_key", "apikey",
+        "ssn", "pan", "credit", "card", "email", "phone", "mobile",
+        "address", "aadhaar", "aadhar", "notes", "comment", "desc", "description", "text", "message"
     )
+    if not any(k in n for k in sensitive_keywords):
+        return False
+        
+    # Exclude obvious false-positive name patterns if sample_values are not provided
+    if sample_values is None:
+        if n in ("card_type", "card_category", "address_type", "pan_region", "span", "japan_region"):
+            return False
+        return True
+        
+    # 2. Content confirmation checks when sample_values are available
+    non_null_samples = [str(x) for x in sample_values if x is not None and str(x).strip() != ""]
+    if not non_null_samples:
+        return False
+        
+    pattern = None
+    if "email" in n:
+        pattern = _PII_PATTERNS.get("email")
+    elif "phone" in n or "mobile" in n:
+        pattern = _PII_PATTERNS.get("phone")
+    elif "ssn" in n:
+        pattern = _PII_PATTERNS.get("ssn")
+    elif "card" in n or "credit" in n:
+        pattern = _PII_PATTERNS.get("credit_card")
+    elif "aadhaar" in n or "aadhar" in n:
+        pattern = _PII_PATTERNS.get("aadhaar")
+    elif "pan" in n:
+        pattern = _PII_PATTERNS.get("pan")
+    elif "address" in n:
+        if "ip" in n:
+            pattern = _PII_PATTERNS.get("ip_address")
+        else:
+            match_count = sum(1 for v in non_null_samples[:100] if len(v) > 5)
+            match_rate = match_count / len(non_null_samples[:100])
+            return match_rate >= 0.3
+            
+    if pattern:
+        check_samples = non_null_samples[:100]
+        match_count = sum(1 for v in check_samples if pattern.search(v))
+        match_rate = match_count / len(check_samples)
+        return match_rate >= 0.3
+        
+    return True
 
 
 def mask_value(col: str, v: Any) -> Any:
@@ -166,6 +195,9 @@ def scan_dataframe_for_pii(
             continue
         # Skip known-safe dtypes
         if str(df[col].dtype) not in ("object", "string", "str"):
+            continue
+        # Enforce name heuristic + content check
+        if not is_sensitive_column(str(col), df[col].dropna().tolist()):
             continue
         col_issues = scan_text_column_for_pii(df[col], str(col), sample_size=sample_size)
         all_issues.extend(col_issues)

@@ -25,6 +25,7 @@ export interface ManualReviewItem {
   default_resolution?: string;
   resolution_options?: ResolutionOption[];
   llm_recommendation?: any;
+  risk_tier?: 'standard' | 'complex' | 'non_fixable';
 }
 
 export interface ManualReviewPanelProps {
@@ -120,11 +121,35 @@ export default function ManualReviewPanel({
               >
                 {(m.issue_type || 'issue').replace(/_/g, ' ')}
               </span>
+              {m.llm_recommendation ? (
+                <span className="ml-2 rounded-full bg-purple-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-purple-600">
+                  ✨ AI-Enhanced
+                </span>
+              ) : (
+                <span className="ml-2 rounded-full bg-zinc-500/20 px-2 py-0.5 text-[9px] font-black uppercase text-zinc-500">
+                  Static Catalog
+                </span>
+              )}
             </div>
             {m.message ? <p className={`mb-1 text-xs ${sub}`}>{m.message}</p> : null}
             {m.guidance ? (
               <p className={`mb-3 text-xs italic ${sub}`}>{m.guidance}</p>
             ) : null}
+
+            {m.risk_tier === 'non_fixable' && (
+              <div className={`mb-3 rounded-lg border px-3 py-2 text-[11.5px] ${
+                darkMode ? 'border-rose-500/30 bg-rose-500/10 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-950'
+              }`}>
+                <strong>⚠️ Non-Fixable Issue:</strong> This issue cannot be automatically corrected by ETL logic. Please resolve this at the source or acknowledge it by selecting &quot;Keep as-is&quot;.
+              </div>
+            )}
+            {m.risk_tier === 'complex' && (
+              <div className={`mb-3 rounded-lg border px-3 py-2 text-[11.5px] ${
+                darkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-300 bg-amber-50 text-amber-950'
+              }`}>
+                <strong>💡 Complex Issue:</strong> This transformation requires careful human/business validation before proceeding.
+              </div>
+            )}
 
             {m.llm_recommendation ? (
               <RecommendationComparisonPanel

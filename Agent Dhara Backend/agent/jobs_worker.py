@@ -114,6 +114,15 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
             job_id=job_id,
         )
 
+    if kind == "etl_execute":
+        from agent.etl_handlers import etl_execute_sql
+        return etl_execute_sql(
+            session_id=inp.get("session_id"),
+            approved=bool(inp.get("approved", False)),
+            dry_run=bool(inp.get("dry_run", False)),
+            timeout_s=int(inp.get("timeout_s", 240)),
+        )
+
     raise ValueError(f"Unknown job kind: {kind}")
 
 

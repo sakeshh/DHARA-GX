@@ -71,3 +71,73 @@ class TestAuditFixes(unittest.TestCase):
         # Our specific run shouldn't be matched
         matched_bad = next((r for r in no_runs if r["session_id"] == session_id), None)
         self.assertIsNone(matched_bad)
+
+    def test_is_sensitive_column_false_positives(self):
+        from agent.pii_masking import is_sensitive_column
+        # Name matches heuristic (card), but sample values do not match credit card format (16 digits)
+        self.assertFalse(is_sensitive_column("card_type", ["Visa", "MasterCard", "Amex"]))
+        
+        # Name matches heuristic (pan), but sample values do not match Indian PAN format
+        self.assertFalse(is_sensitive_column("span", ["some_value", "another_value"]))
+        
+        # Real sensitive column should return True
+        self.assertTrue(is_sensitive_column("credit_card", ["1234-5678-1234-5678", "4321 8765 4321 8765"]))
+        
+        # When sample values is None, fallback to name check but exclude obvious name false positives
+        self.assertFalse(is_sensitive_column("card_type", None))
+        self.assertFalse(is_sensitive_column("span", None))
+
+    def test_plan_coverage_report_generation(self):
+        from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+        assessment = {
+            "datasets": {
+                "customers": {
+                    "quality": {
+                        "issues": [
+                            {"column": "email", "type": "invalid_email", "severity": "high", "message": "Bad email"},
+                            {"column": "phone", "type": "invalid_phone", "severity": "low", "message": "Bad phone"}
+                        ]
+                    }
+                }
+            }
+        }
+        plan = {
+            "datasets": {
+                "customers": {
+                    "steps": [
+                        {"column": "email", "action": "sanitize_email"}
+                    ]
+                }
+            }
+        }
+        report = build_coverage_report(assessment, plan)
+        self.assertEqual(report["coverage_pct"], 50.0)
+        self.assertEqual(len(report["covered"]), 1)
+        self.assertEqual(report["covered"][0]["column"], "email")
+        self.assertEqual(len(report["uncovered"]), 1)
+        self.assertEqual(report["uncovered"][0]["column"], "phone")
+
+    def test_claim_next_job_concurrency(self):
+        import threading
+        import time
+        from agent.jobs_store import create_job, claim_next_job
+        
+        # Create a job to claim
+        job_id = create_job(kind="etl_execute", input={"session_id": "test_concurrency"})
+        
+        results = []
+        def worker():
+            job = claim_next_job(kinds=["etl_execute"])
+            if job:
+                results.append(job["job_id"])
+                
+        # Start multiple threads trying to claim the same job
+        threads = [threading.Thread(target=worker) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+            
+        # Only one thread should have successfully claimed the job
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], job_id)

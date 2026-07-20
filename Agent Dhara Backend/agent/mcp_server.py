@@ -1166,14 +1166,17 @@ async def api_parse_business_rules(
 
 @app.post("/etl/execute")
 def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
-    from agent.etl_handlers import etl_execute_sql
-    res = etl_execute_sql(
-        payload.session_id,
-        approved=bool(payload.approved),
-        dry_run=bool(payload.dry_run),
-        timeout_s=payload.timeout_s or 120,
+    from agent.jobs_store import create_job
+    job_id = create_job(
+        kind="etl_execute",
+        input={
+            "session_id": payload.session_id,
+            "approved": bool(payload.approved),
+            "dry_run": bool(payload.dry_run),
+            "timeout_s": payload.timeout_s or 240,
+        }
     )
-    return res
+    return {"ok": True, "job_id": job_id, "status": "queued"}
 
 
 @app.post("/etl/update-code")

@@ -2,6 +2,45 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+def normalize_issue(raw: Dict[str, Any]) -> Dict[str, Any]:
+    from agent.etl_pipeline.dq_issue_schema import DQIssue
+    
+    dataset = str(raw.get("dataset") or "")
+    column = str(raw.get("column") or "")
+    
+    # Check issue type
+    issue_type = str(raw.get("issue_type") or raw.get("type") or raw.get("gx_expectation") or "unknown_issue")
+    
+    sev = str(raw.get("severity") or "medium").lower()
+    severity = "high" if sev == "high" else "low" if sev == "low" else "medium"
+    
+    message = str(raw.get("message") or "")
+    
+    source = raw.get("source")
+    if source not in ("gx", "profiler", "pii_scanner", "cross_field"):
+        source = "gx"
+        
+    count = raw.get("count") or raw.get("unexpected_count") or raw.get("business_key_duplicate_count")
+    if count is not None:
+        try:
+            count = int(count)
+        except (ValueError, TypeError):
+            count = None
+            
+    canonical = DQIssue(
+        dataset=dataset,
+        column=column,
+        issue_type=issue_type,
+        severity=severity,
+        message=message,
+        source=source,
+        count=count
+    )
+    
+    res = dict(raw)
+    res.update(canonical.to_dict())
+    return res
+
 
 def _enrich_issue(row: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(row)
@@ -137,4 +176,4 @@ def map_gx_to_unified_issues(
                     }
                 )
 
-    return [_enrich_issue(x) for x in issues]
+    return [normalize_issue(_enrich_issue(x)) for x in issues]

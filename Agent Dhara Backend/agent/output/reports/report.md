@@ -7,7 +7,7 @@
 
 | Dataset | Source | Rows | Cols | Issues | High | Med | Low |
 |---|---|---:|---:|---:|---:|---:|---:|
-| `data_quality_issues.csv` | Filesystem (abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_csv.csv) | 10000 | 3 | 16 | 0 | 5 | 11 |
+| `data_quality_issues.csv` | Filesystem (abfss://04a585ce-f0ec-4a3a-9db2-e237711fd9e7@onelake.dfs.fabric.microsoft.com/abd8c72d-b5aa-4b58-83bd-fb97587de47e/Files/raw/data_quality_issues_csv.csv) | 10000 | 3 | 17 | 1 | 5 | 11 |
 
 ### Columns (per dataset)
 
@@ -42,6 +42,7 @@
 | low | `string_length_outlier` | `id` | 96 | 96 value(s) exceed 6 chars (mean=4, σ=0) | Strings significantly longer than the column average may contain concatenated data or free-text errors. |
 | low | `duplicate_insensitive_values` | `name` | 42 | 42 value(s) that differ only by case/whitespace — false uniqueness | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. |
 | medium | `invalid_numeric` | `id` | 96 | 96 non-numeric value(s) in numeric column | Cast column values to float/int; investigate why non-numeric characters are present in numeric fields. |
+| high | `pii_email` | `email` | 184 | Embedded email detected in 'email': ~92.0% of sampled values | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. |
 
 ### Relationships
 
@@ -81,6 +82,7 @@
 | 99 | `data_quality_issues.csv` | `id` | low | Strings significantly longer than the column average may contain concatenated data or free-text errors. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `data_quality_issues.csv` | `name` | low | Values that differ only by case/whitespace produce false uniqueness; deduplicate after normalization. | Fallback mode (LLM not configured). Validate before applying changes. |
 | 99 | `data_quality_issues.csv` | `id` | medium | Cast column values to float/int; investigate why non-numeric characters are present in numeric fields. | Fallback mode (LLM not configured). Validate before applying changes. |
+| 99 | `data_quality_issues.csv` | `email` | high | Review with domain owners; document the expected rule; add validation at ingest or in the warehouse. | Fallback mode (LLM not configured). Validate before applying changes. |
 
 ### What might still be missed
 

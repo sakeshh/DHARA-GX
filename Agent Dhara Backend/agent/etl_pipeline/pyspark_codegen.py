@@ -4,7 +4,6 @@ import re
 import os
 from typing import Any, Dict, List, Optional
 
-from pyspark.sql import SparkSession
 from agent.etl_pipeline.codegen_policy import plan_policy_block
 from agent.etl_pipeline.codegen_shared import outlier_multiplier, step_params
 from agent.etl_pipeline.join_emitters import (
@@ -37,15 +36,17 @@ def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
         if fval is not None:
             return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
         return [
-            f"_med = {df}.select(F.percentile_approx(F.col({c}), 0.5).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med).cast({dtype_str})))",
+            f"_med_row = {df}.select(F.percentile_approx(F.col({c}), 0.5).alias('m')).first()",
+            f"_med = _med_row['m'] if _med_row else None",
+            f"if _med is not None: {df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_med).cast({dtype_str})))",
         ]
     if strat == "mean":
         if fval is not None:
             return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
         return [
-            f"_avg = {df}.select(F.avg(F.col({c}).cast('double')).alias('m')).first()['m']",
-            f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({dtype_str})))",
+            f"_avg_row = {df}.select(F.avg(F.col({c}).cast('double')).alias('m')).first()",
+            f"_avg = _avg_row['m'] if _avg_row else None",
+            f"if _avg is not None: {df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({dtype_str})))",
         ]
     if strat == "value" and fval is not None:
         if str(fval).strip().lower() in ("none", "null", ""):

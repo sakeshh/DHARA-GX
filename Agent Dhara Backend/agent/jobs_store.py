@@ -17,6 +17,8 @@ def _db_path() -> str:
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(_db_path(), timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS jobs (
@@ -143,10 +145,11 @@ def fetch_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 def claim_next_job(*, kinds: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
     """
-    Best-effort claim: fetch one queued job and mark running.
+    Claim job under transactional BEGIN IMMEDIATE to prevent double-claiming race conditions.
     """
     conn = _connect()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         if kinds:
             q = "SELECT job_id FROM jobs WHERE status='queued' AND kind IN ({}) ORDER BY created_at LIMIT 1".format(
                 ",".join(["?"] * len(kinds))
@@ -155,10 +158,17 @@ def claim_next_job(*, kinds: Optional[List[str]] = None) -> Optional[Dict[str, A
         else:
             row = conn.execute("SELECT job_id FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
         if not row:
+            conn.execute("COMMIT")
             return None
         job_id = row[0]
         conn.execute("UPDATE jobs SET status='running', updated_at=? WHERE job_id=?", (time.time(), job_id))
         conn.commit()
+    except sqlite3.OperationalError:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        return None
     finally:
         conn.close()
     add_event(job_id=job_id, level="info", message="running")

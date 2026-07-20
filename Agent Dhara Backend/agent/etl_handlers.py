@@ -1008,6 +1008,10 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
         _transition(flow, "preview_ready", by="system", reason="preview_before_approve")
         phase = "preview_ready"
 
+    from agent.etl_pipeline.plan_coverage_report import build_coverage_report
+    cov_report = build_coverage_report(assess or {}, plan)
+    plan["coverage_report"] = cov_report
+
     preview = flow.get("preview") or build_impact_preview(assess or {}, plan, row_deltas=row_deltas)
     lineage = build_lineage(plan, assess or {})
     flow = ctx.setdefault("etl_flow", {})
@@ -1035,6 +1039,7 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
         "preview": preview,
         "approved_plan": plan,
         "lineage": lineage,
+        "coverage_report": cov_report,
     }
 
 

@@ -101,11 +101,37 @@ export default function DataPipelinePage() {
       if (!res.ok) {
         throw new Error(data.message || 'Execution failed');
       }
-      if (data.stage === 'approval_required') {
+      
+      const jobId = data.job_id;
+      if (!jobId) {
+        throw new Error('No job ID returned from execution.');
+      }
+
+      // Poll job status until complete
+      let jobResult = null;
+      while (true) {
+        const pollRes = await fetch(`/api/jobs/${jobId}`);
+        if (!pollRes.ok) {
+          throw new Error(`Failed to check job status: ${pollRes.statusText}`);
+        }
+        const job = await pollRes.json();
+        if (job.status === 'succeeded') {
+          jobResult = job.result;
+          if (jobResult && jobResult.ok === false) {
+            throw new Error(jobResult.message || jobResult.error || 'Remediation execution failed.');
+          }
+          break;
+        } else if (job.status === 'failed') {
+          throw new Error(job.error || 'Async execution job failed.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (jobResult.stage === 'approval_required') {
         setApprovalRequired(true);
-        setExecResult(data);
+        setExecResult(jobResult);
       } else {
-        setExecResult(data);
+        setExecResult(jobResult);
         setApprovalRequired(false);
       }
     } catch (e: any) {

@@ -29,6 +29,7 @@ export default function DataCleaner({ sessionId, files, etlCode, assessmentData,
   const [cleaning, setCleaning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentFile, setCurrentFile] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
   const [results, setResults] = useState<CleaningResult[]>([]);
   const [learningFromFeedback, setLearningFromFeedback] = useState(false);
 
@@ -39,105 +40,129 @@ export default function DataCleaner({ sessionId, files, etlCode, assessmentData,
 
   const startCleaning = async () => {
     setCleaning(true);
-    setProgress(0);
+    setProgress(5);
+    setStatusMessage('Initiating remediation sequence...');
     
     if (userFeedback.some(f => !f.liked)) {
       setLearningFromFeedback(true);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
       setLearningFromFeedback(false);
     }
 
-    // Call execution API in parallel with progress animation
-    let apiData: any = null;
-    let apiError: string | null = null;
-    
-    // Start backend execution request
-    const executePromise = (async () => {
-      if (!sessionId) return null;
-      try {
-        const res = await fetch('/api/etl/execute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            approved: true
-          })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.message || 'Execution failed');
-        }
-        return data;
-      } catch (err: any) {
-        apiError = err.message || String(err);
-        return null;
+    try {
+      if (!sessionId) {
+        throw new Error('No session ID active.');
       }
-    })();
+      
+      setStatusMessage('Submitting execution job to backend...');
+      const res = await fetch('/api/etl/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          approved: true
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Execution initiation failed');
+      }
+      
+      const jobId = data.job_id;
+      if (!jobId) {
+        throw new Error('No job ID returned from execution.');
+      }
 
-    // Animate progress up to 90% while waiting for API
-    for (let p = 0; p <= 90; p += 2) {
-      if (apiData || apiError) break;
-      setProgress(p);
-      await new Promise(resolve => setTimeout(resolve, 300)); // takes ~13.5s total to get to 90%
-    }
-    
-    // Wait for API to finish
-    apiData = await executePromise;
-    
-    if (apiError) {
-      alert(`Remediation execution failed: ${apiError}`);
+      setStatusMessage('Executing ETL remediation rules...');
+      setProgress(20);
+
+      // Poll job status until complete
+      let activeExecResult = null;
+      let pollCount = 0;
+      while (true) {
+        pollCount++;
+        const pollRes = await fetch(`/api/jobs/${jobId}`);
+        if (!pollRes.ok) {
+          throw new Error(`Failed to check job status: ${pollRes.statusText}`);
+        }
+        const job = await pollRes.json();
+        
+        const calculatedProgress = Math.min(95, 20 + pollCount * 3);
+        setProgress(calculatedProgress);
+        
+        if (calculatedProgress > 30 && calculatedProgress < 60) {
+          setStatusMessage('Processing transformations & rules execution...');
+        } else if (calculatedProgress >= 60 && calculatedProgress < 85) {
+          setStatusMessage('Running Fabric / Storage pipeline operations...');
+        } else if (calculatedProgress >= 85) {
+          setStatusMessage('Finalizing dataset state & commit logs...');
+        }
+
+        if (job.status === 'succeeded') {
+          activeExecResult = job.result;
+          if (activeExecResult && activeExecResult.ok === false) {
+            throw new Error(activeExecResult.message || activeExecResult.error || 'Remediation execution failed.');
+          }
+          break;
+        } else if (job.status === 'failed') {
+          throw new Error(job.error || 'Async execution job failed.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      setProgress(100);
+      setStatusMessage('Remediation complete!');
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const cleaningResults: CleaningResult[] = [];
+      const execData = activeExecResult || execResult;
+
+      for (let i = 0; i < files.length; i++) {
+        setCurrentFile(files[i]);
+        
+        const rawKey = files[i];
+        const cleanKey = rawKey.endsWith('_Clean') ? rawKey : `${rawKey}_Clean`;
+        
+        const rawDelta = execData?.post_execution_summary?.row_deltas?.[rawKey];
+        const cleanDelta = execData?.post_execution_summary?.row_deltas?.[cleanKey];
+        
+        const originalRows = rawDelta?.before ?? assessmentData?.result?.datasets?.[rawKey]?.row_count ?? Math.floor(Math.random() * 10000) + 1000;
+        const cleanedRows = cleanDelta?.after ?? rawDelta?.after ?? (originalRows - Math.floor(Math.random() * 100) - 10);
+        
+        const duplicatesRemoved = Math.max(0, originalRows - cleanedRows);
+        const missingValuesHandled = Math.floor(Math.random() * 20) + 5;
+        
+        const cleanTableBase = cleanKey.split('.').pop() || cleanKey;
+        
+        const fabricRun = execData?.execution?.artifacts?.runs?.find(
+          (r: any) => String(r.dataset || '').toLowerCase() === String(rawKey).toLowerCase()
+        );
+        
+        const blobInfo = execData?.execution?.artifacts?.blobs?.find(
+          (b: any) => String(b.table_name || '').toLowerCase().includes(cleanTableBase.toLowerCase())
+        );
+        
+        const displayUrl = fabricRun?.fabric_url ?? blobInfo?.blob_url ?? `https://datasogetiatrgacc.blob.core.windows.net/agentdhararawdata/cleaned/${cleanKey.replace('.', '_')}_cleaned.csv`;
+
+        cleaningResults.push({
+          fileName: files[i],
+          originalRows,
+          cleanedRows,
+          duplicatesRemoved,
+          missingValuesHandled,
+          blobUrl: displayUrl
+        });
+      }
+
+      setResults(cleaningResults);
+      setCleaning(false);
+      onComplete();
+    } catch (err: any) {
+      const msg = err.message || String(err);
+      alert(`Remediation execution failed: ${msg}`);
       setCleaning(false);
       setShowConfirmation(true);
-      return;
     }
-    
-    // Jump progress to 100%
-    setProgress(100);
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const cleaningResults: CleaningResult[] = [];
-    const activeExecResult = apiData || execResult;
-
-    for (let i = 0; i < files.length; i++) {
-      setCurrentFile(files[i]);
-      
-      const rawKey = files[i];
-      const cleanKey = rawKey.endsWith('_Clean') ? rawKey : `${rawKey}_Clean`;
-      
-      const rawDelta = activeExecResult?.post_execution_summary?.row_deltas?.[rawKey];
-      const cleanDelta = activeExecResult?.post_execution_summary?.row_deltas?.[cleanKey];
-      
-      const originalRows = rawDelta?.before ?? assessmentData?.result?.datasets?.[rawKey]?.row_count ?? Math.floor(Math.random() * 10000) + 1000;
-      const cleanedRows = cleanDelta?.after ?? rawDelta?.after ?? (originalRows - Math.floor(Math.random() * 100) - 10);
-      
-      const duplicatesRemoved = Math.max(0, originalRows - cleanedRows);
-      const missingValuesHandled = Math.floor(Math.random() * 20) + 5;
-      
-      const cleanTableBase = cleanKey.split('.').pop() || cleanKey;
-      
-      // Look for Fabric run URL
-      const fabricRun = activeExecResult?.execution?.artifacts?.runs?.find(
-        (r: any) => String(r.dataset || '').toLowerCase() === String(rawKey).toLowerCase()
-      );
-      
-      const blobInfo = activeExecResult?.execution?.artifacts?.blobs?.find(
-        (b: any) => String(b.table_name || '').toLowerCase().includes(cleanTableBase.toLowerCase())
-      );
-      
-      const displayUrl = fabricRun?.fabric_url ?? blobInfo?.blob_url ?? `https://datasogetiatrgacc.blob.core.windows.net/agentdhararawdata/cleaned/${cleanKey.replace('.', '_')}_cleaned.csv`;
-
-      cleaningResults.push({
-        fileName: files[i],
-        originalRows,
-        cleanedRows,
-        duplicatesRemoved,
-        missingValuesHandled,
-        blobUrl: displayUrl
-      });
-    }
-
-    setResults(cleaningResults);
-    setCleaning(false);
   };
 
   const handleDownloadAll = () => {
@@ -251,7 +276,7 @@ export default function DataCleaner({ sessionId, files, etlCode, assessmentData,
             {learningFromFeedback ? 'Intelligence Adaptation' : 'Data Remediation'}
           </h2>
           <p className="text-lg font-medium text-black/40">
-            {learningFromFeedback ? 'Refining strategy from your feedback...' : `Scrubbing ${currentFile}...`}
+            {learningFromFeedback ? 'Refining strategy from your feedback...' : (statusMessage || `Scrubbing ${currentFile}...`)}
           </p>
         </div>
 

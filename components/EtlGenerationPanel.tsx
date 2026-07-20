@@ -75,13 +75,18 @@ function rowsToPlan(base: Record<string, unknown>, rows: StepRow[]): Record<stri
   const datasets: Record<string, { steps: Record<string, unknown>[] }> = {};
   for (const [ds, list] of Object.entries(byDs)) {
     const sorted = [...list].sort((a, b) => a.order - b.order);
+    const baseSteps = (base.datasets as Record<string, { steps?: Record<string, unknown>[] }>)?.[ds]?.steps || [];
     datasets[ds] = {
-      steps: sorted.map((r, i) => ({
-        order: i + 1,
-        column: r.column,
-        action: r.action,
-        bucket: r.bucket || 'auto',
-      })),
+      steps: sorted.map((r, i) => {
+        const origStep = baseSteps.find((bs) => bs.column === r.column && bs.action === r.action);
+        return {
+          ...origStep,
+          order: i + 1,
+          column: r.column,
+          action: r.action,
+          bucket: r.bucket || origStep?.bucket || 'auto',
+        };
+      }),
     };
   }
   return { ...base, datasets };
@@ -207,6 +212,7 @@ export default function EtlGenerationPanel({
   const [planTab, setPlanTab] = useState<'table' | 'json'>('table');
   const [planRows, setPlanRows] = useState<StepRow[]>([]);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
+  const [coverageReport, setCoverageReport] = useState<any>(null);
   
   // Tabbed view and split code states
   const [activeCodeTab, setActiveCodeTab] = useState<'phase1' | 'phase2' | 'review'>('phase1');
@@ -399,6 +405,8 @@ export default function EtlGenerationPanel({
           return;
         }
         setPlan(flow.approved_plan as Record<string, unknown>);
+        if (flow.approved_plan?.coverage_report) setCoverageReport(flow.approved_plan.coverage_report);
+        else if (flow.plan?.coverage_report) setCoverageReport(flow.plan.coverage_report);
         if (flow.preview) setPreview(flow.preview as Record<string, unknown>);
         if (flow.lineage) setLineage(flow.lineage as Record<string, unknown>);
         if (flow.duckdb_diff) setDuckdbDiff(flow.duckdb_diff);
@@ -497,10 +505,14 @@ export default function EtlGenerationPanel({
       if (blocked.length > 0) {
         setErr(`Blocked: ${blocked.map((b: { message?: string }) => b.message || JSON.stringify(b)).join(' | ')}`);
         setPlan(builtPlan);
+        if (data?.coverage_report) setCoverageReport(data.coverage_report);
+        else if (builtPlan?.coverage_report) setCoverageReport(builtPlan.coverage_report);
         setStep('plan');
         return;
       }
       setPlan(builtPlan);
+      if (data?.coverage_report) setCoverageReport(data.coverage_report);
+      else if (builtPlan?.coverage_report) setCoverageReport(builtPlan.coverage_report);
       if (!engineUserOverride) {
         const rec =
           (data.engine_recommendation as EngineRecommendation | undefined) ||
@@ -571,10 +583,23 @@ export default function EtlGenerationPanel({
     [manualReviewItemsState]
   );
 
+  const isCodegenBlocked = useMemo(() => {
+    if (!coverageReport?.uncovered) return false;
+    return coverageReport.uncovered.some((issue: any) => String(issue.severity).toLowerCase() === 'high');
+  }, [coverageReport]);
+
   const planApproveReady = useMemo(() => {
     if (!plan) return false;
     if (Array.isArray(plan.blocked) && (plan.blocked as unknown[]).length > 0) return false;
     if (pendingManualCount > 0) return false;
+
+    // Plan coverage gating check
+    const report = plan.coverage_report as any;
+    if (report && Array.isArray(report.uncovered)) {
+      const hasBlockingGaps = report.uncovered.some((u: any) => String(u.severity).toLowerCase() === 'high');
+      if (hasBlockingGaps) return false;
+    }
+
     const dsPlan = (plan.datasets || {}) as Record<
       string,
       { steps?: Array<{ classification?: string; bucket?: string; requires_user_choice?: boolean }> }
@@ -620,6 +645,8 @@ export default function EtlGenerationPanel({
         return;
       }
       if (data?.plan) setPlan(data.plan as Record<string, unknown>);
+      if (data?.coverage_report) setCoverageReport(data.coverage_report);
+      else if (data?.plan?.coverage_report) setCoverageReport(data.plan.coverage_report);
       setPlanValidationErrors(
         Array.isArray(data?.plan_validation_errors) ? data.plan_validation_errors : []
       );
@@ -675,6 +702,8 @@ export default function EtlGenerationPanel({
       setPreview((data.preview as Record<string, unknown>) || null);
       if (data.lineage) setLineage(data.lineage as Record<string, unknown>);
       if (data.approved_plan) setPlan(data.approved_plan as Record<string, unknown>);
+      if (data.coverage_report) setCoverageReport(data.coverage_report);
+      else if (data.approved_plan?.coverage_report) setCoverageReport(data.approved_plan.coverage_report);
       if (pipelineMode === 'requirements') {
         onContinueToEtlStep?.();
         return;
@@ -1139,7 +1168,54 @@ export default function EtlGenerationPanel({
                 onUseRecommendation={useRecommendedEngine}
               />
             ) : null}
-            <OverallReadinessBanner narration={planNarration || null} plan={plan} darkMode={dm} />
+             <OverallReadinessBanner narration={planNarration || null} plan={plan} darkMode={dm} />
+            {plan && plan.coverage_report ? (
+              (() => {
+                const report = plan.coverage_report as any;
+                const pct = typeof report.coverage_pct === 'number' ? report.coverage_pct : 100;
+                const uncoveredList = Array.isArray(report.uncovered) ? report.uncovered : [];
+                const blockingUncovered = uncoveredList.filter((u: any) => String(u.severity).toLowerCase() === 'high');
+                const hasBlockingGaps = blockingUncovered.length > 0;
+                
+                return (
+                  <div className={`rounded-xl border p-4 text-[12.5px] ${
+                    pct === 100
+                      ? dm ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                      : hasBlockingGaps
+                        ? dm ? 'border-rose-500/40 bg-rose-500/10 text-rose-100' : 'border-rose-200 bg-rose-50/70 text-rose-950'
+                        : dm ? 'border-amber-500/40 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50/70 text-amber-950'
+                  }`}>
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="flex items-center gap-2">
+                        Plan Coverage: 
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase text-white ${
+                          pct === 100 ? 'bg-emerald-600' : hasBlockingGaps ? 'bg-rose-600' : 'bg-amber-555'
+                        }`} style={{ backgroundColor: pct === 100 ? '#10b981' : hasBlockingGaps ? '#ef4444' : '#f59e0b' }}>
+                          {pct}% Issues Covered
+                        </span>
+                      </span>
+                    </div>
+                    {uncoveredList.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <span className="font-bold text-[11px] block">Uncovered issues remaining:</span>
+                        <ul className="list-disc pl-4 space-y-0.5 text-[11.5px]">
+                          {uncoveredList.map((u: any, idx: number) => (
+                            <li key={idx}>
+                              {u.column ? <code className="bg-black/10 px-1 rounded">{u.column}</code> : 'Dataset-level'}: {u.issue_type || u.type} <span className="font-bold text-[9px] uppercase">({u.severity})</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {hasBlockingGaps && (
+                          <div className="mt-2 font-bold text-[#ef4444] text-[11px]">
+                            ⚠️ Gating: High-severity issues are uncovered. Choose resolutions in the manual review panel below to cover them.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
+            ) : null}
             <ManualReviewPanel
               items={manualReviewItemsState}
               darkMode={dm}
@@ -1370,11 +1446,56 @@ export default function EtlGenerationPanel({
             <p className={`text-sm font-bold ${dm ? 'text-white' : 'text-zinc-900'}`}>
               Expected impact (DQ counts + column profile heuristics)
             </p>
-            <ul className={`list-disc space-y-1 pl-5 text-sm ${dm ? 'text-zinc-200' : 'text-zinc-800'}`}>
-              {(Array.isArray(preview.summary_lines) ? preview.summary_lines : []).map((line: string, i: number) => (
-                <li key={i}>{line}</li>
-              ))}
+            <ul className="space-y-2 text-xs">
+              {(Array.isArray(preview.detail) ? preview.detail : []).map((item: any, i: number) => {
+                const src = String(item.estimate_source || 'unknown').toLowerCase();
+                let badgeClass = dm ? 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30' : 'bg-zinc-100 text-zinc-700 border-zinc-200';
+                let badgeText = 'Unknown';
+                if (src === 'measured') {
+                  badgeClass = dm ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-300';
+                  badgeText = 'Measured';
+                } else if (src === 'dq_count') {
+                  badgeClass = dm ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-300';
+                  badgeText = 'DQ Count';
+                } else if (src === 'heuristic') {
+                  badgeClass = dm ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-amber-50 text-amber-700 border-amber-300';
+                  badgeText = 'Heuristic';
+                } else if (src === 'n/a') {
+                  badgeClass = dm ? 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30' : 'bg-zinc-100 text-zinc-500 border-zinc-200';
+                  badgeText = 'System';
+                }
+                
+                return (
+                  <li key={i} className={`flex items-center justify-between gap-3 rounded-lg border p-2 ${dm ? 'border-white/10 bg-white/5' : 'border-black/5 bg-black/5'}`}>
+                    <span className={dm ? 'text-zinc-200' : 'text-zinc-800'}>{item.line}</span>
+                    <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${badgeClass}`}>
+                      {badgeText}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
+            {coverageReport && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className={dm ? 'text-zinc-300' : 'text-zinc-600'}>Plan Issue Coverage:</span>
+                <span className={`font-bold px-2 py-0.5 rounded-full ${
+                  coverageReport.coverage_pct >= 90
+                    ? 'bg-emerald-500/20 text-emerald-600'
+                    : coverageReport.coverage_pct >= 50
+                    ? 'bg-amber-500/20 text-amber-600'
+                    : 'bg-rose-500/20 text-rose-600'
+                }`}>
+                  {coverageReport.coverage_pct}%
+                </span>
+              </div>
+            )}
+            {isCodegenBlocked && (
+              <div className={`rounded-xl border p-3 text-xs leading-relaxed ${
+                dm ? 'border-rose-500/30 bg-rose-500/10 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-950'
+              }`}>
+                <strong>⚠️ Generation Blocked:</strong> Your plan has uncovered issues of <strong>high severity</strong>. Please define steps to clean/remediate these issues or flag them for manual review/override before generating the ETL codebase.
+              </div>
+            )}
             <EtlLineageVisualizer lineage={lineage as LineageMap} darkMode={dm} />
             <label
               className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 text-xs ${
@@ -1416,7 +1537,7 @@ export default function EtlGenerationPanel({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || isCodegenBlocked}
                 onClick={() => void runGenerate()}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
               >

@@ -78,41 +78,18 @@ def _resolve_data_path(location: str) -> str:
 
 def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakehouse_id: Optional[str] = None) -> str:
     """Path resolver for code running INSIDE a Fabric Spark Notebook."""
-    ws = str(workspace_id or "").strip()
-    lh = str(lakehouse_id or "").strip()
-    
-    return f'''
+    return '''
 def _resolve_data_path(location: str) -> str:
-    """Resolve path relative to the attached default Lakehouse using ABFSS."""
+    """Resolve path relative to the attached default Lakehouse."""
     loc = (location or "").strip()
     if not loc or loc == "unknown":
         raise ValueError("location is missing")
     if loc.lower().startswith(("abfss://", "http" + "s://", "http" + "://")):
         return loc
     clean_loc = loc.lstrip("/")
-    # Ensure the mandatory Files/ or Tables/ prefix is present
     if not clean_loc.startswith(("Files/", "Tables/")):
-        clean_loc = f"Files/{{clean_loc}}"
-        
-    # Attempt to resolve from spark config dynamically
-    try:
-        from pyspark.sql import SparkSession
-        spark = SparkSession.builder.getOrCreate()
-        ws_id = spark.conf.get("trident.workspace.id") or spark.conf.get("spark.workspace.id")
-        lh_id = spark.conf.get("trident.lakehouse.id") or spark.conf.get("spark.lakehouse.id")
-    except Exception:
-        ws_id = None
-        lh_id = None
-        
-    # Fallback to hardcoded values from deployment configuration
-    if not ws_id or not lh_id:
-        ws_id = "{ws}"
-        lh_id = "{lh}"
-        
-    if ws_id and lh_id:
-        return f"abfss://{{ws_id}}@onelake.dfs.fabric.microsoft.com/{{lh_id}}/{{clean_loc}}"
-        
-    return f"/lakehouse/default/{{clean_loc}}"
+        clean_loc = f"Files/{clean_loc}"
+    return clean_loc
 '''.strip()
 
 
@@ -202,16 +179,9 @@ def python_write_snippet(entry: Dict[str, Any]) -> str:
 
 
 def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
+    from agent.etl_pipeline.format_readers import get_pyspark_read_snippet
     loc = _escape_path(entry["location"])
     fmt = entry.get("format") or "csv"
-    if entry.get("source_type") == "fabric_files_zone":
-        path_expr = f'_resolve_data_path("{loc}")'
-        if fmt == "parquet":
-            return f"spark.read.parquet({path_expr})"
-        if fmt == "json":
-            return f"spark.read.json({path_expr})"
-        return f"spark.read.option('header', 'true').option('inferSchema', 'true').csv({path_expr})"
-        
     if fmt == "sql_table":
         cref = entry.get("connection_ref") or "DHARA_SQL_CONNECTION_STRING"
         table = entry["location"]
@@ -221,19 +191,7 @@ def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
             + f'"]).option("dbtable", "{table}").load()'
         )
     path_expr = f'_resolve_data_path("{loc}")'
-    if fmt == "parquet":
-        return f"spark.read.parquet({path_expr})"
-    if fmt == "json":
-        return f"spark.read.json({path_expr})"
-    if fmt == "xml":
-        return (
-            'spark.read.format("com.databricks.spark.xml")'
-            f'.option("rowTag", "row").load({path_expr})  '
-            f"# requires spark-xml / Maven: com.databricks:spark-xml_2.12"
-        )
-    return (
-        f"spark.read.option('header', 'true').option('inferSchema', 'true').csv({path_expr})"
-    )
+    return get_pyspark_read_snippet(path_expr, fmt, entry.get("options"))
 
 
 def pyspark_write_snippet(entry: Dict[str, Any]) -> str:

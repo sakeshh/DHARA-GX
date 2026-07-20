@@ -28,43 +28,41 @@ def calculate_dataset_dq_score(assessment: Dict[str, Any], ds_name: str) -> Dict
             # Quadratic penalty: high null rates are penalized more aggressively
             null_score = max(0.0, 100.0 * ((1.0 - avg_null) ** 2))
 
-    # 2. Type Mismatch / Format Score (30%)
-    type_score = 100.0
-    # Quality issues: check canonical path (datasets.{name}.quality.issues)
-    # and legacy path (data_quality_issues.datasets.{name}.issues)
+    # 2. Type Mismatch, Duplicate, Outlier Score Calculation (Row-Weighted & Deduplicated)
     dq_issues = list((ds_info.get("quality") or {}).get("issues") or [])
-    legacy_issues = (assessment or {}).get("data_quality_issues", {}).get("datasets", {}).get(ds_name, {}).get("issues", [])
-    if legacy_issues:
-        dq_issues.extend(legacy_issues)
-    type_mismatches = 0
-    for issue in dq_issues:
-        issue_type = str(issue.get("type") or "").strip().lower()
-        if issue_type in ("type_mismatch", "invalid_date_format", "invalid_email", "invalid_phone"):
-            type_mismatches += 1
-    type_score = max(0.0, 100.0 - (type_mismatches * 10.0))
 
-    # 3. Duplicate Score (20%)
-    dup_score = 100.0
+    # Deduplicate issues based on (column, type, message)
+    seen_issues = set()
+    dedup_dq_issues = []
+    for issue in dq_issues:
+        k = (str(issue.get("column") or ""), str(issue.get("type") or issue.get("issue_type") or "").strip().lower(), str(issue.get("message") or ""))
+        if k not in seen_issues:
+            seen_issues.add(k)
+            dedup_dq_issues.append(issue)
+    dq_issues = dedup_dq_issues
+
+    row_count = max(1, int(ds_info.get("row_count") or 1))
+
+    def affected_rows(issue_type_filter):
+        # Sum unexpected counts or default to 1 row per unique issue type if missing/0
+        return sum(max(1, int(i.get("count") or 0)) for i in dq_issues if issue_type_filter(str(i.get("type") or i.get("issue_type") or "").strip().lower()))
+
+    # Type Score (30%)
+    type_affected = affected_rows(lambda t: t in ("type_mismatch", "invalid_date_format", "invalid_email", "invalid_phone", "invalid_uuid", "invalid_url", "mixed_scalar_types", "invalid_numeric", "parse_dates"))
+    type_score = max(0.0, 100.0 * (1.0 - type_affected / row_count))
+
+    # Duplicate Score (20%)
+    dup_affected = affected_rows(lambda t: "duplicate" in t or "dup" in t)
+    # Plus business key duplicate confirmations if they ran
     llm_ds_hints = ds_info.get("llm_hints") or {}
     dup_info = llm_ds_hints.get("business_key_confirmation") or {}
-    dup_count = 0
     if isinstance(dup_info, dict):
-        dup_count = dup_info.get("business_key_duplicate_count", 0)
-    # Also scan quality issues for duplicates
-    for issue in dq_issues:
-        issue_type = str(issue.get("type") or "").strip().lower()
-        if "duplicate" in issue_type or "dup" in issue_type:
-            dup_count += 1
-    dup_score = max(0.0, 100.0 - (dup_count * 5.0))
+        dup_affected += int(dup_info.get("business_key_duplicate_count") or 0)
+    dup_score = max(0.0, 100.0 * (1.0 - min(row_count, dup_affected) / row_count))
 
-    # 4. Outlier Score (20%)
-    outlier_score = 100.0
-    outliers_count = 0
-    for issue in dq_issues:
-        issue_type = str(issue.get("type") or "").strip().lower()
-        if "outlier" in issue_type:
-            outliers_count += 1
-    outlier_score = max(0.0, 100.0 - (outliers_count * 10.0))
+    # Outlier Score (20%)
+    outlier_affected = affected_rows(lambda t: "outlier" in t or t in ("range_clip", "clip_or_flag", "flag_outliers", "clip_outliers", "cap_outliers"))
+    outlier_score = max(0.0, 100.0 * (1.0 - outlier_affected / row_count))
 
     # Weighted DQ Score
     dq_score = (0.30 * null_score) + (0.30 * type_score) + (0.20 * dup_score) + (0.20 * outlier_score)
