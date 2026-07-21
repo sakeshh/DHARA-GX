@@ -80,7 +80,7 @@ def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakeh
     """Path resolver for code running INSIDE a Fabric Spark Notebook."""
     return '''
 def _resolve_data_path(location: str) -> str:
-    """Resolve path for Fabric Lakehouse. Checks for file existence and falls back to alternative name extensions if needed."""
+    """Resolve path for Fabric Lakehouse. Returns native Lakehouse relative path (e.g. Files/raw/...) for Fabric notebooks."""
     import os
     loc = (location or "").strip()
     if not loc or loc == "unknown":
@@ -94,18 +94,7 @@ def _resolve_data_path(location: str) -> str:
     clean_loc = loc.lstrip("/")
     if not clean_loc.startswith(("Files/", "Tables/")):
         clean_loc = f"Files/{clean_loc}"
-    p = f"/lakehouse/default/{clean_loc}"
-    # Fallback checks if physical file on OneLake uses base filename without _csv / _json suffix
-    if not os.path.exists(p):
-        for candidate in (
-            p.replace("_csv.csv", ".csv"),
-            p.replace("_json.json", ".json"),
-            p.replace("Files/raw/", "Files/"),
-            p.replace("Files/raw/", "Files/").replace("_csv.csv", ".csv"),
-        ):
-            if os.path.exists(candidate):
-                return candidate
-    return p
+    return clean_loc
 '''.strip()
 
 

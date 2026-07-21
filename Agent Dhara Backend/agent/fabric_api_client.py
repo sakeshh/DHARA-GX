@@ -327,6 +327,9 @@ class FabricAPIClient:
         """
         import base64
         import json
+        import html
+        
+        clean_code = html.unescape(code or "")
         
         # Query lakehouse displayName to set the name in dependencies
         lakehouse_name = self.resolve_lakehouse_name_by_id(self.workspace_id, lakehouse_id) or ""
@@ -364,7 +367,7 @@ class FabricAPIClient:
                     "execution_count": None,
                     "metadata": {},
                     "outputs": [],
-                    "source": [line + "\n" for line in code.splitlines()]
+                    "source": [line + "\n" for line in clean_code.splitlines()]
                 }
             ]
         }
