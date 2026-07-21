@@ -167,12 +167,69 @@ def _inject_pyspark_fabric_ids(code: str) -> str:
         f'ws_id = "{ws_id}"',
         code
     )
-    code = re.sub(
-        r'lh_id\s*=\s*["\']["\']',
-        f'lh_id = "{lh_id}"',
-        code
-    )
     return code
+
+
+def _fix_mismatched_transform_calls(code: str) -> str:
+    """Reconcile mismatched transform function calls to match defined transform function names."""
+    if not code or "def transform_" not in code:
+        return code
+    try:
+        tree = ast.parse(code)
+        defined = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("transform_")
+        }
+        if not defined:
+            return code
+            
+        for fn_name in defined:
+            # Fix calls where LLM appended file extension suffixes (e.g. transform_data_quality_issues_csv -> transform_data_quality_issues)
+            pattern = re.compile(rf"\b{re.escape(fn_name)}_[a-zA-Z0-9_]+\b")
+            code = pattern.sub(fn_name, code)
+    except Exception:
+        pass
+    return code
+
+
+def _fix_unsafe_pyspark_first_calls(code: str) -> str:
+    """Rewrite unsafe PySpark .first()[0] expressions and paired fillna calls to prevent NoneType crashes."""
+    if not code or ".first()[" not in code:
+        return code
+
+    # 1. Paired agg + fillna
+    def repl_fillna(m):
+        var = m.group(1)
+        select_expr = m.group(2)
+        target_var = m.group(3)
+        col = m.group(4)
+        return (
+            f"_{var}_row = {select_expr}.first()\n"
+            f"    _{var}_val = _{var}_row[0] if _{var}_row else None\n"
+            f"    if _{var}_val is not None:\n"
+            f"        {target_var} = {target_var}.fillna({{\"{col}\": _{var}_val}})"
+        )
+
+    pat_fillna = re.compile(
+        r"(\w+)\s*=\s*(\w+\.select\(.*?\))\.\s*first\(\)\s*\[\s*0\s*\]\s*\n\s*(\w+)\s*=\s*\3\.fillna\(\{\s*[\"\'](\w+)[\"\']\s*:\s*\1\s*\}\)"
+    )
+    code = pat_fillna.sub(repl_fillna, code)
+
+    # 2. Remaining standalone var = expr.first()[0] or expr.first()["..."]
+    def repl_standalone(m):
+        var = m.group(1)
+        select_expr = m.group(2)
+        idx = m.group(3)
+        return (
+            f"_{var}_row = {select_expr}.first()\n"
+            f"    {var} = _{var}_row[{idx}] if (_{var}_row and _{var}_row[{idx}] is not None) else None"
+        )
+
+    pat_standalone = re.compile(
+        r"(\w+)\s*=\s*(\w+\.select\(.*?\))\.\s*first\(\)\s*\[\s*(0|[\"\']\w+[\"\'])\s*\]"
+    )
+    return pat_standalone.sub(repl_standalone, code)
 
 
 def _inject_pyspark_datasets_decl(code: str) -> str:
@@ -222,6 +279,7 @@ def _inject_pyspark_helpers(code: str) -> str:
         pyspark_iqr_bounds_helper,
         pyspark_production_helpers,
         pyspark_prefix_non_key_columns_helper,
+        resolve_path_fabric_pyspark_helper,
     )
     
     # Strip invalid df.fillna({"col": None}) or df.fillna(value=None) or df.fillna(None)
@@ -238,6 +296,9 @@ def _inject_pyspark_helpers(code: str) -> str:
     )
     
     to_inject = []
+    if "_resolve_data_path" in code and "def _resolve_data_path" not in code:
+        to_inject.append(resolve_path_fabric_pyspark_helper() + "\n\n")
+
     if "_iqr_bounds" in code and "def _iqr_bounds" not in code:
         to_inject.append(pyspark_iqr_bounds_helper() + "\n\n")
         
@@ -322,7 +383,10 @@ def _inject_pyspark_run_pipeline(code: str, plan: Dict[str, Any]) -> str:
         for ds_name in (plan.get("datasets") or {}):
             fn = f"transform_{_safe(ds_name)}"
             lines.append(f'    if "{ds_name}" in dfs:')
-            lines.append(f'        dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
+            lines.append(f'        try:')
+            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
+            lines.append(f'        except TypeError:')
+            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"])')
             if non_nullable:
                 lines.append(f'        _warn_nulls_in_columns(dfs["{ds_name}"], {non_nullable!r}, "{ds_name}")')
             lines.append(f'        _log_row_count(dfs["{ds_name}"], "{ds_name}")')
@@ -1527,6 +1591,8 @@ def _generate_etl_with_llm_impl(
             code = _inject_pyspark_datasets_decl(code)
             code = _inject_pyspark_helpers(code)
             code = _inject_pyspark_run_pipeline(code, plan)
+            code = _fix_mismatched_transform_calls(code)
+            code = _fix_unsafe_pyspark_first_calls(code)
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}

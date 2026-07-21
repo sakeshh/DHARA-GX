@@ -80,16 +80,32 @@ def resolve_path_fabric_pyspark_helper(workspace_id: Optional[str] = None, lakeh
     """Path resolver for code running INSIDE a Fabric Spark Notebook."""
     return '''
 def _resolve_data_path(location: str) -> str:
-    """Resolve path relative to the attached default Lakehouse."""
+    """Resolve path for Fabric Lakehouse. Checks for file existence and falls back to alternative name extensions if needed."""
+    import os
     loc = (location or "").strip()
     if not loc or loc == "unknown":
         raise ValueError("location is missing")
-    if loc.lower().startswith(("abfss://", "http" + "s://", "http" + "://")):
+    if loc.lower().startswith(("abfss://", "https://", "http://")):
         return loc
+    account = os.environ.get("AZURE_STORAGE_ACCOUNT", "").strip()
+    container = os.environ.get("DHARA_BLOB_CONTAINER", "").strip()
+    if account and container:
+        return f"abfss://{container}@{account}.dfs.core.windows.net/{loc.lstrip('/')}"
     clean_loc = loc.lstrip("/")
     if not clean_loc.startswith(("Files/", "Tables/")):
         clean_loc = f"Files/{clean_loc}"
-    return clean_loc
+    p = f"/lakehouse/default/{clean_loc}"
+    # Fallback checks if physical file on OneLake uses base filename without _csv / _json suffix
+    if not os.path.exists(p):
+        for candidate in (
+            p.replace("_csv.csv", ".csv"),
+            p.replace("_json.json", ".json"),
+            p.replace("Files/raw/", "Files/"),
+            p.replace("Files/raw/", "Files/").replace("_csv.csv", ".csv"),
+        ):
+            if os.path.exists(candidate):
+                return candidate
+    return p
 '''.strip()
 
 

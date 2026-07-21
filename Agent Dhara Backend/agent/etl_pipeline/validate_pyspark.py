@@ -170,8 +170,16 @@ def _check_resolve_helper_defined(source: str) -> Tuple[List[str], List[str]]:
 
 
 def _check_resolve_helper_quality(source: str) -> List[str]:
-    """Reject stub helpers that cannot resolve Azure blob paths."""
+    """Reject stub helpers that cannot resolve Azure blob paths.
+    Accepts:
+      - Full abfss:// URL built from AZURE_STORAGE_ACCOUNT + DHARA_BLOB_CONTAINER
+      - DHARA_BLOB_BASE_PATH / DHARA_BLOB_MOUNT env-based paths
+      - /lakehouse/default prefix (Fabric native notebooks)
+      - onelake.dfs.fabric.microsoft.com (Fabric OneLake)
+      - Files/ or Tables/ relative paths (Fabric Lakehouse)
+    """
     errs: List[str] = []
+    # Catch bare `return f"abfss://{location}"` stubs (no account/container)
     if re.search(
         r'return\s+f?["\']abfss://\{location\}["\']',
         source,
@@ -184,12 +192,28 @@ def _check_resolve_helper_quality(source: str) -> List[str]:
         )
     if "_resolve_data_path" in source and "def _resolve_data_path" in source:
         body = source.split("def _resolve_data_path", 1)[-1][:2000]
-        if "/lakehouse/default" not in body and "onelake.dfs.fabric.microsoft.com" not in body:
-            if "AZURE_STORAGE_ACCOUNT" not in body and "dfs.core.windows.net" not in body:
-                if re.search(r"abfss://", body, re.I):
-                    errs.append(
-                        "_resolve_data_path must build full abfss URLs with storage account and container"
-                    )
+        # Accepted patterns — any of these makes the helper valid
+        _VALID_PATTERNS = (
+            "/lakehouse/default",
+            "onelake.dfs.fabric.microsoft.com",
+            "AZURE_STORAGE_ACCOUNT",
+            "dfs.core.windows.net",
+            "DHARA_BLOB_BASE_PATH",
+            "DHARA_BLOB_CONTAINER",
+            "DHARA_BLOB_MOUNT",
+        )
+        has_valid = any(p in body for p in _VALID_PATTERNS)
+        # Only fail if abfss:// appears as a construction target (not passthrough) without valid context
+        if re.search(r"abfss://", body, re.I) and not has_valid:
+            # Allow if it's only used in a startswith() passthrough check (not building a URL)
+            passthrough_only = bool(
+                re.search(r'startswith\s*\(\s*[(\[]?\s*["\']abfss://', body, re.I)
+            ) and not re.search(r'f["\']abfss://', body, re.I)
+            if not passthrough_only:
+                errs.append(
+                    "_resolve_data_path must build full abfss URLs with storage account and container, "
+                    "use DHARA_BLOB_BASE_PATH, or return /lakehouse/default paths for Fabric"
+                )
     return errs
 
 
@@ -279,6 +303,28 @@ def _check_semantic_rules(source: str) -> List[str]:
     return errs
 
 
+def _check_undefined_function_calls(tree: ast.AST) -> List[str]:
+    """Flag calls to transform_* functions that are not defined in the source script."""
+    defined_funcs: Set[str] = set()
+    called_funcs: List[Tuple[str, int]] = []
+    
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            defined_funcs.add(node.name)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                called_funcs.append((node.func.id, getattr(node, "lineno", 0)))
+                
+    errs: List[str] = []
+    for func_name, lineno in called_funcs:
+        if func_name.startswith("transform_") and func_name not in defined_funcs:
+            errs.append(
+                f"Undefined function '{func_name}' called at line {lineno} — "
+                f"defined functions: {sorted(list(defined_funcs))}"
+            )
+    return errs
+
+
 def validate_pyspark_source(
     source: str,
     plan: Dict[str, Any] | None = None,
@@ -288,7 +334,7 @@ def validate_pyspark_source(
         return False, ["empty source"]
 
     try:
-        ast.parse(source)
+        tree = ast.parse(source)
     except SyntaxError as e:
         return False, [f"syntax: {e.msg} at line {e.lineno}"]
 
@@ -308,7 +354,6 @@ def validate_pyspark_source(
         errs.append("pandas-style pd.* usage detected — use pyspark.sql.functions")
 
     has_spark = False
-    tree = ast.parse(source)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for n in node.names or []:
@@ -331,6 +376,7 @@ def validate_pyspark_source(
     errs.extend(_check_io_antipatterns(source, plan))
     errs.extend(_check_spark_session_import(source, tree))
     errs.extend(_check_pyspark_imports(source, tree))
+    errs.extend(_check_undefined_function_calls(tree))
     errs.extend(_check_never_drop_rows(source, plan))
     errs.extend(_check_bare_deduplicate_spark(source, plan))
     errs.extend(_check_row_count_logging_spark(source))

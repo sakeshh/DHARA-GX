@@ -443,7 +443,10 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         for ds_name in (plan.get("datasets") or {}):
             fn = f"transform_{_safe(ds_name)}"
             lines.append(f'    if "{ds_name}" in dfs:')
-            lines.append(f'        dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
+            lines.append(f'        try:')
+            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
+            lines.append(f'        except TypeError:')
+            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"])')
             if non_nullable:
                 lines.append(f'        _warn_nulls_in_columns(dfs["{ds_name}"], {non_nullable!r}, "{ds_name}")')
             lines.append(f'        _log_row_count(dfs["{ds_name}"], "{ds_name}")')
