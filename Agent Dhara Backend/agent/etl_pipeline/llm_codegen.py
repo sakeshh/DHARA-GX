@@ -45,18 +45,33 @@ class LLMInfraError(Exception):
     """Raised for LLM infrastructure errors like rate limits or timeouts."""
     pass
 
-_CODE_CACHE = {}
+from collections import OrderedDict
+
+_CACHE_MAX_SIZE = 512
+_CODE_CACHE: OrderedDict[str, Any] = OrderedDict()
 _VALIDATOR_ACCEPTS_NDR: dict[str, bool] = {}
-_FAILURE_CACHE: dict[str, tuple[str, float]] = {}  # key -> (error_msg, expiry_time)
+_FAILURE_CACHE: OrderedDict[str, tuple[str, float]] = OrderedDict()  # key -> (error_msg, expiry_time)
+
+def _code_cache_put(cache_key: str, value: Any) -> None:
+    if cache_key in _CODE_CACHE:
+        _CODE_CACHE.move_to_end(cache_key)
+    _CODE_CACHE[cache_key] = value
+    if len(_CODE_CACHE) > _CACHE_MAX_SIZE:
+        _CODE_CACHE.popitem(last=False)
 
 def _is_failure_cached(cache_key: str) -> str | None:
     entry = _FAILURE_CACHE.get(cache_key)
     if entry and time.time() < entry[1]:
+        _FAILURE_CACHE.move_to_end(cache_key)
         return entry[0]  # return cached error
     return None
 
 def _write_failure_cache(cache_key: str, error: str, ttl_seconds: int = 30):
+    if cache_key in _FAILURE_CACHE:
+        _FAILURE_CACHE.move_to_end(cache_key)
     _FAILURE_CACHE[cache_key] = (error, time.time() + ttl_seconds)
+    if len(_FAILURE_CACHE) > _CACHE_MAX_SIZE:
+        _FAILURE_CACHE.popitem(last=False)
 
 _PYSPARK_REQUIRED_IMPORTS = [
     ("from pyspark.sql import SparkSession, DataFrame", ["SparkSession", "DataFrame"]),
@@ -1540,7 +1555,7 @@ def _generate_etl_with_llm_impl(
                 ok, errs = res
 
             if ok:
-                _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
+                _code_cache_put(cache_key, {"code": code, "time": time.time(), "ok": True})
                 return code, None
             if attempt < max_retries:
                 logger.info(f"[Retry Debug] Attempt {attempt + 1} code failed validation with errors: {errs}. Code snippet:\n{code[:1200]}")
@@ -1549,12 +1564,12 @@ def _generate_etl_with_llm_impl(
             # After max retries, return with validation warnings prepended
             warning = "\n".join(f"# VALIDATION WARNING: {e}" for e in errs)
             res_code = f"{warning}\n\n{code}"
-            _CODE_CACHE[cache_key] = {"code": res_code, "time": time.time(), "ok": False}
+            _code_cache_put(cache_key, {"code": res_code, "time": time.time(), "ok": False})
             _write_failure_cache(cache_key, f"Validation errors: {errs}")
             return res_code, f"Validation errors: {errs}"
         else:
             logger.warning(f"No validator or validate_fn found for engine '{engine_key}' — skipping validation")
-            _CODE_CACHE[cache_key] = {"code": code, "time": time.time(), "ok": True}
+            _code_cache_put(cache_key, {"code": code, "time": time.time(), "ok": True})
             return code, None
 
     return code, None

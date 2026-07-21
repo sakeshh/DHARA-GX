@@ -284,8 +284,10 @@ def enrich_assessment_with_governance(
         extra = evaluate_cross_field_rules(str(ds_name), df, combined_rules)
         if not extra:
             continue
+        from agent.etl_pipeline.dq_issue_schema import normalize_issue_dict
+        normalized_extra = [normalize_issue_dict(i, str(ds_name), "cross_field") for i in extra]
         block = dq.setdefault(str(ds_name), {"issues": [], "summary": {"issue_count": 0, "high_severity": 0, "medium_severity": 0, "low_severity": 0}})
-        block.setdefault("issues", []).extend(extra)
+        block.setdefault("issues", []).extend(normalized_extra)
         summ = block.setdefault("summary", {"issue_count": 0, "high_severity": 0, "medium_severity": 0, "low_severity": 0})
         summ["issue_count"] = len(block["issues"])
         summ["high_severity"] = sum(1 for i in block["issues"] if str(i.get("severity")).lower() == "high")

@@ -243,3 +243,20 @@ def load_checkpoint(job_id: str, stage: str) -> Optional[Dict[str, Any]]:
     finally:
         conn.close()
 
+
+def requeue_stale_jobs(*, stale_after_seconds: int = 1800) -> int:
+    """Requeue jobs stuck in 'running' for longer than stale_after_seconds."""
+    cutoff = time.time() - stale_after_seconds
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            "UPDATE jobs SET status='queued', updated_at=? WHERE status='running' AND updated_at < ?",
+            (time.time(), cutoff),
+        )
+        count = cur.rowcount
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+

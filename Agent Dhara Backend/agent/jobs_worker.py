@@ -4,7 +4,14 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from agent.jobs_store import add_event, claim_next_job, update_job_status, save_checkpoint, load_checkpoint
+from agent.jobs_store import (
+    add_event,
+    claim_next_job,
+    update_job_status,
+    save_checkpoint,
+    load_checkpoint,
+    requeue_stale_jobs,
+)
 
 
 def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
@@ -134,6 +141,7 @@ class JobWorker:
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        requeue_stale_jobs()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 

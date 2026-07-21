@@ -340,7 +340,10 @@ def run_gx_validation(
 
 
                 # 5. Run GX Validation (using COMPLETE format for index tracking)
-                validation_result = validator.validate(result_format="COMPLETE")
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message=".*result_format.*", category=UserWarning)
+                    validation_result = validator.validate(result_format="COMPLETE")
 
                 # Parse the outcomes
                 results_processed = []
