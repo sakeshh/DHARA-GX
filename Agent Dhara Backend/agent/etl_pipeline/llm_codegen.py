@@ -229,19 +229,35 @@ def _fix_unsafe_pyspark_first_calls(code: str) -> str:
     pat_standalone = re.compile(
         r"(\w+)\s*=\s*(\w+\.select\(.*?\))\.\s*first\(\)\s*\[\s*(0|[\"\']\w+[\"\'])\s*\]"
     )
-    return pat_standalone.sub(repl_standalone, code)
+    code = pat_standalone.sub(repl_standalone, code)
+
+    # 3. Fix df = df.withColumn(col, F.when(F.col(col).isNull(), var).otherwise(F.col(col))) where var may be None
+    def repl_when(m):
+        target_df = m.group(1)
+        col = m.group(2)
+        var = m.group(3)
+        return (
+            f"if {var} is not None:\n"
+            f"        {target_df} = {target_df}.withColumn({col}, F.when(F.col({col}).isNull(), F.lit({var})).otherwise(F.col({col})))"
+        )
+
+    pat_when = re.compile(
+        r"(\w+)\s*=\s*\1\.withColumn\(\s*([\"\']\w+[\"\'])\s*,\s*F\.when\(\s*F\.col\(\2\)\.isNull\(\)\s*,\s*(\w+)\s*\)\.otherwise\(F\.col\(\2\)\)\)"
+    )
+    return pat_when.sub(repl_when, code)
 
 
-def _inject_pyspark_datasets_decl(code: str) -> str:
+def _inject_pyspark_datasets_decl(code: str, plan: Optional[Dict[str, Any]] = None) -> str:
     if not code:
         return code
+        
+    real_datasets = list((plan.get("datasets") or {}).keys()) if plan else []
     if "DATASETS" in code and re.search(r"\bDATASETS\s*=\s*\[", code):
+        if real_datasets:
+            code = re.sub(r"\bDATASETS\s*=\s*\[.*?\]", f"DATASETS = {repr(real_datasets)}", code)
         return code
     
-    datasets = re.findall(r"def transform_(\w+)\s*\(", code)
-    if not datasets:
-        datasets = ["default"]
-        
+    datasets = real_datasets or re.findall(r"def transform_(\w+)\s*\(", code) or ["default"]
     decl = f"DATASETS = {repr(datasets)}\n"
     
     lines = code.splitlines(keepends=True)
@@ -1588,7 +1604,7 @@ def _generate_etl_with_llm_impl(
         if engine_key == "pyspark":
             code = _inject_pyspark_imports(code)
             code = _inject_pyspark_fabric_ids(code)
-            code = _inject_pyspark_datasets_decl(code)
+            code = _inject_pyspark_datasets_decl(code, plan)
             code = _inject_pyspark_helpers(code)
             code = _inject_pyspark_run_pipeline(code, plan)
             code = _fix_mismatched_transform_calls(code)

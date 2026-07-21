@@ -28,6 +28,17 @@ def _clean_env_value(v: Optional[str]) -> Optional[str]:
         s = s[1:-1].strip()
     return s or None
 
+def _is_matching_dataset(a: str, b: str) -> bool:
+    """Check if two dataset keys match, ignoring dots/underscores/case differences."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    a_norm = re.sub(r"[^a-z0-9]", "", str(a).lower())
+    b_norm = re.sub(r"[^a-z0-9]", "", str(b).lower())
+    return a_norm == b_norm
+
+
 def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
     """
     Wraps all dfs assignments for non-target datasets in `if False:` blocks
@@ -53,7 +64,7 @@ def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
                             elif isinstance(target_node.slice, ast.String):
                                 slice_val = target_node.slice.s
                                 
-                            if slice_val and slice_val != self.target:
+                            if slice_val and not _is_matching_dataset(slice_val, self.target):
                                 return ast.If(
                                     test=ast.Constant(value=False),
                                     body=[node],
@@ -74,7 +85,7 @@ def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
         while i < len(lines):
             line = lines[i]
             m = re.match(r'^(\s*)dfs\[[\"\']([^\"\']+)[\"\']\]\s*=', line)
-            if m and m.group(2) != target_ds:
+            if m and not _is_matching_dataset(m.group(2), target_ds):
                 block = [line]
                 indent = len(m.group(1))
                 i += 1
