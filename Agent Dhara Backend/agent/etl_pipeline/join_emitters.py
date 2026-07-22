@@ -271,26 +271,37 @@ def emit_pyspark_write_outputs(plan: Dict[str, Any], manifest: Dict[str, Any]) -
         if wsnip.startswith("df."):
             wsnip = f'dfs["{ds_name}"].' + wsnip[3:]
         lines.append(f'if "{ds_name}" in dfs:')
-        lines.append(f'    _out = _resolve_data_path("{op}")')
-        lines.append(f'    OUTPUT_PATHS[{ds_name!r}] = _out')
-        lines.append(f"    logger.info('Writing %s -> %s', {ds_name!r}, _out)")
-        if ".json(" in wsnip:
-            lines.append(f'    dfs["{ds_name}"].write.mode("overwrite").json(_out)')
-        elif ".parquet(" in wsnip:
-            lines.append(f'    dfs["{ds_name}"].write.mode("overwrite").parquet(_out)')
-        elif ".csv(" in wsnip:
+
+        # Fabric managed table writes use saveAsTable — resolve path only for blob/file writes.
+        is_fabric_table = "saveAsTable(" in wsnip
+        if is_fabric_table:
+            # _out is the lakehouse path for audit; write target comes from saveAsTable table name.
+            table_name = ent.get("clean_table_name") or _safe(ds_name) + "_clean"
+            lines.append(f"    _out = 'Tables/{table_name}'  # Fabric managed table (audit path)")
+            lines.append(f'    OUTPUT_PATHS[{ds_name!r}] = _out')
+            lines.append(f"    logger.info('Writing %s -> Fabric table %s', {ds_name!r}, {table_name!r})")
             lines.append(
-                f'    dfs["{ds_name}"].write.mode("overwrite").option("header", "true").csv(_out)'
+                f'    dfs["{ds_name}"].write.format("delta").mode("overwrite")'
+                f'.option("overwriteSchema", "true").saveAsTable("{table_name}")'
             )
         else:
-            # Handle multi-statement snippets (e.g. Fabric delta write + catalog registration)
-            for stmt in wsnip.split(";"):
-                stmt = stmt.strip()
-                if stmt:
-                    if stmt.startswith("df.") or stmt.startswith("dfs["):
+            lines.append(f'    _out = _resolve_data_path("{op}")')
+            lines.append(f'    OUTPUT_PATHS[{ds_name!r}] = _out')
+            lines.append(f"    logger.info('Writing %s -> %s', {ds_name!r}, _out)")
+            if ".json(" in wsnip:
+                lines.append(f'    dfs["{ds_name}"].write.mode("overwrite").json(_out)')
+            elif ".parquet(" in wsnip:
+                lines.append(f'    dfs["{ds_name}"].write.mode("overwrite").parquet(_out)')
+            elif ".csv(" in wsnip:
+                lines.append(
+                    f'    dfs["{ds_name}"].write.mode("overwrite").option("header", "true").csv(_out)'
+                )
+            else:
+                for stmt in wsnip.split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
                         lines.append(f"    {stmt}")
-                    else:
-                        lines.append(f"    {stmt}")
+
 
     joins = [j for j in (rel.get("joins") or []) if j.get("join_type") != "review"]
     if joins and not _skip_joins_for_plan(plan):
@@ -324,7 +335,16 @@ def emit_pyspark_load(plan: Dict[str, Any], manifest: Dict[str, Any]) -> List[st
     lines.append("# Load (connector manifest — use _resolve_data_path for blob/SQL)")
     for ds_name in load_order:
         ent = m_ds.get(ds_name) or {}
-        snip = ent.get("read_snippet_pyspark") or f'spark.read.json(_resolve_data_path("{ds_name}"))'
+        snip = ent.get("read_snippet_pyspark")
+        if not snip:
+            from agent.etl_pipeline.io_snippets import pyspark_read_snippet
+            mock_ent = dict(ent)
+            mock_ent.setdefault("location", ds_name)
+            if "format" not in mock_ent:
+                ext = (ds_name.rsplit(".", 1)[-1] if "." in ds_name else "").lower()
+                from agent.etl_pipeline.io_snippets import infer_format_from_ext
+                mock_ent["format"] = infer_format_from_ext("." + ext, mock_ent.get("source_type", "blob_storage"))
+            snip = pyspark_read_snippet(mock_ent)
         fmt = ent.get("format", "?")
         lines.append(f'# {ds_name}: {ent.get("source_type")} ({fmt}) @ {ent.get("location")}')
         lines.append(f'dfs["{ds_name}"] = {snip}')

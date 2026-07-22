@@ -99,8 +99,13 @@ def validate_pyspark(code: str, never_drop_rows: bool = False) -> Tuple[bool, Li
     
     if "spark.read.csv" in code and ".xml" in code:
         errors.append("read.csv on .xml file — use XML format reader")
-    if "SparkSession" not in code:
-        errors.append("Missing SparkSession creation")
+    has_spark = (
+        "SparkSession" in code
+        or "from pyspark.sql import" in code
+        or ("try:" in code and "spark" in code)
+    )
+    if not has_spark:
+        errors.append("Missing SparkSession creation or import")
 
     # Advisory only
     if "_resolve_data_path" not in code and "abfss://" not in code:

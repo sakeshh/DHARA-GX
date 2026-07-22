@@ -143,36 +143,41 @@ def fetch_job(job_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def claim_next_job(*, kinds: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+def claim_next_job(*, kinds: Optional[List[str]] = None, max_retries: int = 10) -> Optional[Dict[str, Any]]:
     """
-    Claim job under transactional BEGIN IMMEDIATE to prevent double-claiming race conditions.
+    Claim job under transactional BEGIN IMMEDIATE with retry to prevent double-claiming race conditions.
     """
-    conn = _connect()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        if kinds:
-            q = "SELECT job_id FROM jobs WHERE status='queued' AND kind IN ({}) ORDER BY created_at LIMIT 1".format(
-                ",".join(["?"] * len(kinds))
-            )
-            row = conn.execute(q, tuple(kinds)).fetchone()
-        else:
-            row = conn.execute("SELECT job_id FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
-        if not row:
-            conn.execute("COMMIT")
-            return None
-        job_id = row[0]
-        conn.execute("UPDATE jobs SET status='running', updated_at=? WHERE job_id=?", (time.time(), job_id))
-        conn.commit()
-    except sqlite3.OperationalError:
+    for attempt in range(max_retries):
+        conn = _connect()
         try:
-            conn.execute("ROLLBACK")
-        except Exception:
-            pass
-        return None
-    finally:
-        conn.close()
-    add_event(job_id=job_id, level="info", message="running")
-    return fetch_job(job_id)
+            conn.execute("BEGIN IMMEDIATE")
+            if kinds:
+                q = "SELECT job_id FROM jobs WHERE status='queued' AND kind IN ({}) ORDER BY created_at LIMIT 1".format(
+                    ",".join(["?"] * len(kinds))
+                )
+                row = conn.execute(q, tuple(kinds)).fetchone()
+            else:
+                row = conn.execute("SELECT job_id FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+            if not row:
+                conn.execute("COMMIT")
+                return None
+            job_id = row[0]
+            conn.execute("UPDATE jobs SET status='running', updated_at=? WHERE job_id=?", (time.time(), job_id))
+            conn.commit()
+            add_event(job_id=job_id, level="info", message="running")
+            return fetch_job(job_id)
+        except sqlite3.OperationalError:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            time.sleep(0.02 * (attempt + 1))
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return None
 
 
 def fetch_events(job_id: str, *, after_id: int = 0, limit: int = 200) -> List[Dict[str, Any]]:

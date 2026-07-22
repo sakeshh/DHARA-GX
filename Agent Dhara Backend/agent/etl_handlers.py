@@ -272,11 +272,26 @@ def _safe_segment(s: str) -> str:
     return t or "default"
 
 
-def _rehydrate_plan(plan: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
+def _rehydrate_plan(plan: Dict[str, Any], ctx: Dict[str, Any], assess: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Restore session-owned fields stripped by UI plan edits."""
     out = dict(plan)
-    if not out.get("connector_manifest") and ctx.get("connector_manifest"):
-        out["connector_manifest"] = ctx["connector_manifest"]
+    if not out.get("connector_manifest"):
+        manifest = ctx.get("connector_manifest")
+        if not manifest:
+            assessment = assess if isinstance(assess, dict) else ctx.get("last_assessment_result")
+            try:
+                from agent.etl_pipeline.connector_manifest import build_connector_manifest
+                assess_with_ds = assessment if (isinstance(assessment, dict) and assessment.get("datasets")) else {"datasets": out.get("datasets") or {}}
+                manifest = build_connector_manifest(ctx, assess_with_ds)
+                ctx["connector_manifest"] = manifest
+            except Exception as e:
+                logger.warning(f"Failed to build connector manifest fallback: {e}")
+                manifest = None
+        if manifest:
+            out["connector_manifest"] = manifest
+        else:
+            logger.warning("_rehydrate_plan: connector_manifest not found in plan or session context. Re-run POST /etl/plan.")
+            out["_manifest_missing"] = True
     if not out.get("source_context") and ctx.get("source_context"):
         out["source_context"] = ctx["source_context"]
     if not out.get("relationships") and (ctx.get("etl_flow") or {}).get("plan", {}).get("relationships"):
@@ -365,6 +380,8 @@ def etl_plan_start(
         ctx["last_assessment_result"] = assessment_result
 
     flow = ctx.setdefault("etl_flow", {})
+    flow["workspace_id"] = os.getenv("FABRIC_WORKSPACE_ID") or flow.get("workspace_id")
+    flow["lakehouse_id"] = os.getenv("FABRIC_LAKEHOUSE_NAME") or os.getenv("FABRIC_LAKEHOUSE_ID") or flow.get("lakehouse_id")
     schema_sig = _assessment_schema_signature(assess)
     flow["assessment_schema_signature"] = schema_sig
     sess["session_state"] = "planned"
@@ -939,7 +956,7 @@ def etl_confirm_plan(session_id: str, plan_override: Optional[Dict[str, Any]] = 
     if not isinstance(plan, dict) or not plan.get("datasets"):
         return {"ok": False, "error": "NO_PLAN", "message": "Create a plan first (POST /etl/plan)."}
 
-    plan = enrich_plan_manual_review(_rehydrate_plan(plan, ctx))
+    plan = enrich_plan_manual_review(_rehydrate_plan(plan, ctx, assess=assess))
 
     rules = flow.get("business_rules") or plan.get("business_rules") or {}
     if rules.get("auto_resolve_safe_defaults") or plan.get("auto_resolve_safe_defaults"):
@@ -1232,7 +1249,7 @@ def etl_generate_code(
             "error": "NO_APPROVED_PLAN",
             "message": "Confirm the plan first (POST /etl/confirm).",
         }
-    plan = _rehydrate_plan(plan, ctx)
+    plan = _rehydrate_plan(plan, ctx, assess=assess)
     
     # Gate check: check for any pending complex or non-fixable issues
     from agent.etl_pipeline.planner import get_unacknowledged_blockers
@@ -1254,12 +1271,23 @@ def etl_generate_code(
         
     from agent.etl_pipeline.plan_coverage_report import build_coverage_report
     cov_report = build_coverage_report(assess, plan)
-    if cov_report.get("uncovered"):
+    allow_uncovered = bool(flow.get("allow_uncovered") or plan.get("allow_uncovered"))
+    if cov_report.get("uncovered") and not allow_uncovered:
         return {
             "ok": False,
             "error": "UNCOVERED_ISSUES",
             "message": f"Cannot generate code: {len(cov_report['uncovered'])} issues in the assessment are not mapped to any ETL step, manual review, or non-fixable resolution.",
             "uncovered": cov_report["uncovered"],
+        }
+        
+    if plan.get("_manifest_missing"):
+        return {
+            "ok": False,
+            "error": "MANIFEST_MISSING",
+            "message": (
+                "The connector manifest (dataset read/write paths) is missing. "
+                "Re-run POST /etl/plan to rebuild it."
+            ),
         }
         
     semantic_context = assess.get("semantic_context") or {}

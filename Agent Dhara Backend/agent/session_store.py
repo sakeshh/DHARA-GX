@@ -188,6 +188,30 @@ def save_session(session_id_or_payload: str | Dict[str, Any], payload: Optional[
 
     loaded_version = payload.pop("_version", None)
     now = time.time()
+
+    # ── Payload size guard ───────────────────────────────────────────────────
+    # Prevent bloated last_assessment_result from causing SQLITE_TOOBIG errors
+    # or slow deserialization. Cap at 5 MB; store a lightweight stub instead.
+    _MAX_ASSESSMENT_BYTES = 5 * 1024 * 1024  # 5 MB
+    ctx = payload.get("context") if isinstance(payload.get("context"), dict) else None
+    raw_assess = ctx.get("last_assessment_result") if ctx else payload.get("last_assessment_result")
+    if raw_assess is not None and isinstance(raw_assess, dict):
+        try:
+            raw_bytes = len(json.dumps(raw_assess, cls=SessionJSONEncoder).encode("utf-8"))
+            if raw_bytes > _MAX_ASSESSMENT_BYTES:
+                logger.warning(
+                    f"Session '{sid}': last_assessment_result is {raw_bytes // 1024}KB — "
+                    f"trimming to prevent session bloat (cap={_MAX_ASSESSMENT_BYTES // 1024}KB)"
+                )
+                stub = {"_trimmed": True, "datasets": list((raw_assess.get("datasets") or {}).keys())}
+                if ctx:
+                    ctx["last_assessment_result"] = stub
+                else:
+                    payload["last_assessment_result"] = stub
+        except Exception as _size_err:
+            logger.debug(f"Session payload size check failed (non-critical): {_size_err}")
+    # ────────────────────────────────────────────────────────────────────────
+
     conn = _connect()
     try:
         row = conn.execute("SELECT version FROM sessions WHERE session_id = ?", (sid,)).fetchone()

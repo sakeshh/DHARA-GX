@@ -114,7 +114,8 @@ export default function DataPipelinePage() {
         if (!pollRes.ok) {
           throw new Error(`Failed to check job status: ${pollRes.statusText}`);
         }
-        const job = await pollRes.json();
+        const rawJobData = await pollRes.json();
+        const job = rawJobData.job || rawJobData;
         if (job.status === 'succeeded') {
           jobResult = job.result;
           if (jobResult && jobResult.ok === false) {

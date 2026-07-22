@@ -30,10 +30,12 @@ class FabricNotebookExecutor(Executor):
         
         # 1. Deploy notebooks per dataset and trigger concurrent execution runs
         try:
+            raw_plan_dict = kwargs.get("plan") or plan.metadata.get("raw_plan") or plan.metadata.get("plan")
             deploy_res = deploy_and_run_notebook(
                 session_id=session_id,
                 pyspark_code=plan.code,
-                lakehouse_id=lakehouse_id
+                lakehouse_id=lakehouse_id,
+                plan=raw_plan_dict,
             )
         except Exception as e:
             duration = (time.time() - t0) * 1000
@@ -61,13 +63,26 @@ class FabricNotebookExecutor(Executor):
         # 2. Poll all triggered notebooks for status
         logger.info(f"Triggered {len(runs)} notebook jobs successfully. Polling runs...")
         import asyncio
-        status_res = asyncio.run(
-            poll_multiple_notebooks_status(
-                runs=runs,
-                timeout_seconds=kwargs.get("timeout_s", 600),
-                poll_interval=kwargs.get("poll_interval_s", 10)
-            )
-        )
+        import concurrent.futures
+
+        def _run_polling_sync(runs_list, timeout_sec, poll_int):
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(
+                    poll_multiple_notebooks_status(
+                        runs=runs_list,
+                        timeout_seconds=timeout_sec,
+                        poll_interval=poll_int,
+                    )
+                )
+            finally:
+                loop.close()
+
+        timeout_s = kwargs.get("timeout_s", 600)
+        poll_interval_s = kwargs.get("poll_interval_s", 10)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_run_polling_sync, runs, timeout_s, poll_interval_s)
+            status_res = future.result(timeout=timeout_s + 30)
         
         duration = (time.time() - t0) * 1000
         ok = status_res.get("ok", False)

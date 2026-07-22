@@ -923,6 +923,15 @@ class PlanBuilder:
 
 
         for ds_name, steps in datasets_out.items():
+            # Deduplicate steps with identical action and column
+            seen_step_keys = set()
+            deduped_steps = []
+            for st in steps:
+                s_key = (st.get("action"), str(st.get("column") or "").lower())
+                if s_key not in seen_step_keys:
+                    seen_step_keys.add(s_key)
+                    deduped_steps.append(st)
+            steps = deduped_steps
             steps.sort(key=lambda x: (x["priority"], str(x.get("column") or "")))
             enriched_steps: List[Dict[str, Any]] = []
             for i, st in enumerate(steps, start=1):

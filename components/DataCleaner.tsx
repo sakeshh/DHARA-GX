@@ -85,7 +85,8 @@ export default function DataCleaner({ sessionId, files, etlCode, assessmentData,
         if (!pollRes.ok) {
           throw new Error(`Failed to check job status: ${pollRes.statusText}`);
         }
-        const job = await pollRes.json();
+        const rawJobData = await pollRes.json();
+        const job = rawJobData.job || rawJobData;
         
         const calculatedProgress = Math.min(95, 20 + pollCount * 3);
         setProgress(calculatedProgress);

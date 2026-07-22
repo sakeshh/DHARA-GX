@@ -34,21 +34,23 @@ class FabricAPIClient:
         
         self.base_url = "https://api.fabric.microsoft.com/v1"
         self.token: Optional[str] = None
+        self._token_expires_at: float = 0.0
         
         # Check if we should run in mock mode
         self.mock_mode = os.getenv("DHARA_FABRIC_MOCK", "0").strip().lower() in ("1", "true", "yes")
-        if not self.mock_mode:
-            if not self.workspace_id:
-                raise ValueError("FABRIC_WORKSPACE_ID environment variable is missing or empty.")
-            if not self.lakehouse_id:
-                raise ValueError("FABRIC_LAKEHOUSE_ID / FABRIC_LAKEHOUSE_NAME environment variable is missing or empty.")
             
     def _acquire_token(self) -> Optional[str]:
+        import time
         if self.mock_mode:
             return "mock-token"
             
-        if self.token:
+        if self.token and time.time() < self._token_expires_at - 60:
             return self.token
+
+        if not self.workspace_id:
+            raise RuntimeError("FABRIC_WORKSPACE_ID environment variable is missing or empty.")
+        if not self.lakehouse_id:
+            raise RuntimeError("FABRIC_LAKEHOUSE_ID / FABRIC_LAKEHOUSE_NAME environment variable is missing or empty.")
             
         # Try service principal first
         if self.tenant_id and self.client_id and self.client_secret:
@@ -63,7 +65,10 @@ class FabricAPIClient:
             try:
                 res = requests.post(url, data=data, timeout=15)
                 res.raise_for_status()
-                self.token = res.json().get("access_token")
+                payload = res.json()
+                self.token = payload.get("access_token")
+                expires_in = int(payload.get("expires_in", 3600))
+                self._token_expires_at = time.time() + expires_in
                 return self.token
             except Exception as e:
                 logger.error(f"Failed to acquire token via Service Principal: {e}")
@@ -76,6 +81,7 @@ class FabricAPIClient:
             cred = DefaultAzureCredential()
             token_response = cred.get_token("https://api.fabric.microsoft.com/.default")
             self.token = token_response.token
+            self._token_expires_at = getattr(token_response, "expires_on", time.time() + 3600)
             return self.token
         except Exception as e:
             logger.error(f"Could not acquire Fabric token via DefaultAzureCredential: {e}")

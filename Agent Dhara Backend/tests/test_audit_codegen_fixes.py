@@ -419,4 +419,38 @@ def test_planner_coverage_zero_uncovered():
     assert len(plan["coverage"]["uncovered_items"]) == 0
 
 
+def test_pyspark_none_literal_post_processor():
+    from agent.etl_pipeline.llm_codegen import _fix_pyspark_none_literals
+    
+    code = """
+def transform_data(df):
+    df = df.withColumn("col1", F.when(F.col("col1") == "0", None).otherwise(F.col("col1")))
+    df = df.withColumn("col2", F.when(F.col("col2").isNull(), None).otherwise(F.col("col2")))
+    vals = ["1", "2"]
+    for v in vals:
+        df = df.withColumn("col3", F.when(F.col("col3") == v, None).otherwise(F.col("col3")))
+    return df
+"""
+    fixed = _fix_pyspark_none_literals(code)
+    assert "F.when(F.col(\"col1\") == \"0\", F.lit(None))" in fixed
+    assert "skipped no-op null fill on \"col2\"" in fixed
+    assert "F.when(F.col(\"col3\").isin(vals), F.lit(None))" in fixed
+
+
+def test_mismatched_transform_calls_regex_fallback():
+    from agent.etl_pipeline.llm_codegen import _fix_mismatched_transform_calls
+    
+    code = """
+def transform_orders(df):
+    return df
+
+def run_pipeline(spark):
+    dfs = {}
+    dfs['orders.json'] = transform_orders_json(dfs['orders.json'])
+"""
+    fixed = _fix_mismatched_transform_calls(code)
+    assert "transform_orders(dfs['orders.json'])" in fixed
+
+
+
 

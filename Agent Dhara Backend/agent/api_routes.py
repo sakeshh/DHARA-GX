@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse, JSONResponse
 
 from agent.logging_setup import setup_logging
@@ -33,6 +33,11 @@ from agent.service_layer import (
 from agent.bootstrap import load_config as _load_config
 
 router = APIRouter()
+
+_assess_limiter = InMemoryRateLimiter(max_requests=10, window_seconds=60)
+_plan_limiter = InMemoryRateLimiter(max_requests=30, window_seconds=60)
+_generate_limiter = InMemoryRateLimiter(max_requests=20, window_seconds=60)
+_execute_limiter = InMemoryRateLimiter(max_requests=5, window_seconds=60)
 
 class ConfigText(BaseModel):
     config: str
@@ -152,7 +157,7 @@ class EtlExecutePayload(BaseModel):
     session_id: str
     approved: Optional[bool] = False
     dry_run: Optional[bool] = False
-    timeout_s: Optional[int] = 120
+    timeout_s: Optional[int] = 600
 
 
 class TestConnectionPayload(BaseModel):
@@ -199,14 +204,14 @@ def set_worker(w):
 
 # Register all routes on the router
 @router.post("/run")
-def api_run(cfg: ConfigText, additional_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def api_run(cfg: ConfigText, _auth: None = Depends(require_backend_token), additional_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run a full assessment. Config from body, or from file at MCP_DEFAULT_CONFIG_PATH if body empty."""
     config_text = _get_config_text(cfg.config)
     return run_assessment(config_text, additional_data=additional_data, approved_semantics=cfg.approved_semantics)
 
 
 @router.post("/list_tables")
-def api_list_tables(cfg: ConfigText) -> Dict[str, List[str]]:
+def api_list_tables(cfg: ConfigText, _auth: None = Depends(require_backend_token)) -> Dict[str, List[str]]:
     """List SQL tables. Config from body, or from MCP_DEFAULT_CONFIG_PATH if body empty."""
     config_text = _get_config_text(cfg.config)
     return {"tables": list_tables(config_text)}
@@ -221,7 +226,7 @@ _SCHEMA_CACHE: Dict[str, Any] = {
 
 
 @router.get("/schema/tables")
-def api_schema_tables(ttl_seconds: int = 30) -> Dict[str, Any]:
+def api_schema_tables(ttl_seconds: int = 30, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Discover Azure SQL tables from the configured sources file.
 
@@ -276,7 +281,7 @@ def api_schema_tables(ttl_seconds: int = 30) -> Dict[str, Any]:
 
 
 @router.post("/transform_suggest")
-def api_transform_suggest(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_transform_suggest(payload: Dict[str, Any], _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Generate transformation suggestions from an existing assessment result.
     Payload:
@@ -292,7 +297,7 @@ def api_transform_suggest(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/dq_recommend")
-def api_dq_recommend(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_dq_recommend(payload: Dict[str, Any], _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Generate LLM-assisted cleaning recommendations from merged DQ issues.
     Payload:
@@ -313,19 +318,19 @@ def api_dq_recommend(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/stream")
-def api_stream(payload: StreamPayload) -> Dict[str, Any]:
+def api_stream(payload: StreamPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     return process_stream_chunk(payload.records, name=payload.name or "stream")
 
 
 @router.post("/load_path")
-def api_load_path(payload: PathPayload) -> Dict[str, Any]:
+def api_load_path(payload: PathPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Load datasets from a filesystem path (returns dict of name -> dataframe; JSON serialization may omit raw data)."""
     data = load_path(payload.path)
     return {"datasets": list(data.keys()), "count": len(data)}
 
 
 @router.get("/sources")
-def api_sources() -> Dict[str, Any]:
+def api_sources(_auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Return available source configurations from sources.yaml (no secrets redacted here; keep it internal).
     """
@@ -351,11 +356,12 @@ def api_sources() -> Dict[str, Any]:
 
 
 @router.post("/assess")
-def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
+def api_assess(payload: AssessPayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     High-level orchestration endpoint:
     uses LangGraph orchestrator (route -> extract -> transform).
     """
+    _assess_limiter.check(client_ip(request))
     from agent.langgraph_orchestrator import run_orchestrator
 
     sources_path = (
@@ -410,7 +416,7 @@ def api_assess(payload: AssessPayload, request: Request) -> Dict[str, Any]:
 
 
 @router.post("/chat")
-def api_chat(payload: ChatPayload) -> Dict[str, Any]:
+def api_chat(payload: ChatPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Conversational endpoint using 3-agent LangGraph chat workflow.
     """
@@ -446,21 +452,21 @@ def api_chat(payload: ChatPayload) -> Dict[str, Any]:
 
 
 @router.get("/sessions")
-def api_list_sessions(limit: int = 50) -> Dict[str, Any]:
+def api_list_sessions(limit: int = 50, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import list_sessions
 
     return {"ok": True, "sessions": list_sessions(limit=limit)}
 
 
 @router.get("/sessions/{session_id}")
-def api_get_session(session_id: str) -> Dict[str, Any]:
+def api_get_session(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import load_session
 
     return {"ok": True, "session": load_session(session_id)}
 
 
 @router.post("/sessions/context")
-def api_update_session_context(payload: SessionContextPayload) -> Dict[str, Any]:
+def api_update_session_context(payload: SessionContextPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Merge arbitrary keys into a session's context.
     Used by the UI to persist uploaded report text and other user artifacts.
@@ -480,7 +486,7 @@ def api_update_session_context(payload: SessionContextPayload) -> Dict[str, Any]
 
 
 @router.post("/etl/infer-semantics")
-def api_infer_semantics(payload: SemanticInferencePayload) -> Dict[str, Any]:
+def api_infer_semantics(payload: SemanticInferencePayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Load sample data for the selected sources/tables and infer column semantics.
     Returns: {"ok": True, "semantics": { table_name: { col_name: tag } }}
@@ -594,7 +600,7 @@ def api_infer_semantics(payload: SemanticInferencePayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/enrich-semantics")
-def api_enrich_semantics(payload: Dict[str, Any]) -> Dict[str, Any]:
+def api_enrich_semantics(payload: Dict[str, Any], _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Enrich low-confidence columns.
     """
@@ -605,8 +611,9 @@ def api_enrich_semantics(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/etl/plan")
-def api_etl_plan(payload: EtlPlanPayload) -> Dict[str, Any]:
+def api_etl_plan(payload: EtlPlanPayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Build ETL plan from assessment + business rules; stores under session.context.etl_flow."""
+    _plan_limiter.check(client_ip(request))
     from agent.etl_handlers import etl_plan_start
 
     return etl_plan_start(
@@ -626,14 +633,14 @@ def api_etl_plan(payload: EtlPlanPayload) -> Dict[str, Any]:
 
 
 @router.get("/etl/tenants")
-def api_etl_tenants() -> Dict[str, Any]:
+def api_etl_tenants(_auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.etl_handlers import etl_list_tenants
 
     return etl_list_tenants()
 
 
 @router.post("/etl/apply-manual-resolutions")
-def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) -> Dict[str, Any]:
+def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Promote user-selected manual review resolutions into plan steps."""
     from agent.etl_handlers import etl_apply_manual_resolutions
 
@@ -645,7 +652,7 @@ def api_etl_apply_manual_resolutions(payload: EtlApplyManualResolutionsPayload) 
 
 
 @router.post("/etl/enrich-review-options")
-def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload) -> Dict[str, Any]:
+def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Enrich dynamic resolution options for an unmapped anomaly type in the plan using the LLM."""
     from agent.etl_pipeline.manual_review_catalog import get_dynamic_resolution_options, enrich_manual_review_item
     from agent.session_store import load_session, save_session
@@ -677,7 +684,7 @@ def api_etl_enrich_review_options(payload: EtlEnrichReviewOptionsPayload) -> Dic
 
 
 @router.post("/etl/non-fixable-resolutions")
-def api_etl_non_fixable_resolutions(payload: EtlNonFixableResolutionsPayload) -> Dict[str, Any]:
+def api_etl_non_fixable_resolutions(payload: EtlNonFixableResolutionsPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Accept user triage decisions for non-fixable issues."""
     from agent.etl_handlers import etl_save_non_fixable_resolutions
 
@@ -688,7 +695,7 @@ def api_etl_non_fixable_resolutions(payload: EtlNonFixableResolutionsPayload) ->
 
 
 @router.post("/etl/patch-regen")
-def api_etl_patch_regen(payload: EtlPatchRegenPayload) -> Dict[str, Any]:
+def api_etl_patch_regen(payload: EtlPatchRegenPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Trigger ETL regen from post-ETL regression report."""
     from agent.etl_handlers import etl_patch_regen_code
 
@@ -699,7 +706,7 @@ def api_etl_patch_regen(payload: EtlPatchRegenPayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/preflight")
-def api_etl_preflight(payload: EtlPreflightPayload) -> Dict[str, Any]:
+def api_etl_preflight(payload: EtlPreflightPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Run SQL preflight validation checks without executing."""
     from agent.sql_preflight import run_sql_preflight
 
@@ -709,7 +716,7 @@ def api_etl_preflight(payload: EtlPreflightPayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/confirm")
-def api_etl_confirm(payload: EtlConfirmPayload) -> Dict[str, Any]:
+def api_etl_confirm(payload: EtlConfirmPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Confirm (optionally edited) plan and compute impact preview."""
     from agent.etl_handlers import etl_confirm_plan
 
@@ -717,8 +724,9 @@ def api_etl_confirm(payload: EtlConfirmPayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/generate")
-def api_etl_generate(payload: EtlGeneratePayload) -> Dict[str, Any]:
+def api_etl_generate(payload: EtlGeneratePayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Generate ETL from approved plan; LLM + template fallback with validation."""
+    _generate_limiter.check(client_ip(request))
     from agent.etl_handlers import etl_generate_code
 
     result = etl_generate_code(
@@ -744,7 +752,7 @@ class GenerateEtlRequest(BaseModel):
 
 
 @router.post("/generate-etl")
-async def generate_etl_endpoint(payload: GenerateEtlRequest) -> Dict[str, Any]:
+async def generate_etl_endpoint(payload: GenerateEtlRequest, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.etl_pipeline.llm_codegen import generate_etl_with_llm
     from agent.errors import ConnectorConfigError
     try:
@@ -766,13 +774,13 @@ async def generate_etl_endpoint(payload: GenerateEtlRequest) -> Dict[str, Any]:
 
 
 @router.post("/etl/deploy")
-def api_etl_deploy(payload: EtlDeployPayload) -> Dict[str, Any]:
+def api_etl_deploy(payload: EtlDeployPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.etl_handlers import etl_deploy
     return etl_deploy(payload.session_id)
 
 
 @router.get("/etl/dq-gate")
-def api_etl_dq_gate(session_id: str, dataset: str, threshold: float = 70.0) -> Dict[str, Any]:
+def api_etl_dq_gate(session_id: str, dataset: str, threshold: float = 70.0, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Check dataset against the DQ Gate threshold."""
     from agent.session_store import load_session
     from agent.etl_pipeline.dq_gate import check_dq_gate
@@ -792,7 +800,7 @@ def api_etl_dq_gate(session_id: str, dataset: str, threshold: float = 70.0) -> D
 
 
 @router.get("/etl/phases")
-def api_etl_phases(session_id: str) -> Dict[str, Any]:
+def api_etl_phases(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Retrieve split cleanse and transform plans for visual/phase routing."""
     from agent.session_store import load_session
     from agent.etl_pipeline.phase_classifier import split_plan_phases
@@ -817,7 +825,7 @@ def api_etl_phases(session_id: str) -> Dict[str, Any]:
 
 
 @router.get("/etl/plan-coverage")
-def api_etl_plan_coverage(session_id: str) -> Dict[str, Any]:
+def api_etl_plan_coverage(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Retrieve coverage report for the session's ETL plan."""
     from agent.session_store import load_session
     from agent.etl_pipeline.plan_coverage_report import build_coverage_report
@@ -848,7 +856,7 @@ def _etl_safe_segment(s: str) -> str:
 
 
 @router.get("/etl/lineage")
-def api_etl_lineage(session_id: str) -> Dict[str, Any]:
+def api_etl_lineage(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Column lineage map (source → transforms → target) after plan confirm."""
     from agent.etl_handlers import etl_get_lineage
 
@@ -856,7 +864,7 @@ def api_etl_lineage(session_id: str) -> Dict[str, Any]:
 
 
 @router.get("/etl/download/{plan_id}")
-def api_etl_download_by_plan_id(plan_id: str):
+def api_etl_download_by_plan_id(plan_id: str, _auth: None = Depends(require_backend_token)):
     """Download ETL artifact by plan_id (path-traversal safe)."""
     from agent.session_store import load_session, save_session
 
@@ -882,7 +890,7 @@ def api_etl_download_by_plan_id(plan_id: str):
 
 
 @router.get("/etl/download")
-def api_etl_download(session_id: str):
+def api_etl_download(session_id: str, _auth: None = Depends(require_backend_token)):
     """Download validated ETL artifact for a session (path-traversal safe)."""
     from agent.session_store import load_session
 
@@ -962,7 +970,7 @@ def _job_public_view(job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/jobs")
-def api_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
+def api_create_job(payload: Dict[str, Any], request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Create an async job (assess/chat). Returns job_id immediately.
     Body:
@@ -977,15 +985,22 @@ def api_create_job(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
 
 
 @router.get("/jobs/{job_id}")
-def api_get_job(job_id: str) -> Dict[str, Any]:
+def api_get_job(job_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"ok": True, "job": _job_public_view(j)}
+    v = _job_public_view(j)
+    return {
+        "ok": True,
+        "job": v,
+        "status": v.get("status"),
+        "result": v.get("result"),
+        "error": v.get("error"),
+    }
 
 
 @router.get("/etl/assessment/status/{job_id}")
-def api_etl_assessment_status(job_id: str) -> Dict[str, Any]:
+def api_etl_assessment_status(job_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -1003,7 +1018,7 @@ def api_etl_assessment_status(job_id: str) -> Dict[str, Any]:
 
 
 @router.get("/jobs/{job_id}/events")
-def api_get_job_events(job_id: str, after_id: int = 0) -> Dict[str, Any]:
+def api_get_job_events(job_id: str, after_id: int = 0, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     # Simple polling endpoint; SSE can be added on top.
     ev = fetch_events(job_id, after_id=int(after_id), limit=200)
     return {"ok": True, "events": ev}
@@ -1013,6 +1028,7 @@ def api_get_job_events(job_id: str, after_id: int = 0) -> Dict[str, Any]:
 async def api_upload(
     file: UploadFile = File(...),
     request: Request = None,
+    _auth: None = Depends(require_backend_token),
 ) -> Dict[str, Any]:
     """Accept a file upload and run the assessment. Query param format=html|md returns rendered report."""
     contents = await file.read()
@@ -1034,6 +1050,7 @@ async def api_parse_business_rules(
     session_id: str = Form("default"),
     text: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    _auth: None = Depends(require_backend_token),
 ) -> Dict[str, Any]:
     """Accept text prompt and/or requirements file, parse them using LLM, and save to session."""
     file_bytes = await file.read() if file else None
@@ -1068,7 +1085,8 @@ async def api_parse_business_rules(
 
 
 @router.post("/etl/execute")
-def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
+def api_etl_execute(payload: EtlExecutePayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
+    _execute_limiter.check(client_ip(request))
     from agent.jobs_store import create_job
     job_id = create_job(
         kind="etl_execute",
@@ -1083,7 +1101,7 @@ def api_etl_execute(payload: EtlExecutePayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/update-code")
-def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
+def api_etl_update_code(payload: EtlUpdateCodePayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import load_session, save_session
     sid = (payload.session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1140,8 +1158,9 @@ def api_etl_update_code(payload: EtlUpdateCodePayload) -> Dict[str, Any]:
 
 
 @router.post("/etl/run-full")
-def api_etl_run_full(payload: EtlPlanPayload) -> Dict[str, Any]:
+def api_etl_run_full(payload: EtlPlanPayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """Single-call ETL: plan → confirm → generate in one graph invocation."""
+    _plan_limiter.check(client_ip(request))
     from agent.etl_graph import run_etl_graph
     state = run_etl_graph(
         session_id=payload.session_id or "default",
@@ -1156,7 +1175,7 @@ def api_etl_run_full(payload: EtlPlanPayload) -> Dict[str, Any]:
 
 
 @router.get("/etl/execution-status/{session_id}")
-def api_etl_execution_status_route(session_id: str) -> Dict[str, Any]:
+def api_etl_execution_status_route(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import load_session
     sid = (session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1171,13 +1190,13 @@ def api_etl_execution_status_route(session_id: str) -> Dict[str, Any]:
 
 
 @router.post("/etl/test-connection")
-def api_etl_test_connection(payload: TestConnectionPayload) -> Dict[str, Any]:
+def api_etl_test_connection(payload: TestConnectionPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.azure_sql_executor import test_connection
     return test_connection(payload.connection_string)
 
 
 @router.post("/etl/execution-approval")
-def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, Any]:
+def api_etl_execution_approval(payload: ExecutionApprovalPayload, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import load_session, save_session
     sid = (payload.session_id or "default").strip() or "default"
     sess = load_session(sid)
@@ -1192,7 +1211,7 @@ def api_etl_execution_approval(payload: ExecutionApprovalPayload) -> Dict[str, A
 
 
 @router.get("/pipeline/history/{session_id}")
-def api_pipeline_history(session_id: str) -> Dict[str, Any]:
+def api_pipeline_history(session_id: str, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     from agent.session_store import _connect
     import json
     sid = (session_id or "default").strip() or "default"
@@ -1232,7 +1251,7 @@ def api_pipeline_history(session_id: str) -> Dict[str, Any]:
 
 
 @router.post("/pipeline/run")
-def api_pipeline_run(payload: PipelineRunPayload, request: Request) -> Dict[str, Any]:
+def api_pipeline_run(payload: PipelineRunPayload, request: Request, _auth: None = Depends(require_backend_token)) -> Dict[str, Any]:
     """
     Unified entry point: assess + ETL in one graph invocation.
     Feature-flagged: DHARA_UNIFIED_PIPELINE=1

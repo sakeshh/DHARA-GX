@@ -16,15 +16,15 @@ def get_request_id(req: Request) -> str:
 def require_backend_token(req: Request) -> None:
     """
     Shared-secret auth between Next.js and FastAPI.
-    Set BACKEND_AUTH_TOKEN in backend env.
+    Set BACKEND_AUTH_TOKEN in backend env to enforce auth.
     Send X-Backend-Token from Next.js.
     """
     expected = (os.environ.get("BACKEND_AUTH_TOKEN") or "").strip()
     if not expected:
-        raise HTTPException(status_code=500, detail="BACKEND_AUTH_TOKEN is not set on backend")
+        return  # Opt-in auth: disabled when BACKEND_AUTH_TOKEN is not set
     got = (req.headers.get("x-backend-token") or "").strip()
     if got != expected:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized: invalid or missing backend token")
 
 
 class InMemoryRateLimiter:

@@ -106,7 +106,7 @@ def _customize_code_for_dataset(pyspark_code: str, target_ds: str) -> str:
 
 
 def _extract_datasets_from_code(pyspark_code: str) -> List[str]:
-    # Parse dataset names from generated PySpark code (support multi-line)
+    """Extract DATASETS list from generated PySpark code (supports DATASETS array or transform_ function names)."""
     ds_match = re.search(r"DATASETS\s*=\s*(\[[\s\S]*?\])", pyspark_code)
     datasets: List[str] = []
     if ds_match:
@@ -118,7 +118,6 @@ def _extract_datasets_from_code(pyspark_code: str) -> List[str]:
             
     if not datasets:
         datasets = re.findall(r"def transform_(\w+)\s*\(", pyspark_code)
-        # Filter out generic or system helper names if any
         datasets = [d for d in datasets if d not in ("data_quality_issues", "data_quality_issues_v2")]
             
     if not datasets:
@@ -130,11 +129,28 @@ def _extract_datasets_from_code(pyspark_code: str) -> List[str]:
 def _is_uuid(s: str) -> bool:
     return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', s, re.I))
 
+from agent.etl_pipeline.format_capabilities import required_package_for_format, get_fabric_hint
+
+def required_packages_for_plan(plan: Optional[Dict[str, Any]]) -> List[str]:
+    """Collect required Spark packages for all dataset formats in the plan."""
+    if not plan:
+        return []
+    pkgs = []
+    datasets = (plan.get("connector_manifest") or {}).get("datasets") or plan.get("datasets") or {}
+    for ds_name, block in datasets.items():
+        if isinstance(block, dict):
+            fmt = str(block.get("format") or "").lower()
+            pkg = required_package_for_format(fmt)
+            if pkg and pkg not in pkgs:
+                pkgs.append(pkg)
+    return pkgs
+
 def deploy_and_run_notebook(
     session_id: str,
     pyspark_code: str,
     lakehouse_id: Optional[str] = None,
     notebook_name: Optional[str] = None,
+    plan: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Deploys one Microsoft Fabric Notebook per dataset in the PySpark script,
@@ -142,6 +158,19 @@ def deploy_and_run_notebook(
     """
     import html
     pyspark_code = html.unescape(pyspark_code or "")
+    
+    # Pre-flight package check
+    needed_pkgs = required_packages_for_plan(plan)
+    if needed_pkgs:
+        attached = [p.strip() for p in os.getenv("FABRIC_ATTACHED_PACKAGES", "").split(",") if p.strip()]
+        strict = os.getenv("FABRIC_STRICT_PACKAGE_CHECK", "0").strip() in ("1", "true", "yes")
+        missing = [p for p in needed_pkgs if not any(p.lower() in a.lower() for a in attached)]
+        if missing and (attached or strict):
+            msg = f"Fabric Spark environment missing required package(s): {missing}. Please attach them in Fabric environment settings."
+            logger.error(msg)
+            return {"ok": False, "error": "MISSING_SPARK_PACKAGES", "message": msg, "missing_packages": missing}
+        elif missing:
+            logger.warning(f"Fabric execution requires Spark package(s): {missing}. Ensure they are attached to your Fabric Spark workspace environment.")
     workspace_id = _clean_env_value(os.getenv("FABRIC_WORKSPACE_ID"))
     lh_id = lakehouse_id or _clean_env_value(os.getenv("FABRIC_LAKEHOUSE_NAME") or os.getenv("FABRIC_LAKEHOUSE_ID"))
     
@@ -253,6 +282,9 @@ async def poll_multiple_notebooks_status(
                 logger.error(f"Notebook '{run['notebook_name']}' failed. Error: {status_res.get('error')}")
                 run_err = run.copy()
                 run_err["error"] = status_res.get("error")
+                ds = run.get("dataset") or ""
+                ext = ds.rsplit(".", 1)[-1] if "." in ds else ""
+                run_err["hint"] = get_fabric_hint(ext)
                 failed_runs.append(run_err)
                 pending_runs.remove(run)
                 

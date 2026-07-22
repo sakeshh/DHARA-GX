@@ -141,3 +141,37 @@ class TestAuditFixes(unittest.TestCase):
         # Only one thread should have successfully claimed the job
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], job_id)
+
+    def test_save_session_payload_size_guard(self):
+        from agent.session_store import save_session, load_session
+        session_id = "test_payload_size_guard_session"
+        # Create a large dummy dict > 5MB
+        large_data = {"data": "x" * (6 * 1024 * 1024), "datasets": {"orders": {}}}
+        payload = {
+            "session_id": session_id,
+            "context": {"last_assessment_result": large_data}
+        }
+        save_session(session_id, payload)
+        loaded = load_session(session_id)
+        ctx = loaded.get("context", {})
+        assess = ctx.get("last_assessment_result", {})
+        self.assertTrue(assess.get("_trimmed"))
+        self.assertIn("orders", assess.get("datasets", []))
+
+    def test_etl_execute_rate_limiter_wired(self):
+        from agent.api_routes import api_etl_execute, EtlExecutePayload, HTTPException
+        from unittest.mock import MagicMock
+        req = MagicMock()
+        req.client.host = "192.168.1.99"
+        req.headers = {}
+        payload = EtlExecutePayload(session_id="test_rate_limiter")
+        
+        # 5 calls should succeed
+        for _ in range(5):
+            res = api_etl_execute(payload=payload, request=req, _auth=None)
+            self.assertTrue(res.get("ok"))
+            
+        # 6th call should raise HTTPException 429
+        with self.assertRaises(HTTPException) as cm:
+            api_etl_execute(payload=payload, request=req, _auth=None)
+        self.assertEqual(cm.exception.status_code, 429)

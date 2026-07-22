@@ -174,6 +174,7 @@ def _fix_mismatched_transform_calls(code: str) -> str:
     """Reconcile mismatched transform function calls to match defined transform function names."""
     if not code or "def transform_" not in code:
         return code
+    defined = set()
     try:
         tree = ast.parse(code)
         defined = {
@@ -181,15 +182,19 @@ def _fix_mismatched_transform_calls(code: str) -> str:
             for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name.startswith("transform_")
         }
-        if not defined:
-            return code
-            
-        for fn_name in defined:
-            # Fix calls where LLM appended file extension suffixes (e.g. transform_data_quality_issues_csv -> transform_data_quality_issues)
-            pattern = re.compile(rf"\b{re.escape(fn_name)}_[a-zA-Z0-9_]+\b")
-            code = pattern.sub(fn_name, code)
     except Exception:
         pass
+
+    if not defined:
+        defined = set(re.findall(r"\bdef\s+(transform_\w+)\s*\(", code))
+
+    if not defined:
+        return code
+
+    for fn_name in defined:
+        # Fix calls where LLM appended file extension suffixes (e.g. transform_data_quality_issues_csv -> transform_data_quality_issues)
+        pattern = re.compile(rf"\b{re.escape(fn_name)}_[a-zA-Z0-9_]+\b")
+        code = pattern.sub(fn_name, code)
     return code
 
 
@@ -245,6 +250,45 @@ def _fix_unsafe_pyspark_first_calls(code: str) -> str:
         r"(\w+)\s*=\s*\1\.withColumn\(\s*([\"\']\w+[\"\'])\s*,\s*F\.when\(\s*F\.col\(\2\)\.isNull\(\)\s*,\s*(\w+)\s*\)\.otherwise\(F\.col\(\2\)\)\)"
     )
     return pat_when.sub(repl_when, code)
+
+
+def _fix_pyspark_none_literals(code: str) -> str:
+    """Replace PySpark raw None with F.lit(None), convert loops to isin(), and strip no-op null fills."""
+    if not code:
+        return code
+        
+    # 1. Fix F.when(condition, None) -> F.when(condition, F.lit(None))
+    code = re.sub(r"\bF\.when\(([^,\n]+),\s*None\s*\)", r"F.when(\1, F.lit(None))", code)
+    
+    # 2. Fix .otherwise(None) -> .otherwise(F.lit(None))
+    code = re.sub(r"\.otherwise\(\s*None\s*\)", r".otherwise(F.lit(None))", code)
+
+    # 3. Strip no-op null fills: df = df.withColumn('col', F.when(F.col('col').isNull(), ...).otherwise(F.col('col')))
+    code = re.sub(
+        r"(\w+)\s*=\s*\1\.withColumn\(\s*([\"\']\w+[\"\'])\s*,\s*F\.when\(\s*F\.col\(\2\)\.isNull\(\)\s*,\s*(?:None|F\.lit\(None\))\s*\)\.otherwise\(F\.col\(\2\)\)\s*\)",
+        r"# skipped no-op null fill on \2",
+        code
+    )
+
+    # 4. Convert Python for-loops over value lists into single .isin() expressions
+    def repl_loop(m):
+        arr_name = m.group(1)
+        var_item = m.group(2)
+        arr_name_2 = m.group(3)
+        target_df = m.group(4)
+        col = m.group(5)
+        if arr_name == arr_name_2:
+            return (
+                f"if {arr_name}:\n"
+                f"        {target_df} = {target_df}.withColumn({col}, F.when(F.col({col}).isin({arr_name}), F.lit(None)).otherwise(F.col({col})))"
+            )
+        return m.group(0)
+
+    pat_loop = re.compile(
+        r"(\w+)\s*=\s*\[.*?\]\s*\n\s*for\s+(\w+)\s+in\s+(\w+):\s*\n\s*(\w+)\s*=\s*\4\.withColumn\(\s*([\"\']\w+[\"\'])\s*,\s*F\.when\(\s*F\.col\(\5\)\s*==\s*\2\s*,\s*(?:None|F\.lit\(None\))\s*\)\.otherwise\(F\.col\(\5\)\)\s*\)"
+    )
+    code = pat_loop.sub(repl_loop, code)
+    return code
 
 
 def _inject_pyspark_datasets_decl(code: str, plan: Optional[Dict[str, Any]] = None) -> str:
@@ -399,10 +443,7 @@ def _inject_pyspark_run_pipeline(code: str, plan: Dict[str, Any]) -> str:
         for ds_name in (plan.get("datasets") or {}):
             fn = f"transform_{_safe(ds_name)}"
             lines.append(f'    if "{ds_name}" in dfs:')
-            lines.append(f'        try:')
-            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
-            lines.append(f'        except TypeError:')
-            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"])')
+            lines.append(f'        dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
             if non_nullable:
                 lines.append(f'        _warn_nulls_in_columns(dfs["{ds_name}"], {non_nullable!r}, "{ds_name}")')
             lines.append(f'        _log_row_count(dfs["{ds_name}"], "{ds_name}")')
@@ -648,6 +689,10 @@ PYSPARK REQUIREMENTS:
 - Outliers/IQR: NEVER use approxQuantile directly (e.g. df.approxQuantile(...)[0]) — it is unsafe and crashes on all-null columns. ALWAYS call the provided _iqr_bounds(df, col, multiplier=1.5) helper function which returns a 4-tuple: stats_row, iqr, lower, upper = _iqr_bounds(df, col). ALWAYS unpack all 4 variables (e.g., _stats, _iqr, _lower, _upper = _iqr_bounds(df, col)) and use _lower and _upper for outlier checks.
 - NO INVENTED DEFAULTS: NEVER invent fill values (e.g. 'unknown@example.com', 0) unless fill_value is explicitly provided in the step params. If no fill_value is given in the step params, DO NOT generate any fillna or coalesce code for that column (keep the original column as-is). NEVER emit fillna(None) or fillna({{'col': None}}) as it is invalid PySpark.
 - SAFE CASTS: NEVER emit F.col(c).cast('long') on ID/key/code/ref columns without first checking the column only contains digits. Use F.when(F.col(c).rlike(r'^\\d+$'), F.col(c).cast('long')).otherwise(F.lit(None)) for safe numeric casts on potential business keys.
+- DYNAMIC MEAN/MEDIAN IMPUTATION: NEVER hardcode static values for mean or median imputation (e.g. mean_id = 4993.0656). ALWAYS compute them dynamically from the DataFrame using Spark aggregations (e.g. `_mean_row = df.select(F.mean(F.col(c)).cast('double')).first()`).
+- CRITICAL PYSPARK LITERAL RULE: In PySpark `F.when(...)` or `.otherwise(...)`, ALWAYS wrap Python nulls in `F.lit(None)`. NEVER pass raw Python `None` directly as a value argument (e.g. use `F.when(cond, F.lit(None)).otherwise(F.col(c))`, NEVER `F.when(cond, None)`). Raw `None` causes PySpark Py4J runtime crashes.
+- NO ITERATION FOR VALUE LISTS: NEVER use a Python `for` loop to repeat `withColumn` for multiple values. Use `F.col(c).isin(value_list)` in a single `F.when(...)` expression.
+- NO NO-OP STEPS: NEVER output steps that replace null with null (e.g. `withColumn('col', F.when(F.col('col').isNull(), None).otherwise(F.col('col')))`).
 - never_drop_rows: coalesce/fill only, no filter that drops null-quality rows.
 - I/O: use connector_manifest read_snippet_pyspark and write_snippet_pyspark per dataset.
 - NEVER use spark.read.csv for .xml files. Use format("com.databricks.spark.xml") for format=xml.
@@ -719,7 +764,7 @@ def _strip_markdown_fences(text: str) -> str:
     code = re.sub(r"^```[a-zA-Z0-9_-]*\s*\n?", "", code)
     code = re.sub(r"\n?```\s*$", "", code)
     code = code.strip()
-    if "&" in code:
+    if "&" in code or "<" in code:
         code = html.unescape(code)
     return code.strip()
 
@@ -1609,6 +1654,7 @@ def _generate_etl_with_llm_impl(
             code = _inject_pyspark_run_pipeline(code, plan)
             code = _fix_mismatched_transform_calls(code)
             code = _fix_unsafe_pyspark_first_calls(code)
+            code = _fix_pyspark_none_literals(code)
         
         # Run local validation loop
         rules = plan.get("business_rules") or {}

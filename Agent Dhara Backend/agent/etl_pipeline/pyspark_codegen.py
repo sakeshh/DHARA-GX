@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import html as _html
 import re
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from agent.etl_pipeline.codegen_policy import plan_policy_block
 from agent.etl_pipeline.codegen_shared import outlier_multiplier, step_params
@@ -44,8 +45,10 @@ def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
         if fval is not None:
             return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
         return [
+            f"# NOTE: F.avg triggers a Spark action (full scan). For large tables prefer percentile_approx.",
             f"_avg_row = {df}.select(F.avg(F.col({c}).cast('double')).alias('m')).first()",
             f"_avg = _avg_row['m'] if _avg_row else None",
+            f"# Cast back to the original column dtype to preserve integer/long precision.",
             f"if _avg is not None: {df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit(_avg).cast({dtype_str})))",
         ]
     if strat == "value" and fval is not None:
@@ -193,7 +196,7 @@ def _emit_spark(
     if act == "sanitize_email":
         return [
             f'{df} = {df}.withColumn({c}, F.lower(F.trim(F.col({c}).cast("string"))))',
-            f"{df} = {df}.withColumn({c}, F.when(F.col({c}).rlike(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{{2,}}$'), F.col({c})).otherwise(None))",
+            f"{df} = {df}.withColumn({c}, F.when(F.col({c}).rlike(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{{2,}}$'), F.col({c})).otherwise(F.lit(None)))",
         ]
     if act == "normalize_phone":
         return [f'{df} = {df}.withColumn({c}, F.regexp_replace(F.col({c}).cast("string"), "\\\\D", ""))']
@@ -229,6 +232,12 @@ def _emit_spark(
             f"{df} = {df}.withColumn('_tmp_date_{col_clean}', F.to_date(F.col({c})))",
             f"{df} = {df}.withColumn({c}, F.when((F.col('_tmp_date_{col_clean}').eqNullSafe(F.lit('1900-01-01'))) | ((F.month(F.col('_tmp_date_{col_clean}')) == 1) & (F.dayofmonth(F.col('_tmp_date_{col_clean}')) == 1)), F.lit(None)).otherwise(F.col({c})))",
             f"{df} = {df}.drop('_tmp_date_{col_clean}')"
+        ]
+    if act == "nullify_future_dates":
+        c = repr(str(col))
+        return [
+            f"# Nullify future dates in '{col}' (dates after today are set to null)",
+            f"{df} = {df}.withColumn({c}, F.when(F.to_date(F.col({c})) > F.current_date(), F.lit(None)).otherwise(F.col({c})))"
         ]
     if act == "range_clip":
         lo = params.get("min_value") or params.get("lower_bound") or 0
@@ -416,9 +425,22 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
                 if col:
                     lines.append(f"    logger.warning('Column {col} requires manual review — skipping automation')")
 
+        # Pre-scan: columns that have sanitize_email — trim/lowercase are redundant there
+        _email_cols: Set[str] = {
+            str(st.get("column"))
+            for st in (block.get("steps") or [])
+            if str(st.get("action") or "").lower() == "sanitize_email" and st.get("column")
+        }
+
         for st in sorted(block.get("steps") or [], key=lambda x: int(x.get("order") or 0)):
             action = str(st.get("action") or "")
             col = st.get("column")
+            act_low = action.lower()
+            # Skip redundant trim/lowercase when sanitize_email is already present for this column
+            # (sanitize_email emitter already applies F.lower(F.trim(...)) internally)
+            if act_low in ("trim", "lowercase") and str(col) in _email_cols:
+                lines.append(f"    # Step: {action} on {col} — skipped (handled by sanitize_email)")
+                continue
             lines.append(f"    # Step: {action} on {col}")
             for sl in _emit_spark(action, col, var, step_meta=st, plan=plan, ds_name=ds_name):
                 lines.append(f"    {sl}")
@@ -443,10 +465,7 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         for ds_name in (plan.get("datasets") or {}):
             fn = f"transform_{_safe(ds_name)}"
             lines.append(f'    if "{ds_name}" in dfs:')
-            lines.append(f'        try:')
-            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
-            lines.append(f'        except TypeError:')
-            lines.append(f'            dfs["{ds_name}"] = {fn}(dfs["{ds_name}"])')
+            lines.append(f'        dfs["{ds_name}"] = {fn}(dfs["{ds_name}"], dfs)')
             if non_nullable:
                 lines.append(f'        _warn_nulls_in_columns(dfs["{ds_name}"], {non_nullable!r}, "{ds_name}")')
             lines.append(f'        _log_row_count(dfs["{ds_name}"], "{ds_name}")')
@@ -472,4 +491,7 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
         lines.append('    spark = SparkSession.builder.appName("AgentDharaETL").getOrCreate()')
         lines.append("logger.info('Empty pipeline executed successfully')")
 
-    return "\n".join(lines)
+    code = "\n".join(lines)
+    # Always unescape HTML entities — LLM responses or Jinja templating can
+    # introduce &lt; &gt; &amp; &quot; which silently break generated Python.
+    return _html.unescape(code)

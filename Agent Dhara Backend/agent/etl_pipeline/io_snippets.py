@@ -110,8 +110,10 @@ def infer_format_from_ext(ext: str, source_type: str) -> str:
         return "json"
     if ext in (".xml",):
         return "xml"
-    if ext in (".xlsx", ".xls"):
-        return "excel"
+    if ext in (".xlsx",):
+        return "xlsx"
+    if ext in (".xls",):
+        return "xls"
     if source_type in ("sql_server", "azure_sql", "postgres", "mysql"):
         return "sql_table"
     return "csv"
@@ -125,6 +127,8 @@ def output_extension_for_format(fmt: str, fallback_ext: str) -> str:
         "tsv": ".tsv",
         "parquet": ".parquet",
         "excel": ".parquet",
+        "xlsx": ".parquet",
+        "xls": ".parquet",
     }
     if fmt == "xml":
         return ".parquet"
@@ -134,7 +138,7 @@ def output_extension_for_format(fmt: str, fallback_ext: str) -> str:
 def _get_pandas_blob_read_snippet(loc: str, conn: dict, fmt: str = "csv") -> str:
     account = conn.get("storage_account") or conn.get("account") or "ACCOUNT"
     container = conn.get("container_name") or conn.get("container") or "CONTAINER"
-    comment = f"  # uses read_{fmt} internally" if fmt in ("xml", "json", "excel", "parquet") else ""
+    comment = f"  # uses read_{fmt} internally" if fmt in ("xml", "json", "excel", "xlsx", "xls", "parquet") else ""
     return f'_read_blob_pandas("{loc}", "{account}", "{container}"){comment}'
 
 
@@ -156,7 +160,7 @@ def python_read_snippet(entry: Dict[str, Any]) -> str:
 
     if fmt == "parquet":
         return f"pd.read_parquet({path_expr})"
-    if fmt == "excel":
+    if fmt in ("excel", "xlsx", "xls"):
         return f"pd.read_excel({path_expr}, sheet_name=0)"
     if fmt == "json":
         return f"pd.read_json({path_expr})"
@@ -178,13 +182,15 @@ def python_write_snippet(entry: Dict[str, Any]) -> str:
         return f"df.to_json({path_expr}, orient='records', lines=True, index=False)"
     if fmt in ("xml", "parquet"):
         return f"df.to_parquet({path_expr}, index=False)"
-    if fmt == "excel":
+    if fmt in ("excel", "xlsx", "xls"):
         return f"df.to_excel({path_expr}, index=False)"
     return f"df.to_csv({path_expr}, index=False)"
 
 
 def pyspark_read_snippet(entry: Dict[str, Any]) -> str:
     from agent.etl_pipeline.format_readers import get_pyspark_read_snippet
+    from agent.etl_pipeline.format_validators import validate_dataset_format_entry
+    validate_dataset_format_entry(entry)
     loc = _escape_path(entry["location"])
     fmt = entry.get("format") or "csv"
     if fmt == "sql_table":
@@ -212,8 +218,13 @@ def pyspark_write_snippet(entry: Dict[str, Any]) -> str:
     path_expr = f'r"{op_esc}"'
     if fmt == "json":
         return f'df.write.mode("overwrite").json({path_expr})'
-    if fmt in ("parquet", "xml"):
+    if fmt == "parquet":
         return f'df.write.mode("overwrite").parquet({path_expr})'
+    if fmt == "xml":
+        return (
+            f'# Note: Output format changed (XML -> Parquet, Spark cannot write XML natively)\n'
+            f'df.write.mode("overwrite").parquet({path_expr})'
+        )
     return f'df.write.mode("overwrite").option("header", "true").csv({path_expr})'
 
 

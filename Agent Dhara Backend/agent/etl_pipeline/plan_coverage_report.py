@@ -27,7 +27,12 @@ RESOLVING_ACTIONS = {
     "dummy_dates": {"nullify_dummy_dates"},
     "binary_like_column": {"standardize_boolean"},
     "boolean_inconsistency": {"standardize_boolean"},
-    "custom_not_null": {"fill_or_drop", "fill_nulls_simple"},
+    "casing_inconsistency": {"lowercase", "uppercase", "capitalize", "titlecase", "trim"},
+    "mixed_casing": {"lowercase", "uppercase", "capitalize", "titlecase", "trim"},
+    "inconsistent_casing": {"lowercase", "uppercase", "capitalize", "titlecase", "trim"},
+    "outliers": {"flag_outliers", "clip_outliers", "cap_outliers", "range_clip", "clip_or_flag"},
+    "outlier": {"flag_outliers", "clip_outliers", "cap_outliers", "range_clip", "clip_or_flag"},
+    "outlier_values": {"flag_outliers", "clip_outliers", "cap_outliers", "range_clip", "clip_or_flag"},
 }
 
 def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -35,14 +40,19 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
     Compares the quality issues identified in the assessment against the steps
     and manual review/blocked items defined in the ETL plan, validating action-level coverage.
     """
+    import re
     covered = []
     uncovered = []
     
     def _clean_ds(ds):
-        d = str(ds or "").strip()
-        if not d or d.lower() == "global":
+        d = str(ds or "").strip().lower()
+        if not d or d == "global":
             return "_global"
-        return d.lower()
+        for ext in (".csv", ".tsv", ".json", ".parquet", ".xml", ".xlsx", ".xls", ".jsonl"):
+            if d.endswith(ext):
+                d = d[:-len(ext)]
+                break
+        return re.sub(r"[^a-z0-9_]", "", d)
 
     def _clean_col(col):
         c = str(col or "").strip()

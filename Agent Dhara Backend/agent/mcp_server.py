@@ -203,6 +203,7 @@ class FabricDeployNotebookPayload(BaseModel):
     pyspark_code: str
     notebook_name: Optional[str] = None
     lakehouse_id: Optional[str] = None
+    plan: Optional[Dict[str, Any]] = None
 
 
 class PipelineMirrorPayload(BaseModel):
@@ -1078,7 +1079,14 @@ def api_get_job(job_id: str) -> Dict[str, Any]:
     j = fetch_job(job_id)
     if not j:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"ok": True, "job": _job_public_view(j)}
+    v = _job_public_view(j)
+    return {
+        "ok": True,
+        "job": v,
+        "status": v.get("status"),
+        "result": v.get("result"),
+        "error": v.get("error"),
+    }
 
 
 @app.get("/etl/assessment/status/{job_id}")
@@ -1316,7 +1324,8 @@ def api_fabric_deploy_notebook(payload: FabricDeployNotebookPayload) -> Dict[str
             session_id=payload.session_id,
             pyspark_code=payload.pyspark_code,
             notebook_name=payload.notebook_name,
-            lakehouse_id=payload.lakehouse_id
+            lakehouse_id=payload.lakehouse_id,
+            plan=payload.plan,
         )
         return results
     except Exception as e:
@@ -1430,6 +1439,12 @@ def api_pipeline_run(payload: PipelineRunPayload, request: Request) -> Dict[str,
     )
 
 
+
+
+@app.get("/format-capabilities")
+def api_get_format_capabilities() -> Dict[str, Any]:
+    from agent.etl_pipeline.format_capabilities import PYSPARK_FORMAT_CAPABILITIES
+    return {"ok": True, "capabilities": PYSPARK_FORMAT_CAPABILITIES}
 
 
 if __name__ == "__main__":

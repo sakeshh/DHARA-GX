@@ -7,6 +7,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+class _GxDefaultValueFilter(logging.Filter):
+    """Suppress the noisy _get_default_value 'not a known field' messages from Great Expectations."""
+    _PHRASES = ("row_condition", "condition_parser")
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._PHRASES)
+
+logging.getLogger("great_expectations.expectations.expectation").addFilter(_GxDefaultValueFilter())
+
 # Fallback presets matching intelligent_data_assessment.py
 PLACEHOLDERS = {
     "", " ", "-", "--", "---", "n/a", "na", "none", "null", "nil",
@@ -1072,7 +1081,7 @@ def run_gx_validation(
                     semantic = (meta.get("semantic_type") or "").lower()
                     if semantic == "date":
                         try:
-                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce")
+                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce", format="mixed", utc=True)
                             # Convert to tz-naive if tz-aware
                             dt_series_naive = dt_series.dt.tz_localize(None) if dt_series.dt.tz is not None else dt_series
                             future_mask = dt_series_naive > now + timedelta(days=1)
@@ -1097,7 +1106,7 @@ def run_gx_validation(
                     semantic = (meta.get("semantic_type") or "").lower()
                     if semantic == "date":
                         try:
-                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce")
+                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce", format="mixed", utc=True)
                             dt_series_naive = dt_series.dt.tz_localize(None) if dt_series.dt.tz is not None else dt_series
                             ancient_mask = dt_series_naive.notna() & (dt_series_naive < ancient_cutoff)
                             cnt = int(ancient_mask.sum())
@@ -1120,7 +1129,7 @@ def run_gx_validation(
                     semantic = (meta.get("semantic_type") or "").lower()
                     if semantic == "date":
                         try:
-                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce").dropna()
+                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce", format="mixed", utc=True).dropna()
                             dt_series_naive = dt_series.dt.tz_localize(None) if dt_series.dt.tz is not None else dt_series
                             if len(dt_series_naive) >= 10:
                                 span_days = (dt_series_naive.max() - dt_series_naive.min()).days
@@ -1144,7 +1153,7 @@ def run_gx_validation(
                     semantic = (meta.get("semantic_type") or "").lower()
                     if semantic == "date":
                         try:
-                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce").dropna()
+                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce", format="mixed", utc=True).dropna()
                             dt_series_naive = dt_series.dt.tz_localize(None) if dt_series.dt.tz is not None else dt_series
                             if len(dt_series_naive) >= 20:
                                 # Jan 1 clumping
@@ -1184,7 +1193,7 @@ def run_gx_validation(
                     col_lower = col_name.lower()
                     if semantic == "date" and any(k in col_lower for k in _BUSINESS_DATE_KEYWORDS):
                         try:
-                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce").dropna()
+                            dt_series = pd.to_datetime(validation_df[col_name], errors="coerce", format="mixed").dropna()
                             dt_series_naive = dt_series.dt.tz_localize(None) if dt_series.dt.tz is not None else dt_series
                             if len(dt_series_naive) >= 20:
                                 is_weekend = dt_series_naive.dt.dayofweek >= 5  # Sat=5, Sun=6
