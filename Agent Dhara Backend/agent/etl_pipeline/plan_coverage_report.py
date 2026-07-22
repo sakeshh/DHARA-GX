@@ -118,8 +118,12 @@ def build_coverage_report(assessment: Dict[str, Any], plan: Dict[str, Any]) -> D
             
             if not is_covered:
                 actions_for_col = planned_steps_map.get(issue_key, set())
+                it_str = str(it or "").lower()
                 resolving = RESOLVING_ACTIONS.get(it) or set()
-                if actions_for_col & resolving:
+                if it_str.startswith(("profile_heuristic", "heuristic", "profile", "column_profile")):
+                    if actions_for_col:
+                        is_covered = True
+                elif actions_for_col & resolving:
                     is_covered = True
                 elif not resolving and actions_for_col:
                     is_covered = True

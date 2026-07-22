@@ -45,6 +45,7 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
         state = load_checkpoint(job_id, "orchestrator")
         if state is None:
             add_event(job_id=job_id, level="info", message="running stage: orchestrator")
+            update_job_status(job_id, status="running", progress=35)
             state = run_orchestrator(
                 user_request=str(user_req or ""),
                 sources_path=str(inp.get("sources_path") or "config/sources.yaml"),
@@ -55,8 +56,10 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
             )
             save_checkpoint(job_id, "orchestrator", state)
             add_event(job_id=job_id, level="info", message="completed stage: orchestrator")
+            update_job_status(job_id, status="running", progress=75)
         else:
             add_event(job_id=job_id, level="info", message="restored stage from checkpoint: orchestrator")
+            update_job_status(job_id, status="running", progress=75)
 
         extractions = state.get("extractions") or []
         merged_result = {
@@ -90,6 +93,7 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
         reports = load_checkpoint(job_id, "reports")
         if reports is None:
             add_event(job_id=job_id, level="info", message="running stage: reports")
+            update_job_status(job_id, status="running", progress=90)
             from agent.chat_graph import _build_report_tables_markdown, _render_report_html, _write_report_artifacts
 
             report_md = _build_report_tables_markdown(merged_result)
@@ -102,8 +106,10 @@ def _run_job(job: Dict[str, Any]) -> Dict[str, Any]:
             }
             save_checkpoint(job_id, "reports", reports)
             add_event(job_id=job_id, level="info", message="completed stage: reports")
+            update_job_status(job_id, status="running", progress=98)
         else:
             add_event(job_id=job_id, level="info", message="restored stage from checkpoint: reports")
+            update_job_status(job_id, status="running", progress=98)
 
         return {
             "result": merged_result,

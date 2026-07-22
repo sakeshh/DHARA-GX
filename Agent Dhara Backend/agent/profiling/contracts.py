@@ -39,6 +39,8 @@ DQ_ISSUE_RECOMMENDATIONS: Dict[str, str] = {
     "custom_regex": "Fix format at source or apply regex replace in staging.",
     "custom_not_null": "Backfill from upstream or drop incomplete rows per policy.",
     # --- NEW CHECKS ---
+    "placeholder_detected": "Replace placeholder strings ('???', 'N/A', 'unknown', 'tbd') with NULL during ETL cleansing.",
+    "string_with_only_digits_in_text_column": "Investigate digit strings in categorical text columns; confirm whether numeric IDs were placed in domain text fields.",
     "invalid_url": "Validate URL format at entry; normalize with urllib.parse; reject structurally invalid URLs.",
     "html_tags_in_text": "Strip HTML/XML tags with BeautifulSoup or regex before storing in a plain-text column.",
     "punctuation_only_value": "Replace symbol-only strings with NULL; investigate upstream export bugs.",

@@ -699,16 +699,31 @@ def detect_date_format_variants(series: pd.Series) -> list[dict]:
 
 def confirm_business_key_duplicates(df: pd.DataFrame, pk_cols: list[str]) -> dict:
     """
-    Given LLM-suggested PK columns, confirm actual duplicate count.
+    Given LLM-suggested PK columns, confirm actual duplicate count on valid non-null key values.
+    Rows with NULL or placeholder key values are tracked as missing_business_key_count rather than duplicates.
     """
     available = [c for c in pk_cols if c in df.columns]
     if not available:
         return {"confirmed": False, "reason": "pk_cols not found in dataframe"}
-    dup_count = int(df.duplicated(subset=available).sum())
+    
+    # Filter out rows where key columns are null or placeholders
+    from agent.profiling.constants import PLACEHOLDERS
+    valid_key_mask = pd.Series(True, index=df.index)
+    for c in available:
+        s = df[c]
+        s_clean = s.dropna().astype(str).str.strip().str.lower()
+        is_invalid = s.isna() | s_clean.isin(PLACEHOLDERS)
+        valid_key_mask &= (~is_invalid)
+        
+    valid_keys_df = df[valid_key_mask]
+    dup_count = int(valid_keys_df.duplicated(subset=available).sum()) if not valid_keys_df.empty else 0
+    missing_key_count = int((~valid_key_mask).sum())
+    
     return {
         "confirmed": True,
         "business_key_cols": available,
         "business_key_duplicate_count": dup_count,
+        "missing_business_key_count": missing_key_count,
         "dedup_strategy_hint": "keep_last" if dup_count > 0 else "no_action_needed"
     }
 

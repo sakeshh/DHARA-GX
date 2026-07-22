@@ -85,11 +85,17 @@ def compute_etl_readiness(assessment: dict) -> dict:
 
     # 2. Process data quality issues from the DQ report using formal severity engine
     for ds_name, dq_block in dq_datasets.items():
+        ds_rows = max(1, (datasets.get(ds_name) or {}).get("row_count") or 1000)
         for issue in dq_block.get("issues", []):
             issue_type = str(issue.get("type") or "").strip().lower()
             col = issue.get("column") or ""
             sev = str(issue.get("severity") or "medium").strip().lower()
             msg = str(issue.get("message") or "")
+            
+            # Calculate row-impact factor to scale deductions proportionally
+            unexp = issue.get("unexpected_count") or issue.get("count") or 1
+            impact_ratio = unexp / ds_rows
+            impact_factor = max(0.2, min(1.0, impact_ratio * 8))
             
             # Classify severity and map warnings/blockers
             if sev == "high":
@@ -103,9 +109,9 @@ def compute_etl_readiness(assessment: dict) -> dict:
                         "issue_type": issue_type,
                         "fix": f"Apply constraint or filter: {issue_type}"
                     })
-                    score -= 15
-            elif sev == "medium" or issue_type in ("punctuation_only_value", "case_inconsistency", "invalid_email", "invalid_phone", "invalid_date_format"):
-                # Deduct points for medium severity issues (null email, null city, null name, punctuation, duplicates)
+                    score -= round(15 * impact_factor, 1)
+            elif sev == "medium" or issue_type in ("punctuation_only_value", "case_inconsistency", "invalid_email", "invalid_phone", "invalid_date_format", "placeholder_detected", "string_with_only_digits_in_text_column"):
+                # Deduct points for medium severity issues
                 if not any(w["dataset"] == ds_name and w["column"] == col and w["issue"] == msg for w in warnings):
                     warnings.append({
                         "dataset": ds_name,
@@ -114,7 +120,7 @@ def compute_etl_readiness(assessment: dict) -> dict:
                         "severity": "MEDIUM",
                         "fix": f"Clean and standardize: {issue_type}"
                     })
-                    score -= 8
+                    score -= round(8 * impact_factor, 1)
             else: # Low severity
                 if not any(a["dataset"] == ds_name and a["column"] == col and a["issue"] == msg for a in auto_fixable):
                     auto_fixable.append({
@@ -124,7 +130,7 @@ def compute_etl_readiness(assessment: dict) -> dict:
                         "severity": "LOW",
                         "strategy": "auto_clean"
                     })
-                    score -= 2
+                    score -= round(2 * impact_factor, 1)
 
     # Global issues check
     global_issues = dq_issues.get("global_issues", {})

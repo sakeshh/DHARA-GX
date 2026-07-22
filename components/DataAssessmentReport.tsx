@@ -247,17 +247,34 @@ export default function DataAssessmentReport({
       
       while (jobStatus !== 'completed' && jobStatus !== 'failed' && jobStatus !== 'succeeded') {
         await new Promise((resolve) => setTimeout(resolve, 1500));
-        const statusRes = await fetch(`/api/assess/status/${jobId}`);
-        const statusData = await statusRes.json().catch(() => null);
-        if (!statusRes.ok || !statusData) {
-          throw new Error(statusData?.message || 'Failed to get job status');
+        const statusRes = await fetch(`/api/assess/status/${jobId}`).catch(() => null);
+        if (!statusRes || !statusRes.ok) {
+          // Fallback to /api/jobs/:id if /api/assess/status is unreachable
+          const altRes = await fetch(`/api/jobs/${jobId}`).catch(() => null);
+          if (altRes && altRes.ok) {
+            const altData = await altRes.json().catch(() => null);
+            if (altData?.job) {
+              jobStatus = altData.job.status || jobStatus;
+              setProgress(Math.min(95, Math.max(25, altData.job.progress || 50)));
+              if (jobStatus === 'completed' || jobStatus === 'succeeded') {
+                jobResult = altData.job.result;
+              } else if (jobStatus === 'failed') {
+                throw new Error(altData.job.error || 'Assessment job failed');
+              }
+            }
+          }
+          continue;
         }
-        jobStatus = statusData.status;
-        setProgress(Math.min(95, Math.max(25, statusData.progress || 0)));
-        if (jobStatus === 'completed' || jobStatus === 'succeeded') {
-          jobResult = statusData.result;
-        } else if (jobStatus === 'failed') {
-          throw new Error(statusData.error || 'Assessment job failed');
+
+        const statusData = await statusRes.json().catch(() => null);
+        if (statusData) {
+          jobStatus = statusData.status || jobStatus;
+          setProgress(Math.min(95, Math.max(25, statusData.progress || 0)));
+          if (jobStatus === 'completed' || jobStatus === 'succeeded') {
+            jobResult = statusData.result;
+          } else if (jobStatus === 'failed') {
+            throw new Error(statusData.error || 'Assessment job failed');
+          }
         }
       }
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 import re
+import logging
 from typing import Any, Dict, List, Tuple, Optional
 import pandas as pd
 import numpy as np
+
+logger = logging.getLogger("agent.profiling.dq_checks")
 
 from agent.profiling.constants import *
 from agent.profiling.contracts import FIXABILITY_BY_ISSUE_TYPE, DQ_ISSUE_RECOMMENDATIONS, _DEFAULT_REC
@@ -360,22 +363,38 @@ def analyze_dataset_quality(
         issue_type = "custom_rule_violation"
         msg = f"{col}: expectation failed."
         
-        if "not be null" in exp or "placeholder_detected" in exp:
+        if exp == "placeholder_detected":
+            issue_type = "placeholder_detected"
+            severity = "medium"
+            msg = f"{unexp_cnt} placeholder/semantic null value(s) (e.g. '???', 'N/A')" if unexp_cnt > 0 else "Placeholder value(s) found"
+        elif "not be null" in exp:
             issue_type = "nulls"
             severity = "high" if str(col).lower() in non_nullable_set else "low"
-            msg = f"{unexp_cnt} null/placeholder" if unexp_cnt > 0 else "Null or placeholder value(s) found"
+            msg = f"{unexp_cnt} null value(s)" if unexp_cnt > 0 else "Null value(s) found"
         elif "be unique" in exp:
             issue_type = "duplicate_primary_key"
             severity = "high"
             msg = f"{unexp_cnt} duplicate in candidate PK" if unexp_cnt > 0 else "Duplicate key values found"
         elif "compound columns to be unique" in exp or "compound_columns_to_be_unique" in exp:
             issue_type = "duplicate_rows"
-            severity = "medium"
+            severity = "low"
             msg = f"{unexp_cnt} duplicate row(s)" if unexp_cnt > 0 else "Duplicate rows found"
-        elif "be in type list" in exp or "be of type" in exp or "invalid_numeric" in exp or exp == "invalid_numeric_values":
+        elif exp == "string_with_only_digits_in_text_column":
+            issue_type = "string_with_only_digits_in_text_column"
+            severity = "medium"
+            msg = f"{unexp_cnt} digit string(s) in categorical column '{col}'"
+        elif exp == "invalid_numeric_values":
             issue_type = "invalid_numeric"
             severity = "medium"
-            msg = f"{unexp_cnt} non-numeric value(s) in numeric column" if unexp_cnt > 0 else "Type mismatch"
+            msg = f"{unexp_cnt} non-numeric value(s) in numeric column '{col}'"
+        elif exp == "invalid_date_format":
+            issue_type = "invalid_date_format"
+            severity = "medium"
+            msg = f"{unexp_cnt} invalid date/sentinel date value(s) in column '{col}'"
+        elif "be in type list" in exp or "be of type" in exp or "invalid_numeric" in exp or exp == "invalid_numeric_values":
+            issue_type = "invalid_numeric"
+            severity = "high" if any(k in str(col).lower() for k in ("amount", "price", "total", "cost")) else "medium"
+            msg = f"{unexp_cnt} non-numeric value(s) in numeric column '{col}'" if unexp_cnt > 0 else "Type mismatch"
         elif exp == "mixed_scalar_types":
             issue_type = "mixed_scalar_types"
             severity = "medium"
@@ -763,19 +782,19 @@ def analyze_dataset_quality(
         med_rows = set(med_rows) - set(high_rows)
         low_rows = set(low_rows) - set(high_rows) - set(med_rows)
 
-        # Flat penalty based on issue diversity
+        # Flat penalty based on issue diversity (capped at 15.0 max)
         num_high_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "high")
         num_med_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "medium")
         num_low_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "low")
         
-        flat_penalty = (5.0 * num_high_types) + (2.5 * num_med_types) + (1.0 * num_low_types)
+        flat_penalty = min(15.0, (2.5 * num_high_types) + (0.5 * num_med_types) + (0.1 * num_low_types))
 
         # Row fraction penalty
         frac_h = min(1.0, len(high_rows) / max(1, n))
         frac_m = min(1.0, len(med_rows) / max(1, n))
         frac_l = min(1.0, len(low_rows) / max(1, n))
 
-        row_penalty = (50.0 * frac_h) + (25.0 * frac_m) + (10.0 * frac_l)
+        row_penalty = (30.0 * frac_h) + (15.0 * frac_m) + (5.0 * frac_l)
         
         total_penalty = flat_penalty + row_penalty
         dq_score = max(0.0, min(100.0, 100.0 - total_penalty))

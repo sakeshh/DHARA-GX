@@ -205,7 +205,11 @@ export default function DataPipelinePage() {
           continue;
         }
         const issueType = String(issue.type || '').trim().toLowerCase();
-        if (['type_mismatch', 'invalid_date_format', 'invalid_email', 'invalid_phone'].includes(issueType)) {
+        if ([
+          'type_mismatch', 'invalid_date_format', 'invalid_email', 'invalid_phone',
+          'invalid_numeric', 'invalid_numeric_values', 'placeholder_detected',
+          'string_with_only_digits_in_text_column', 'punctuation_only_value'
+        ].includes(issueType)) {
           typeMismatches += 1;
         }
       }
@@ -225,11 +229,11 @@ export default function DataPipelinePage() {
           continue;
         }
         const issueType = String(issue.type || '').trim().toLowerCase();
-        if (issueType.includes('duplicate') || issueType.includes('dup')) {
+        if (issueType === 'duplicate_primary_key' || issueType === 'business_key_duplicate') {
           dupCount += 1;
         }
       }
-      const dupScore = Math.max(0.0, 100.0 - dupCount * 5.0);
+      const dupScore = Math.max(0.0, 100.0 - Math.min(60.0, dupCount * 5.0));
 
       // 4. Outlier Score (20%)
       let outliersCount = 0;
@@ -251,9 +255,10 @@ export default function DataPipelinePage() {
       // Prefer backend-calculated score, fall back to estimated if not present
       const dqDsBlock = (resultData.data_quality_issues || {}).datasets?.[dsName] || {};
       const dsSummary = dqDsBlock.summary || {};
-      const dqScore = resolvedKeys.size > 0 
-        ? estimatedDqScore 
-        : (dsSummary.dq_score_0_100 !== undefined ? Number(dsSummary.dq_score_0_100) : estimatedDqScore);
+      const backendScore = dsSummary.dq_score_0_100 ?? dsInfo.dq_score ?? dsInfo.score ?? dsInfo.quality?.score;
+      const dqScore = (resolvedKeys.size === 0 && backendScore !== undefined && backendScore !== null) 
+        ? Number(backendScore) 
+        : estimatedDqScore;
 
       // Check high PII
       let hasHighPii = false;
@@ -511,8 +516,17 @@ export default function DataPipelinePage() {
               {steps.map((step, index) => {
                 const Icon = step.icon;
                 const isActive = currentStep === step.id;
+                const isStepCompleted = index < getCurrentStepIndex() || (step.id === 'assessment' && !!assessmentData);
                 const isCompleted = index < getCurrentStepIndex();
-                const isClickable = isActive || isCompleted;
+                const isClickable = isActive || isCompleted || isStepCompleted;
+                
+                const statusText = (step.id === 'assessment' && assessmentData)
+                  ? 'Completed'
+                  : isActive
+                  ? 'In Progress'
+                  : isCompleted
+                  ? 'Completed'
+                  : 'Pending';
                 
                 return (
                   <div key={step.id} id={`step-btn-${step.id}`} className="relative flex items-start">
@@ -524,14 +538,14 @@ export default function DataPipelinePage() {
                           <motion.div
                             className="absolute top-0 left-0 w-full bg-[#0070AD] origin-top"
                             initial={{ scaleY: 0 }}
-                            animate={{ scaleY: isCompleted ? 1 : 0 }}
+                            animate={{ scaleY: isCompleted || isStepCompleted ? 1 : 0 }}
                             transition={{ duration: 0.5, ease: [0.25, 0.46, 0.45, 0.94] }}
                             style={{ height: '100%', originY: 0 }}
                           />
                         </div>
                         {/* Down Arrow Head */}
                         <svg 
-                          className={`w-2 h-2 -mt-[1px] ${isCompleted ? 'text-[#0070AD]' : 'text-black/20'} transition-colors duration-300`} 
+                          className={`w-2 h-2 -mt-[1px] ${isCompleted || isStepCompleted ? 'text-[#0070AD]' : 'text-black/20'} transition-colors duration-300`} 
                           fill="currentColor" 
                           viewBox="0 0 10 10"
                         >
@@ -552,14 +566,14 @@ export default function DataPipelinePage() {
                     >
                       <motion.div
                         className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 z-10 ${
-                          isActive
+                          isActive && statusText !== 'Completed'
                             ? 'bg-[#0070AD] text-white shadow-[0_0_15px_rgba(0,112,173,0.3)]'
-                            : isCompleted
+                            : isStepCompleted || isCompleted
                             ? 'bg-[#0070AD]/80 text-white hover:bg-[#0070AD]'
                             : 'bg-black/5 text-black/45'
                         }`}
-                        animate={isActive ? { scale: [1, 1.05, 1] } : {}}
-                        transition={{ duration: 0.5, repeat: isActive ? Infinity : 0, repeatDelay: 2 }}
+                        animate={isActive && statusText !== 'Completed' ? { scale: [1, 1.05, 1] } : {}}
+                        transition={{ duration: 0.5, repeat: isActive && statusText !== 'Completed' ? Infinity : 0, repeatDelay: 2 }}
                         whileHover={isClickable ? { scale: 1.05 } : {}}
                         whileTap={isClickable ? { scale: 0.98 } : {}}
                       >
@@ -567,12 +581,12 @@ export default function DataPipelinePage() {
                       </motion.div>
                       <div className="flex flex-col">
                         <span className={`text-sm font-semibold transition-colors ${
-                          isActive ? 'text-zinc-900 font-bold' : isCompleted ? 'text-[#0070AD]' : 'text-black/45'
+                          isActive ? 'text-zinc-900 font-bold' : isCompleted || isStepCompleted ? 'text-[#0070AD]' : 'text-black/45'
                         }`}>
                           {step.label}
                         </span>
                         <span className="text-[10px] text-black/35 font-medium mt-0.5">
-                          {isActive ? 'In Progress' : isCompleted ? 'Completed' : 'Pending'}
+                          {statusText}
                         </span>
                       </div>
                     </motion.button>

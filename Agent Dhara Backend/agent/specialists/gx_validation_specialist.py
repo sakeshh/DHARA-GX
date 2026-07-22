@@ -150,8 +150,10 @@ def run_gx_validation(
     thresholds = thresholds or {}
     business_rules = business_rules or {}
 
-    local_placeholders = set(str(p).lower() for p in thresholds.get("placeholders", [])) if thresholds.get("placeholders") else PLACEHOLDERS
-    local_sentinels = set(float(s) for s in thresholds.get("sentinels", []) if s is not None) if thresholds.get("sentinels") else SENTINEL_NUMBERS
+    raw_pl = thresholds.get("placeholders")
+    local_placeholders = set(str(p).lower() for p in raw_pl) if raw_pl else PLACEHOLDERS
+    raw_sent = thresholds.get("sentinels")
+    local_sentinels = set(float(s) for s in raw_sent if s is not None) if raw_sent else SENTINEL_NUMBERS
 
     try:
         context = gx.get_context()
@@ -571,6 +573,79 @@ def run_gx_validation(
                                     "unexpected_count": sent_cnt,
                                     "unexpected_index_list": num_col.index[sent_mask].tolist(),
                                     "unexpected_values": col_series.loc[num_col.index[sent_mask]].head(5).tolist()
+                                })
+
+                # 0.3 Text-Encoded Invalid Numeric Check (e.g. <amount>error</amount>)
+                _NUMERIC_NAME_PATTERNS = ("amount", "price", "budget", "cost", "total", "qty", "quantity", "count", "num_", "production_qty", "extent")
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    col_lower = str(col).lower()
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    is_numeric_named = any(p in col_lower for p in _NUMERIC_NAME_PATTERNS) or semantic_type in ("numeric", "metric", "numeric_id")
+                    
+                    if is_numeric_named:
+                        col_series = validation_df[col]
+                        non_null_s = col_series.dropna().astype(str).str.strip()
+                        if not non_null_s.empty:
+                            coerced = pd.to_numeric(non_null_s, errors="coerce")
+                            bad_mask = coerced.isna()
+                            bad_cnt = int(bad_mask.sum())
+                            if bad_cnt > 0:
+                                results_processed.append({
+                                    "expectation": "invalid_numeric_values",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"{bad_cnt} non-numeric value(s) in numeric column '{col}' (e.g. 'error', 'invalid')",
+                                    "unexpected_count": bad_cnt,
+                                    "unexpected_index_list": non_null_s.index[bad_mask].tolist(),
+                                    "unexpected_values": col_series.loc[non_null_s.index[bad_mask]].head(5).tolist()
+                                })
+
+                # 0.4 Invalid Date Format & Sentinel Date Check (e.g. 00/00/0000, 99/99/9999, invalid)
+                _DATE_NAME_PATTERNS = ("date", "dob", "time", "stamp", "dt")
+                _BAD_DATE_STRINGS = {"00/00/0000", "00-00-0000", "0000-00-00", "99/99/9999", "99-99-9999", "9999-99-99", "invalid", "tbd", "not available"}
+                for col in validation_df.columns:
+                    col_meta = cols_meta.get(col) or {}
+                    col_lower = str(col).lower()
+                    semantic_type = (col_meta.get("semantic_type") or "").lower()
+                    is_date_named = any(p in col_lower for p in _DATE_NAME_PATTERNS) or semantic_type == "date"
+                    
+                    if is_date_named:
+                        col_series = validation_df[col]
+                        non_null_s = col_series.dropna().astype(str).str.strip()
+                        if not non_null_s.empty:
+                            bad_mask = non_null_s.str.lower().isin(_BAD_DATE_STRINGS)
+                            bad_cnt = int(bad_mask.sum())
+                            if bad_cnt > 0:
+                                results_processed.append({
+                                    "expectation": "invalid_date_format",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"{bad_cnt} invalid date/sentinel date value(s) in column '{col}'",
+                                    "unexpected_count": bad_cnt,
+                                    "unexpected_index_list": non_null_s.index[bad_mask].tolist(),
+                                    "unexpected_values": col_series.loc[non_null_s.index[bad_mask]].head(5).tolist()
+                                })
+
+                # 0.5 Digit Strings in Categorical Columns (e.g. region = 123, channel = 123)
+                _CAT_NAME_PATTERNS = ("region", "channel", "location", "category", "status", "country", "state")
+                for col in validation_df.columns:
+                    col_lower = str(col).lower()
+                    if any(p in col_lower for p in _CAT_NAME_PATTERNS):
+                        col_series = validation_df[col]
+                        non_null_s = col_series.dropna().astype(str).str.strip()
+                        if not non_null_s.empty:
+                            digit_mask = non_null_s.str.match(r"^\d+$")
+                            digit_cnt = int(digit_mask.sum())
+                            if digit_cnt > 0:
+                                results_processed.append({
+                                    "expectation": "string_with_only_digits_in_text_column",
+                                    "column": col,
+                                    "success": False,
+                                    "details": f"{digit_cnt} numeric digit string(s) in categorical column '{col}'",
+                                    "unexpected_count": digit_cnt,
+                                    "unexpected_index_list": non_null_s.index[digit_mask].tolist(),
+                                    "unexpected_values": col_series.loc[non_null_s.index[digit_mask]].head(5).tolist()
                                 })
                 # 1. Valid Values Lookup
                 if business_rules:
