@@ -882,6 +882,11 @@ def etl_apply_manual_resolutions(
 
     updated["blocked"] = []
 
+    # Re-tag all step buckets: user-promoted steps (evidence.rule_override=True)
+    # are reclassified as 'auto' so readiness % reflects resolved items correctly.
+    from agent.etl_pipeline.classify_steps import tag_plan_step_buckets
+    updated = tag_plan_step_buckets(updated, rules)
+
     # Run validation on the resolved plan
     from agent.etl_pipeline.validate_plan import validate_etl_plan
     plan_ok, plan_errs = validate_etl_plan(updated, assess or {}, rules)

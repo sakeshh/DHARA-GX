@@ -207,7 +207,10 @@ export function OverallReadinessBanner({
     blockedCount > 0 && Array.isArray(plan?.blocked)
       ? String((plan!.blocked as { message?: string }[])[0]?.message || 'blocking issues')
       : '';
-  const pct = totalSteps > 0 ? Math.round((autoCount / totalSteps) * 100) : 0;
+  const pct =
+    totalSteps + manualResolved > 0
+      ? Math.round(((autoCount + manualResolved) / (totalSteps + manualResolved)) * 100)
+      : 0;
   const readinessMessage =
     blockedCount > 0 || blockedStepCount > 0
       ? `Blocked: ${blockedReason || 'resolve blocking issues before approving.'}`

@@ -163,7 +163,7 @@ def deploy_and_run_notebook(
     needed_pkgs = required_packages_for_plan(plan)
     if needed_pkgs:
         attached = [p.strip() for p in os.getenv("FABRIC_ATTACHED_PACKAGES", "").split(",") if p.strip()]
-        strict = os.getenv("FABRIC_STRICT_PACKAGE_CHECK", "0").strip() in ("1", "true", "yes")
+        strict = os.getenv("FABRIC_STRICT_PACKAGE_CHECK", "1").strip() in ("1", "true", "yes")
         missing = [p for p in needed_pkgs if not any(p.lower() in a.lower() for a in attached)]
         if missing and (attached or strict):
             msg = f"Fabric Spark environment missing required package(s): {missing}. Please attach them in Fabric environment settings."

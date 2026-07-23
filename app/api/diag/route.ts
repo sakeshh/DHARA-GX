@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 function mask(value: string | undefined | null): string | null {
   if (!value) return null;
   const v = value.trim();

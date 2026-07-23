@@ -27,12 +27,56 @@ def _safe(name: str) -> str:
     return (s or "dataset").strip("_")
 
 
+# Columns that are business keys / identifiers — NEVER fill with computed values
+_BUSINESS_KEY_PATTERNS = (
+    "id", "key", "code", "ref", "num", "no", "nbr",
+    "uuid", "guid", "sku", "ean", "isbn", "asin",
+)
+# Columns that are categorically typed — NEVER cast to numeric
+_CATEGORICAL_PATTERNS = (
+    "region", "channel", "location", "category", "status",
+    "country", "state", "city", "zone", "segment", "type",
+    "department", "division", "brand", "product_name", "tier",
+)
+# Columns that are name / master-data fields — DO NOT lowercase
+_NAME_FIELD_PATTERNS = (
+    "name", "title", "description", "label", "machine",
+    "customer", "vendor", "supplier", "employee", "owner",
+)
+
+
+def _is_business_key(col: str) -> bool:
+    col_l = str(col).lower()
+    return any(k in col_l for k in _BUSINESS_KEY_PATTERNS)
+
+
+def _is_categorical_col(col: str) -> bool:
+    col_l = str(col).lower()
+    return any(k in col_l for k in _CATEGORICAL_PATTERNS)
+
+
+def _is_name_field(col: str) -> bool:
+    col_l = str(col).lower()
+    return any(k in col_l for k in _NAME_FIELD_PATTERNS)
+
+
 def _emit_fill_spark(col: str, df: str, params: Dict[str, Any]) -> List[str]:
     c = repr(str(col))
     strat = params.get("fill_strategy")
     fval = params.get("fill_value")
     dtype_str = f"dict({df}.dtypes)[{c}]"
-    
+
+    # GOVERNANCE RULE: Business keys / IDs must NEVER be filled with computed values.
+    # Filling sale_id=488.7018 violates data lineage and master data governance.
+    # Instead: emit a missing-flag column and leave the original NULL intact.
+    if _is_business_key(col):
+        flag_col = repr(f"is_missing_{col}")
+        return [
+            f"# GOVERNANCE: '{col}' is a business key — never fill with mean/median/arbitrary values.",
+            f"# Emitting is_missing flag and leaving NULL intact for auditability.",
+            f"{df} = {df}.withColumn({flag_col}, F.col({c}).isNull().cast('boolean'))",
+        ]
+
     if strat == "median":
         if fval is not None:
             return [f"{df} = {df}.withColumn({c}, F.coalesce(F.col({c}), F.lit({fval}).cast({dtype_str})))"]
@@ -148,10 +192,16 @@ def _emit_spark(
                 f"logger.info('deduplicate: dropped %d duplicate rows', _before - {df}.count())"
             ]
         else:
+            # GOVERNANCE: No business key found — flag duplicates instead of silently dropping rows.
+            # dropDuplicates() can destroy valid data (e.g. two legitimate factory readings on same date).
             return [
-                f"_before = {df}.count()",
-                f"{df} = {df}.dropDuplicates()",
-                f"logger.info('deduplicate: dropped %d rows', _before - {df}.count())"
+                f"# GOVERNANCE: No business key configured — flagging potential duplicates instead of dropping.",
+                f"# Review flagged rows and resolve manually before applying deduplication.",
+                f"from pyspark.sql import Window as _DedupWindow",
+                f"_dup_w = _DedupWindow.partitionBy(*[c for c in {df}.columns]).orderBy(F.lit(1))",
+                f"{df} = {df}.withColumn('_is_duplicate', (F.row_number().over(_dup_w) > 1).cast('boolean'))",
+                f"_dup_count = {df}.filter(F.col('_is_duplicate')).count()",
+                f"logger.warning('deduplicate: %d potential duplicate rows flagged (NOT dropped — manual review required)', _dup_count)",
             ]
     c = repr(str(col))
     if act == "trim":
@@ -184,6 +234,17 @@ def _emit_spark(
         target_type = params.get("target_type") or params.get("cast_to") or "long"
         is_key = any(k in str(col).lower() for k in ("id", "key", "code", "ref"))
         is_int_target = any(it in str(target_type).lower() for it in ("long", "int", "integer"))
+        # GOVERNANCE: Categorical text columns (region, channel, location, status) must NEVER be
+        # cast to integer types. Casting 'NY' → long produces NULL silently, destroying valid data.
+        if is_int_target and _is_categorical_col(col or ""):
+            flag_col = repr(f"{col}_domain_flag")
+            return [
+                f"# GOVERNANCE: '{col}' is a categorical text column — refusing cast to '{target_type}'.",
+                f"# Casting 'NY', 'Mumbai', 'Online' to integer would silently null all text values.",
+                f"# Emitting a domain-flag column to identify rows where numeric-only strings exist.",
+                f"{df} = {df}.withColumn({flag_col},"
+                f" F.col({c}).cast('string').rlike(r'^\\d+$') & F.col({c}).isNotNull())",
+            ]
         if is_key and is_int_target:
             return [
                 f"{df} = {df}.withColumn({c}, "
@@ -193,6 +254,33 @@ def _emit_spark(
         return [f"{df} = {df}.withColumn({c}, F.col({c}).cast({repr(target_type)}))"]
     if act == "parse_dates":
         return [f"{df} = {df}.withColumn({c}, F.to_timestamp(F.col({c})))"]
+    if act == "parse_dates_safe":
+        # Safe date parse: emit an is_invalid_date flag BEFORE converting,
+        # so bad values (00/00/0000, 'invalid', 'TBD') are traceable in the output.
+        col_safe = _safe(col or "date")
+        flag_col = repr(f"is_invalid_{col_safe}")
+        bad_sentinel_list = repr(["00/00/0000", "00-00-0000", "0000-00-00",
+                                  "99/99/9999", "99-99-9999", "9999-99-99",
+                                  "invalid", "tbd", "not available", "n/a", "na"])
+        return [
+            f"# Safe date parse: flag bad sentinel dates before converting (audit trail)",
+            f"{df} = {df}.withColumn(",
+            f"    {flag_col},",
+            f"    F.when(F.col({c}).isNull(), F.lit(False))",
+            f"    .when(F.lower(F.col({c}).cast('string')).isin({bad_sentinel_list}), F.lit(True))",
+            f"    .when(F.to_timestamp(F.col({c})).isNull() & F.col({c}).isNotNull(), F.lit(True))",
+            f"    .otherwise(F.lit(False)).cast('boolean')",
+            f")",
+            f"# Nullify sentinel values before timestamp parse",
+            f"{df} = {df}.withColumn({c},",
+            f"    F.when(F.lower(F.col({c}).cast('string')).isin({bad_sentinel_list}), F.lit(None))",
+            f"    .otherwise(F.col({c}))",
+            f")",
+            f"# Parse to timestamp (remaining bad values become NULL — already flagged above)",
+            f"{df} = {df}.withColumn({c}, F.to_timestamp(F.col({c})))",
+            f"_bad_date_cnt = {df}.filter(F.col({flag_col})).count()",
+            f"logger.warning('parse_dates_safe: %d invalid/sentinel date values flagged in column {col}', _bad_date_cnt)",
+        ]
     if act == "sanitize_email":
         return [
             f'{df} = {df}.withColumn({c}, F.lower(F.trim(F.col({c}).cast("string"))))',
@@ -211,6 +299,13 @@ def _emit_spark(
             f'{df} = {df}.withColumn({c}, F.concat(F.lit("***"), F.substring(F.regexp_replace(F.col({c}).cast("string"), "\\\\D", ""), -4, 4)))',
         ]
     if act == "lowercase":
+        # GOVERNANCE: Do NOT lowercase business keys (sale_id, campaign_id) or name fields (customer_name).
+        # Lowercasing 'AB123' → 'ab123' or 'John Smith' → 'john smith' destroys semantic value.
+        if _is_name_field(col or "") or _is_business_key(col or ""):
+            return [
+                f"# GOVERNANCE: '{col}' is a key/name field — applying trim only (not lowercase).",
+                f'{df} = {df}.withColumn({c}, F.trim(F.col({c}).cast("string")))',
+            ]
         return [f'{df} = {df}.withColumn({c}, F.lower(F.col({c}).cast("string")))']
     if act == "uppercase":
         return [f'{df} = {df}.withColumn({c}, F.upper(F.col({c}).cast("string")))']
@@ -320,6 +415,33 @@ def _emit_spark(
             f"# MANUAL REVIEW REQUIRED: {col}",
             f"logger.warning('Column {col} requires manual review — excluded from auto-clean')",
         ]
+    if act == "flag_domain_violation":
+        # Categorical column contains digit-only strings (e.g. region='123').
+        # DO NOT cast to integer. Flag the violation for manual inspection.
+        flag_col = repr(f"{col}_domain_flag")
+        return [
+            f"# Domain violation: '{col}' is categorical but contains digit-only values.",
+            f"# Flagging affected rows — do NOT cast to integer (would destroy 'NY', 'Mumbai', etc.).",
+            f"{df} = {df}.withColumn({flag_col},"
+            f" F.col({c}).cast('string').rlike(r'^\\d+$') & F.col({c}).isNotNull())",
+            f"_domain_viol_cnt = {df}.filter(F.col({flag_col})).count()",
+            f"logger.warning('flag_domain_violation: %d digit-only values in categorical column {col}', _domain_viol_cnt)",
+        ]
+    if act == "fill_nulls_flag":
+        # For numeric columns with text-encoded invalid values (e.g. amount='error'):
+        # preserve original, emit a flag column and an optional clean numeric column.
+        flag_col = repr(f"is_invalid_{col}")
+        clean_col = repr(f"{col}_numeric")
+        return [
+            f"# Safe numeric handling: flag invalid text values, create clean numeric column.",
+            f"# Original '{col}' column is preserved unchanged for auditability.",
+            f"{df} = {df}.withColumn({flag_col},"
+            f" F.col({c}).isNotNull() & F.to_double(F.col({c}).cast('string')).isNull())",
+            f"{df} = {df}.withColumn({clean_col},"
+            f" F.when(F.col({flag_col}), F.lit(None)).otherwise(F.col({c}).cast('double')))",
+            f"_invalid_cnt = {df}.filter(F.col({flag_col})).count()",
+            f"logger.warning('fill_nulls_flag: %d non-numeric values flagged in column {col} (original preserved)', _invalid_cnt)",
+        ]
     return [f"# Unsupported in pyspark template v1: {act} on {col}"]
 
 
@@ -351,6 +473,19 @@ def _emit_valid_values_spark(df: str, ds_name: str, rules: Dict[str, Any]) -> Li
 
 def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> str:
     _ = assessment
+    gen_mode = str(plan.get("generation_mode") or "full").lower().strip()
+    if gen_mode == "cleanse_only":
+        from agent.etl_pipeline.phase_classifier import split_plan_phases
+        cleanse_plan, _ = split_plan_phases(plan)
+        cleanse_plan["relationships"] = {}  # Phase 1 (Cleanse Only): no joins or bridge tables
+        cleanse_plan["generation_mode"] = "cleanse_only"
+        plan = cleanse_plan
+    elif gen_mode == "transform_only":
+        from agent.etl_pipeline.phase_classifier import split_plan_phases
+        _, transform_plan = split_plan_phases(plan)
+        transform_plan["generation_mode"] = "transform_only"
+        plan = transform_plan
+
     plan_id = str(plan.get("plan_id") or "unknown")
     rules = plan.get("business_rules") or {}
     never_drop = bool(rules.get("never_drop_rows"))
@@ -414,9 +549,18 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
 
     for ds_name, block in (plan.get("datasets") or {}).items():
         fn = f"transform_{_safe(ds_name)}"
+        ds_cols = [
+            str(st.get("column"))
+            for st in (block.get("steps") or [])
+            if st.get("column") and not str(st.get("column")).startswith(("[", "_"))
+        ]
+        unique_cols = list(dict.fromkeys(ds_cols))
+
         lines.append(f"def {fn}(df: DataFrame, all_dfs: Optional[dict] = None) -> DataFrame:")
         var = "out"
         lines.append(f"    {var} = df")
+        if unique_cols:
+            lines.append(f"    _require_columns({var}, {unique_cols!r}, {ds_name!r})")
 
         # Manual review warnings in code (B3)
         for mr in plan.get("manual_review") or []:
@@ -448,6 +592,30 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
             lines.append(f"    {sl}")
         for col in rules.get("non_nullable") or []:
             lines.append(f'    _warn_nulls_in_columns({var}, [{col!r}], "{ds_name}")')
+
+        # ── Quarantine Split (Governance) ───────────────────────────────────────
+        # Any flag columns emitted by parse_dates_safe, fill_nulls_flag, flag_domain_violation,
+        # or flag_outliers are used to split the output into:
+        #   - valid_records  (all flags False / NULL)
+        #   - quarantine     (at least one flag True)
+        # This ensures full auditability without silent data loss.
+        ds_safe = _safe(ds_name)
+        lines.extend([
+            f"    # ── Quarantine Split ──────────────────────────────────────────",
+            f"    # Separate flagged (invalid/outlier) rows from clean records for governance.",
+            f"    _flag_cols = [c for c in {var}.columns if c.startswith('is_invalid_') or c.endswith('_domain_flag') or c.endswith('_flagged') or c == '_is_duplicate']",
+            f"    if _flag_cols:",
+            f"        from functools import reduce",
+            f"        import operator",
+            f"        _any_flag = reduce(operator.or_, (F.col(fc).eqNullSafe(F.lit(True)) for fc in _flag_cols))",
+            f"        {var}_quarantine = {var}.filter(_any_flag)",
+            f"        {var} = {var}.filter(~_any_flag)",
+            f"        _quarantine_count = {var}_quarantine.count()",
+            f"        if _quarantine_count > 0:",
+            f"            logger.warning('Quarantine: %d rows routed to {ds_safe}_quarantine table', _quarantine_count)",
+            f"            if all_dfs is not None:",
+            f"                all_dfs['{ds_name}_quarantine'] = {var}_quarantine",
+        ])
         lines.append(f"    return {var}")
         lines.append("")
 
@@ -473,6 +641,12 @@ def generate_pyspark_etl(plan: Dict[str, Any], assessment: Dict[str, Any]) -> st
             lines.append(f"    {sl}")
         for sl in emit_pyspark_write_outputs(plan, manifest):
             lines.append(f"    {sl}")
+        lines.append("    # Write quarantine tables for auditability (if any rows were flagged)")
+        lines.append("    for q_key, q_df in list(dfs.items()):")
+        lines.append("        if q_key.endswith('_quarantine'):")
+        lines.append("            q_tbl = q_key.replace('.', '_')")
+        lines.append("            logger.info('Writing quarantine -> Fabric table %s', q_tbl)")
+        lines.append("            q_df.write.format('delta').mode('append').option('mergeSchema', 'true').saveAsTable(q_tbl)")
         lines.append("    return dfs, OUTPUT_PATHS")
         lines.append("")
         lines.append("# Fabric notebooks pre-inject 'spark'; fall back to creating one for local dev.")

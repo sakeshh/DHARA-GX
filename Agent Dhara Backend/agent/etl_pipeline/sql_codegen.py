@@ -292,6 +292,19 @@ def generate_sql_etl(plan: Dict[str, Any], assessment: Dict[str, Any], *, dialec
     Generate commented SQL scripts (T-SQL biased: UPDATE / TRY_CAST / QUOTENAME patterns).
     `dialect`: 'tsql' | 'ansi' (ansi uses portable comments only for risky bits).
     """
+    gen_mode = str(plan.get("generation_mode") or "full").lower().strip()
+    if gen_mode == "cleanse_only":
+        from agent.etl_pipeline.phase_classifier import split_plan_phases
+        cleanse_plan, _ = split_plan_phases(plan)
+        cleanse_plan["relationships"] = {}  # Phase 1 (Cleanse Only): no joins or bridge tables
+        cleanse_plan["generation_mode"] = "cleanse_only"
+        plan = cleanse_plan
+    elif gen_mode == "transform_only":
+        from agent.etl_pipeline.phase_classifier import split_plan_phases
+        _, transform_plan = split_plan_phases(plan)
+        transform_plan["generation_mode"] = "transform_only"
+        plan = transform_plan
+
     dialect = (dialect or "tsql").lower()
     default_values_to_seed = {}
     invalid_values_to_seed = {}

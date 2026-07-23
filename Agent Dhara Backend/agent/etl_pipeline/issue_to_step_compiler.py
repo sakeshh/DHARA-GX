@@ -20,7 +20,9 @@ _ISSUE_TO_ACTION_MAP.update({
     "duplicates": "deduplicate",
     "near_duplicate_rows": "deduplicate",
     "numeric_outliers_iqr": "clip_or_flag",
-    "duplicate_primary_key": "deduplicate",
+    # duplicate_primary_key is a COMPLEX issue — always routes to manual review,
+    # never auto-deduped without explicit user acknowledgment
+    "duplicate_primary_key": "review_manually",
     "invalid_gstin": "regex_replace",
     "invalid_pan": "regex_replace",
     "invalid_aadhaar": "regex_replace",
@@ -33,22 +35,31 @@ _ISSUE_TO_ACTION_MAP.update({
     "string_length_outlier": "flag_outliers",
     "custom_rule_violation": "review_manually",
     # String quality
-    "leading_trailing_whitespace":   "trim",
-    "mixed_case":                    "lowercase",
-    "inconsistent_case":             "lowercase",
-    "special_characters":            "regex_replace",
-    "html_tags":                     "regex_replace",
-    "control_characters":            "regex_replace",
-    "unicode_normalization":         "regex_replace",
+    # mixed_case / inconsistent_case: use trim-only — applying lowercase to master-data
+    # fields (customer_name, machine_name, location) destroys semantic value.
+    # Columns needing full lowercase normalization should be configured explicitly.
+    "leading_trailing_whitespace":        "trim",
+    "mixed_case":                         "trim",
+    "inconsistent_case":                  "trim",
+    "special_characters":                 "regex_replace",
+    "html_tags":                          "regex_replace",
+    "control_characters":                 "regex_replace",
+    "unicode_normalization":              "regex_replace",
+    # Placeholders (N/A, ???, unknown, TBD) → nullify punctuation-only values
+    "placeholder_detected":               "nullify_punctuation",
+    # Categorical column contains only-digit strings — flag it, do NOT cast to numeric
+    "string_with_only_digits_in_text_column": "flag_domain_violation",
     # Numeric
     "negative_values":               "range_clip",
     "zero_values":                   "zero_to_null",
     "impossible_values":             "range_clip",
     "precision_loss":                "cast_type",
     # Date/time
+    # invalid_date_format: use parse_dates_safe which emits both a flag column
+    # and the timestamp parse — preventing silent null propagation
     "future_dates":                  "nullify_future_dates",
     "dummy_dates":                   "nullify_dummy_dates",
-    "invalid_date_format":           "parse_dates",
+    "invalid_date_format":           "parse_dates_safe",
     "date_range_violation":          "nullify_future_dates",
     # Boolean/categorical
     "boolean_inconsistency":         "standardize_boolean",
@@ -63,6 +74,10 @@ _ISSUE_TO_ACTION_MAP.update({
     "schema_drift":                  "cast_type",
     "column_rename":                 "cast_type",
     "extra_whitespace_in_name":      "trim",
+    # Invalid numerics in named numeric columns (e.g. amount='error') — flag + leave raw
+    "invalid_numeric_values":        "fill_nulls_flag",
+    # Sentinel date strings (00/00/0000, 99/99/9999) → nullify
+    "invalid_date_format":           "parse_dates_safe",
 })
 
 
@@ -80,11 +95,13 @@ _NON_FIXABLE_ISSUE_TYPES = frozenset({
 _COMPLEX_ISSUE_TYPES = frozenset({
     "custom_rule_violation",
     "business_key_duplicate",
-    "duplicate_primary_key",        # when multi-column PK is involved
+    "duplicate_primary_key",              # always manual — dedup of PKs requires business sign-off
     "dq_gate_warning",
-    "high_null_percentage",         # >50% null — may indicate structural problem
-    "dominant_value_skew",          # may indicate sentinel fill
-    "multivariate_outliers",        # cross-column — needs domain judgment
+    "high_null_percentage",               # >50% null — may indicate structural problem
+    "dominant_value_skew",               # may indicate sentinel fill
+    "multivariate_outliers",             # cross-column — needs domain judgment
+    "string_with_only_digits_in_text_column",  # domain violation — flag only, never cast
+    "invalid_numeric_values",            # text-encoded non-numerics — flag, preserve original
 })
 
 

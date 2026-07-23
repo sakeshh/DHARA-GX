@@ -106,6 +106,38 @@ def validate_etl_plan(
         if not found:
             errs.append(f"required column '{rc}' missing from all assessed datasets")
 
+    # Check for HIGH severity, NOT_FIXABLE issues in assessment that must be in manual_review or blocked
+    ass_datasets = (assessment or {}).get("datasets") or {}
+    for ds_name, ds_meta in ass_datasets.items():
+        dq_issues = list((ds_meta.get("quality") or {}).get("issues") or [])
+        legacy_issues = (assessment or {}).get("data_quality_issues", {}).get("datasets", {}).get(ds_name, {}).get("issues", [])
+        if legacy_issues:
+            dq_issues.extend(legacy_issues)
+            
+        for issue in dq_issues:
+            sev = str(issue.get("severity") or "").upper()
+            fix = str(issue.get("fixability") or "").upper()
+            col = issue.get("column")
+            if sev == "HIGH" and fix == "NOT_FIXABLE":
+                covered_in_plan = False
+                for mr in (plan.get("manual_review") or []):
+                    if isinstance(mr, dict) and str(mr.get("dataset")) == ds_name and str(mr.get("column")) == str(col):
+                        covered_in_plan = True
+                        break
+                for mr in (plan.get("resolved_manual_review") or []):
+                    if isinstance(mr, dict) and str(mr.get("dataset")) == ds_name and str(mr.get("column")) == str(col):
+                        covered_in_plan = True
+                        break
+                for b in (plan.get("blocked") or []):
+                    if isinstance(b, dict) and str(b.get("dataset")) == ds_name and str(b.get("column")) == str(col):
+                        covered_in_plan = True
+                        break
+                if not covered_in_plan:
+                    errs.append(
+                        f"Dataset '{ds_name}' column '{col}' has a HIGH severity NOT_FIXABLE issue ({issue.get('type')}) "
+                        f"which must be routed to manual review or blocked."
+                    )
+
     return (len(errs) == 0), errs
 
 

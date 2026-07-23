@@ -8,6 +8,34 @@ from agent.etl_pipeline.format_capabilities import PYSPARK_FORMAT_CAPABILITIES, 
 
 logger = logging.getLogger("agent.format_validators")
 
+def validate_xml_options(entry: Dict[str, Any]) -> None:
+    options = entry.setdefault("options", {})
+    row_tag = options.get("row_tag") or options.get("rowTag")
+    if not row_tag:
+        options["row_tag"] = "row"
+        logger.warning(f"Dataset '{entry.get('location')}' (XML) missing options.row_tag; defaulting to 'row'.")
+
+def validate_excel_options(entry: Dict[str, Any]) -> None:
+    options = entry.setdefault("options", {})
+    if "sheet_name" not in options and "sheet" not in options:
+        options["sheet_name"] = 0
+
+def validate_json_options(entry: Dict[str, Any]) -> None:
+    options = entry.setdefault("options", {})
+    # JSON option validation: check if multiline is set or boolean
+    if "multiline" in options:
+        options["multiline"] = bool(options["multiline"])
+    if "multi_line" in options:
+        options["multi_line"] = bool(options["multi_line"])
+
+def validate_csv_tsv_options(entry: Dict[str, Any]) -> None:
+    options = entry.setdefault("options", {})
+    # Ensure standard CSV/TSV options are set or defaulted
+    if "header" not in options:
+        options["header"] = "true"
+    if entry.get("format") == "tsv" and "delimiter" not in options:
+        options["delimiter"] = "\t"
+
 def validate_dataset_format_entry(entry: Dict[str, Any]) -> None:
     """
     Validates format availability and format-specific configuration options.
@@ -25,15 +53,13 @@ def validate_dataset_format_entry(entry: Dict[str, Any]) -> None:
         )
         
     if fmt == "xml":
-        options = entry.get("options") or {}
-        row_tag = options.get("row_tag") or options.get("rowTag")
-        if not row_tag:
-            logger.warning(f"Dataset '{entry.get('location')}' (XML) missing options.row_tag; defaulting to 'row'.")
-            
-    if fmt in ("xlsx", "xls"):
-        options = entry.setdefault("options", {})
-        if "sheet_name" not in options and "sheet" not in options:
-            options["sheet_name"] = 0
+        validate_xml_options(entry)
+    elif fmt in ("xlsx", "xls"):
+        validate_excel_options(entry)
+    elif fmt == "json":
+        validate_json_options(entry)
+    elif fmt in ("csv", "tsv"):
+        validate_csv_tsv_options(entry)
 
 def validate_plan_formats(plan: Dict[str, Any]) -> List[str]:
     """

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { proxyToBackend } from '@/lib/backend-bridge';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(_: NextRequest, { params }: { params: { sessionId: string } }) {
   try {
     const res = await proxyToBackend(`/sessions/${encodeURIComponent(params.sessionId)}`, {

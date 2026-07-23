@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { FaChartBar, FaExclamationTriangle, FaCheckCircle, FaThumbsUp, FaThumbsDown, FaWrench, FaDatabase, FaTable, FaProjectDiagram, FaArrowRight } from 'react-icons/fa';
 import ReportEnhancements from '@/components/ReportEnhancements';
@@ -104,6 +104,7 @@ export default function DataAssessmentReport({
   approvedSemantics,
 }: DataAssessmentReportProps) {
   const [assessing, setAssessing] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [assessment, setAssessment] = useState<BackendAssessment | null>(null);
   const [reportMarkdown, setReportMarkdown] = useState<string | null>(null);
@@ -133,7 +134,10 @@ export default function DataAssessmentReport({
     });
   }, [assessment]);
 
+  const hasRunRef = useRef(false);
   useEffect(() => {
+    if (hasRunRef.current) return;
+    hasRunRef.current = true;
     runAssessment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -169,6 +173,7 @@ export default function DataAssessmentReport({
 
   const runAssessment = async () => {
     setAssessing(true);
+    setError(null);
     setProgress(5);
     setTransformSuggestions(null);
     try {
@@ -293,6 +298,8 @@ export default function DataAssessmentReport({
         transform_suggestions: null,
       });
     } catch (err: any) {
+      console.error('Assessment failed:', err);
+      setError(err.message || 'An unexpected error occurred during assessment.');
       setAssessment(null);
       setReportMarkdown(null);
       setReportHtml(null);
@@ -371,6 +378,26 @@ export default function DataAssessmentReport({
             </motion.div>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center space-y-6 py-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 text-red-500">
+          <FaExclamationTriangle className="text-3xl" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-2xl font-bold text-zinc-900 font-black">Assessment Failed</h3>
+          <p className="text-zinc-500 text-sm max-w-md font-medium">{error}</p>
+        </div>
+        <button
+          onClick={() => runAssessment()}
+          className="px-6 py-3 bg-[#0070AD] hover:bg-[#005c8f] text-white font-semibold rounded-xl transition-all shadow-md"
+        >
+          Retry Assessment
+        </button>
       </div>
     );
   }

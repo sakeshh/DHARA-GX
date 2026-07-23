@@ -1198,10 +1198,11 @@ export default function EtlGenerationPanel({
                     {uncoveredList.length > 0 && (
                       <div className="mt-2 space-y-1">
                         <span className="font-bold text-[11px] block">Uncovered issues remaining:</span>
-                        <ul className="list-disc pl-4 space-y-0.5 text-[11.5px]">
+                          <ul className="list-disc pl-4 space-y-0.5 text-[11.5px]">
                           {uncoveredList.map((u: any, idx: number) => (
                             <li key={idx}>
-                              {u.column ? <code className="bg-black/10 px-1 rounded">{u.column}</code> : 'Dataset-level'}: {u.issue_type || u.type} <span className="font-bold text-[9px] uppercase">({u.severity})</span>
+                              <span className="font-semibold">{u.dataset ? `${u.dataset} · ` : ''}</span>
+                              {u.column ? <code className="bg-black/10 px-1 rounded">{u.column}</code> : '[Dataset-level]'}: {u.issue_type || u.type || u.kind || u.issue || 'Issue'} <span className="font-bold text-[9px] uppercase">({u.severity})</span>
                             </li>
                           ))}
                         </ul>

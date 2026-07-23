@@ -101,19 +101,39 @@ def add_event(*, job_id: str, level: str, message: str, data: Optional[Dict[str,
         conn.close()
 
 
-def update_job_status(job_id: str, *, status: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None) -> None:
+def update_job_status(
+    job_id: str,
+    *,
+    status: str,
+    result: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+    progress: Optional[int] = None,
+) -> None:
     conn = _connect()
     try:
-        conn.execute(
-            "UPDATE jobs SET updated_at=?, status=?, result_json=?, error=? WHERE job_id=?",
-            (
-                time.time(),
-                status,
-                json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
-                error,
-                job_id,
-            ),
-        )
+        if progress is not None:
+            conn.execute(
+                "UPDATE jobs SET updated_at=?, status=?, result_json=?, error=?, progress=? WHERE job_id=?",
+                (
+                    time.time(),
+                    status,
+                    json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
+                    error,
+                    progress,
+                    job_id,
+                ),
+            )
+        else:
+            conn.execute(
+                "UPDATE jobs SET updated_at=?, status=?, result_json=?, error=? WHERE job_id=?",
+                (
+                    time.time(),
+                    status,
+                    json.dumps(result, ensure_ascii=False, default=str) if result is not None else None,
+                    error,
+                    job_id,
+                ),
+            )
         conn.commit()
     finally:
         conn.close()

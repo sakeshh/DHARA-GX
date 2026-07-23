@@ -1562,7 +1562,7 @@ def run_gx_validation(
                                         "success": False,
                                         "details": f"Systematic pattern placeholder value '{val}' detected {cnt} times ({round(cnt/len(s)*100, 1)}%)",
                                         "unexpected_count": int(cnt),
-                                        "unexpected_index_list": validation_df[col].index[s == val].tolist()[:50],
+                                        "unexpected_index_list": s.index[s == val].tolist()[:50],
                                         "unexpected_values": [val]
                                     })
 

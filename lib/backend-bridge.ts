@@ -31,7 +31,7 @@ export async function proxyToBackend(
     if (token) headers.set('X-Backend-Token', token);
     if (!headers.has('X-Request-Id')) headers.set('X-Request-Id', crypto.randomUUID());
     try {
-      return await fetch(url, { ...rest, headers, signal: controller.signal });
+      return await fetch(url, { ...rest, headers, signal: controller.signal, cache: 'no-store' });
     } catch (err: any) {
       const name = err?.name ? String(err.name) : '';
       const msg = err?.message ? String(err.message) : 'Unknown error';

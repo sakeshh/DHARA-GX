@@ -116,7 +116,10 @@ def infer_format_from_ext(ext: str, source_type: str) -> str:
         return "xls"
     if source_type in ("sql_server", "azure_sql", "postgres", "mysql"):
         return "sql_table"
-    return "csv"
+    if source_type == "csv_file" or str(source_type).lower().startswith("csv"):
+        return "csv"
+    clean_ext = ext.lstrip(".")
+    return clean_ext if clean_ext else "unknown"
 
 
 def output_extension_for_format(fmt: str, fallback_ext: str) -> str:

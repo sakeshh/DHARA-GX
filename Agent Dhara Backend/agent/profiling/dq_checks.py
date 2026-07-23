@@ -753,18 +753,21 @@ def analyze_dataset_quality(
         for it in issues:
             sev = str(it.get("severity") or "low").lower()
             rows = it.get("row_indexes") or []
-            if rows:
-                if sev == "high":
-                    high_rows.update(rows)
-                elif sev == "medium":
-                    med_rows.update(rows)
-                else:
-                    low_rows.update(rows)
+            cnt = int(it.get("count") or it.get("unexpected_count") or len(rows) or 1)
+            cnt = min(cnt, n)
+            
+            explicit_rows = set(rows)
+            if sev == "high":
+                high_rows.update(explicit_rows)
+            elif sev == "medium":
+                med_rows.update(explicit_rows)
             else:
-                cnt = int(it.get("count") or 1)
-                cnt = min(cnt, n)
-                dummy_rows = range(synth_idx, synth_idx + cnt)
-                synth_idx += cnt
+                low_rows.update(explicit_rows)
+                
+            remaining_cnt = cnt - len(explicit_rows)
+            if remaining_cnt > 0:
+                dummy_rows = range(synth_idx, synth_idx + remaining_cnt)
+                synth_idx += remaining_cnt
                 has_synthesized = True
                 if sev == "high":
                     high_rows.update(dummy_rows)
@@ -773,14 +776,14 @@ def analyze_dataset_quality(
                 else:
                     low_rows.update(dummy_rows)
 
+        med_rows = set(med_rows) - set(high_rows)
+        low_rows = set(low_rows) - set(high_rows) - set(med_rows)
+
         if has_synthesized:
             import logging
             logging.getLogger("agent.profiling.dq_checks").debug(
                 f"DQ scoring: count-based index synthesis used for issues without row_indexes (dataset size: {n})"
             )
-
-        med_rows = set(med_rows) - set(high_rows)
-        low_rows = set(low_rows) - set(high_rows) - set(med_rows)
 
         # Flat penalty based on issue diversity (capped at 15.0 max)
         num_high_types = sum(1 for i in issues if str(i.get("severity") or "low").lower() == "high")

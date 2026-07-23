@@ -15,6 +15,9 @@ _AUTO_ACTIONS = frozenset(
         "cast_type",
         "coerce_numeric",
         "parse_dates",
+        "parse_dates_safe",        # safe date parse with audit flag
+        "flag_domain_violation",   # domain violation flagging (no data loss)
+        "fill_nulls_flag",         # flag + preserve invalid numeric values
         "sanitize_email",
         "normalize_phone",
         "regex_replace",
@@ -36,6 +39,7 @@ _AUTO_ACTIONS = frozenset(
         "nullify_punctuation",
         "nullify_dummy_dates",
         "noop",
+        "replace_sentinel_values",
     }
 )
 
@@ -90,6 +94,20 @@ def tag_plan_step_buckets(plan: Dict[str, Any], business_rules: Dict[str, Any]) 
         for st in block.get("steps") or []:
             if not isinstance(st, dict):
                 continue
+
+            # User-promoted steps (from manual review resolution) are explicitly approved
+            # by the user — count them as 'auto' so readiness % reflects the resolution.
+            evidence = st.get("evidence") or {}
+            user_approved = (
+                bool(evidence.get("rule_override"))
+                or st.get("source") in ("non_fixable_user_resolution",)
+                or bool(evidence.get("auto_resolved"))
+            )
+            if user_approved:
+                st["bucket"] = "auto"
+                st["phase"] = st.get("phase") or "cleanse"
+                continue
+
             sev = str(st.get("severity") or "medium")
             res = classify_step_bucket(
                 str(st.get("action") or ""),

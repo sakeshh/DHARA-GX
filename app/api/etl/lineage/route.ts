@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendBaseUrl, proxyToBackend } from '@/lib/backend-bridge';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   if (!getBackendBaseUrl()) {
     return NextResponse.json(

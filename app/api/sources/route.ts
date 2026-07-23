@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { proxyToBackend } from '@/lib/backend-bridge';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const res = await proxyToBackend('/sources', { method: 'GET', timeoutMs: 20_000 });
   const text = await res.text();
