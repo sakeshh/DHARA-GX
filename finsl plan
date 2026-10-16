@@ -1,0 +1,297 @@
+# **Agent Dhara - Complete Implementation Plan**
+## **AI Data Engineering Platform: Replacing Data Engineers & Analysts**
+
+---
+
+## **EXECUTIVE SUMMARY**
+
+| Target | Current State | Target State |
+|--------|---------------|--------------|
+| **Assessment** | 60-70% detection, static report | 95%+ detection, interactive, discovers business logic |
+| **ETL** | One-shot SQL gen, ~40% success | Multi-phase pipeline, 95%+ success, multi-target |
+| **Incremental** | Full refresh only | Source-agnostic: CDC, watermark, Delta CDF, API cursor, Kafka offset |
+| **Orchestration** | Manual | Scheduled, event-driven, DAG-based, GitOps |
+| **Governance** | None | Contracts, lineage, PII, audit, SLA |
+| **Learning** | None | Continuous improvement via memory layer |
+
+**Total Timeline: ~24 weeks (6 months) for MVP replacing senior data engineer + analyst**
+
+---
+
+## **PHASE 0: FOUNDATION (Weeks 1-2)**
+
+### **0.1 Architecture Refactor**
+- [ ] **Modularize codebase** into clear packages:
+  ```
+  agent/
+  ├── assessment/          # All profiling, DQ, semantic, drift
+  ├── etl_pipeline/        # Planner, Reviewer, Codegen, Validator, Executor
+  ├── incremental/         # Strategies per source type
+  ├── orchestration/       # LangGraph orchestrator, gates, scheduler
+  ├── memory/              # Memory store, learning agents
+  ├── governance/          # Contracts, lineage, PII, audit
+  ├── connectors/          # Source-specific implementations
+  └── deployment/          # Multi-target (SQL, Fabric, ADF, Snowflake)
+  ```
+- [ ] **Define core interfaces** (BaseAgent, IncrementalStrategy, MemoryStore, Connector)
+- [ ] **Set up shared infrastructure**: Redis (memory), PostgreSQL (metadata), MinIO (artifacts)
+
+### **0.2 Configuration System**
+- [ ] **Unified config schema** (YAML + env overrides) for all components
+- [ ] **Feature flags** for gradual rollout
+- [ ] **Secrets management** (Azure Key Vault / HashiCorp Vault integration)
+
+### **0.3 Testing Foundation**
+- [ ] **Test datasets** covering all source types + edge cases
+- [ ] **Golden assessments** for regression testing
+- [ ] **CI/CD pipeline** with automated assessment + ETL validation
+
+---
+
+## **PHASE 1: ASSESSMENT ENGINE - ANALYST REPLACEMENT (Weeks 3-8)**
+
+### **1.1 Three-Pass Semantic Pipeline (Weeks 3-4)**
+| Component | Deliverable |
+|-----------|-------------|
+| **Pass 1: Fast Patterns** | Regex/name-based semantic tags in <200ms/col |
+| **Pass 2: Profiling + Rough Semantics** | Stats-driven check selection |
+| **Pass 3: LLM Refinement** | Ambiguous columns only, with full context |
+| **Semantic Merger** | Combines passes with confidence scoring |
+
+### **1.2 Business Logic Discovery Engine (Weeks 5-6)**
+| Component | Deliverable |
+|-----------|-------------|
+| **Functional Dependency Finder** | A → B detection with confidence |
+| **Conditional Constraint Miner** | "IF status=shipped THEN ship_date not null" |
+| **Aggregation Consistency Checker** | SUM(detail) = header.total |
+| **State Machine Detector** | Status transitions, invalid paths |
+| **Temporal Logic Finder** | start < end, no gaps, seasonality |
+
+### **1.3 Unified Validation & Drift (Weeks 7-8)**
+| Component | Deliverable |
+|-----------|-------------|
+| **Business Rule Engine** | Declared + Discovered + Inferred rules unified |
+| **Conflict Resolver** | Declared vs Discovered vs Inferred |
+| **Drift Detector** | Schema, distribution (PSI), quality, semantic drift |
+| **Contextual Anomaly Detector** | Segment anomalies, correlation shifts, category drift |
+| **Assessment Synthesizer** | Executive summary + interactive dashboard data |
+
+**Phase 1 Success Criteria:**
+- [ ] 95%+ issue detection on benchmark datasets
+- [ ] Discovers 80%+ of cross-column rules analysts find
+- [ ] Drift detection catches schema + distribution changes
+- [ ] Assessment completes in <2 min for 10-table dataset
+
+---
+
+## **PHASE 2: INCREMENTAL/CDC FRAMEWORK - SOURCE-AGNOSTIC (Weeks 9-14)**
+
+### **2.1 Core Abstraction (Week 9)**
+```python
+# Interfaces to implement
+IncrementalStrategyBase:
+  - get_last_state(dataset) → Dict
+  - get_changes(dataset, since) → DataFrame
+  - write_changes(dataset, changes, mode) → WriteResult
+  - get_current_state(dataset) → Dict
+
+IncrementalConfig:
+  strategy: WATERMARK | CDC | FILE_MANIFEST | DELTA_CDF | CURSOR | OFFSET | CHANGE_FEED
+  watermark_column, lookback_window, partition_strategy, idempotency_key, scd_type
+```
+
+### **2.2 Strategy Implementations (Weeks 10-12)**
+
+| Priority | Strategy | Sources | Key Features |
+|----------|----------|---------|--------------|
+| **P0** | Watermark | SQL, any timestamped | Auto-detect column, lookback, SCD 1/2 |
+| **P0** | File Manifest | Blob, ADLS, Local, S3 | Hash-based, partition by date, schema evolution |
+| **P1** | Delta CDF | Fabric, Databricks, ADLS Gen2 | Native CDF, time travel, OPTIMIZE, VACUUM |
+| **P1** | CDC (Debezium/SQL) | PostgreSQL, MySQL, SQL Server | Log-based, exactly-once, schema changes |
+| **P2** | API Cursor | REST, GraphQL | Pagination, rate limits, auth refresh |
+| **P2** | Kafka Offset | Event Hubs, Kafka | Consumer groups, exactly-once, replay |
+| **P3** | Change Feed | Cosmos DB, DynamoDB | Stream processing, TTL handling |
+
+### **2.3 Unified Planner Integration (Weeks 13-14)**
+- [ ] **Auto-detect strategy** per dataset from source metadata
+- [ ] **Generate incremental steps**: get_state → fetch_changes → transform → write → update_state
+- [ ] **Source-specific compilers** for each strategy (T-SQL MERGE, Delta CDF, API upsert, etc.)
+- [ ] **Idempotency guarantees** via deterministic keys per strategy
+
+**Phase 2 Success Criteria:**
+- [ ] Same pipeline config works for SQL, Blob, Delta, API, Kafka
+- [ ] Incremental runs 10x faster than full refresh
+- [ ] Zero data loss on re-runs (idempotent)
+- [ ] Handles late-arriving data via lookback window
+
+---
+
+## **PHASE 3: ETL PIPELINE AGENTS - ENGINEER REPLACEMENT (Weeks 15-22)**
+
+### **3.1 Core Agents (Weeks 15-18)**
+
+| Agent | Responsibility | Key Features |
+|-------|---------------|--------------|
+| **PlannerAgent** | Assessment + Rules → Complete Plan | Parallel per-dataset, cross-dataset joins, manual review queue, SCD config |
+| **ReviewerAgent** | Quality Gate #1 | Coverage %, traceability, risk scoring, best practices, suggestions |
+| **CodegenAgent** | Plan → Multi-target Code | Dialect agents (TSQL, PySpark, ADF, Snowflake), action compilers, templates |
+| **ValidatorAgent** | Quality Gate #2 | Syntax, semantics, references, dry-run, auto-fix loop |
+| **ExecutorAgent** | Run with Safety | Multi-target (SQL, Fabric, ADF), transactions, streaming progress, rollback |
+| **CriticAgent** | Continuous Learning | Scores plan/code/execution, extracts patterns, feeds memory |
+
+### **3.2 Orchestrator & Human Gates (Weeks 19-20)**
+- [ ] **LangGraph Orchestrator** with phase state machine
+- [ ] **3 Human Gates**: Plan Review → Code Review → Execution Approval
+- [ ] **Gate UI Context**: Coverage, risk, manual items, code diff, execution preview
+- [ ] **State Persistence**: Checkpointing, resume, rollback
+
+### **3.3 Scheduler & Multi-Pipeline (Weeks 21-22)**
+- [ ] **Scheduler Agent**: Cron, event-driven (file arrival, DB trigger, API), dependencies
+- [ ] **DAG Support**: Multi-pipeline dependencies, parallel branches, fan-in/fan-out
+- [ ] **Retry & SLA**: Exponential backoff, dead letter, "complete by 6 AM" monitoring
+- [ ] **Pipeline Versioning**: GitOps, PR validation, one-click rollback
+
+**Phase 3 Success Criteria:**
+- [ ] End-to-end: Assessment → Plan → Code → Validate → Execute in <30 min
+- [ ] 95%+ SQL execution success rate (pre-validated)
+- [ ] Human gates add <5 min total overhead
+- [ ] Scheduler handles 100+ concurrent pipelines
+
+---
+
+## **PHASE 4: GOVERNANCE, CONTRACTS & TESTING (Weeks 23-26)**
+
+### **4.1 Data Contracts (Week 23)**
+- [ ] **Contract Schema**: Versioned, columns + types + nullability + PII + formats + SLAs
+- [ ] **Contract Validation Gate**: Breaking change detection, compatibility checks
+- [ ] **Contract Registry**: Version history, consumers, impact analysis
+
+### **4.2 Testing Framework (Week 24)**
+- [ ] **Test Generator**: Plan → pytest/dbt tests (unit + integration)
+- [ ] **Regression Suite**: Golden assessments + golden ETL outputs
+- [ ] **Contract Testing**: Schema evolution validation in CI
+
+### **4.3 Governance & Observability (Weeks 25-26)**
+| Component | Deliverable |
+|-----------|-------------|
+| **Lineage Engine** | Column-level: source → issue → step → code → execution |
+| **PII/Privacy Agent** | Auto-tag, masking policies, retention |
+| **Audit Trail** | Immutable log: who changed what, when, why |
+| **SLA Dashboard** | Freshness, volume, quality, cost per pipeline |
+| **Cost Optimizer** | $/run, $/TB, right-sizing recommendations |
+
+**Phase 4 Success Criteria:**
+- [ ] Breaking schema changes caught before deployment
+- [ ] Full column-level lineage for audit
+- [ ] PII auto-tagged and masked
+- [ ] Cost per pipeline visible and optimized
+
+---
+
+## **PHASE 5: MULTI-TARGET DEPLOYMENT & ADVANCED (Weeks 27-30)**
+
+### **5.1 Target Dialects (Week 27)**
+| Target | Status | Key Features |
+|--------|--------|--------------|
+| **Azure SQL (T-SQL)** | ✅ | MERGE, TRY_CAST, GO batches, SCD 2 |
+| **Fabric / PySpark** | ✅ | DataFrame API, Delta Lake, partitioning |
+| **Azure Data Factory** | ✅ | Mapping Data Flows JSON, linked services |
+| **Snowflake** | 🔄 | MERGE, VARIANT, zero-copy cloning |
+| **Databricks** | 🔄 | Unity Catalog, Photon, liquid clustering |
+
+### **5.2 Advanced Patterns (Weeks 28-30)**
+| Pattern | Implementation |
+|---------|----------------|
+| **Reverse ETL** | Warehouse → SaaS (Salesforce, HubSpot, Braze) via Hightouch/Census API |
+| **Real-time/Streaming** | Structured Streaming, Flink SQL, Materialized Views |
+| **Data Mesh** | Data Products, Contracts, Ownership, Discovery |
+| **ML Feature Store** | Feast integration, point-in-time correctness |
+| **Time Travel** | Point-in-time queries, audit replay |
+
+---
+
+## **PHASE 6: PRODUCTION HARDENING (Weeks 31-34)**
+
+### **6.1 Reliability**
+- [ ] Chaos engineering: kill nodes mid-execution, verify recovery
+- [ ] 99.9% pipeline success rate target
+- [ ] Automated failover for multi-region
+
+### **6.2 Scale Testing**
+- [ ] 1000+ tables, 10TB+ data, 100 concurrent pipelines
+- [ ] Memory/CPU profiling, bottleneck elimination
+
+### **6.3 Documentation & Onboarding**
+- [ ] Interactive tutorials, API reference, architecture guides
+- [ ] Migration guides: from Airflow/dbt/Azure Data Factory
+
+---
+
+## **TEAM STRUCTURE & ROLES**
+
+| Role | Count | Focus |
+|------|-------|-------|
+| **Platform Engineers** | 3 | Core framework, orchestrator, memory, connectors |
+| **Assessment Engineers** | 2 | Profiling, semantic, business logic, drift |
+| **ETL Engineers** | 3 | Planner, Codegen, Validator, Executor, Dialects |
+| **Incremental Engineers** | 2 | Strategies, CDC, Delta, Streaming |
+| **Governance Engineer** | 1 | Contracts, Lineage, PII, Audit |
+| **Platform/Infra Engineer** | 1 | K8s, Redis, Postgres, CI/CD, Monitoring |
+| **Product/UX** | 1 | Gate UX, Dashboard, CLI, SDK |
+| **QA/Testing** | 1 | Golden datasets, Regression, Chaos |
+
+---
+
+## **RISK MITIGATION**
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| LLM semantic refinement too slow | Medium | High | Cache aggressively, batch ambiguous cols, fallback to patterns |
+| CDC setup complexity per source | High | High | Start with Watermark + File Manifest (covers 80%), add CDC incrementally |
+| Multi-dialect codegen divergence | Medium | High | Shared IR (Intermediate Representation) → dialect compilers |
+| Human gate bottleneck | Low | Medium | Auto-approve for low-risk, batch gates, async notifications |
+| Memory store scale | Low | Medium | Redis Cluster, partition by tenant, TTL policies |
+| Schema evolution breaking contracts | Medium | High | Contract compatibility checks in CI, versioned contracts |
+
+---
+
+## **MILESTONE TIMELINE**
+
+```
+Weeks 1-2   ████████████████████  FOUNDATION
+Weeks 3-8   ████████████████████████████████  ASSESSMENT ENGINE
+Weeks 9-14  ████████████████████████████████  INCREMENTAL/CDC
+Weeks 15-22 ██████████████████████████████████████████  ETL AGENTS
+Weeks 23-26 ████████████████████████████  GOVERNANCE/TESTING
+Weeks 27-30 ████████████████████████  MULTI-TARGET/ADVANCED
+Weeks 31-34 ████████████████  HARDENING
+```
+
+---
+
+## **SUCCESS METRICS (MVP LAUNCH)**
+
+| Metric | Target |
+|--------|--------|
+| **Assessment Accuracy** | 95%+ issue detection vs analyst benchmark |
+| **Business Logic Discovery** | 80%+ of cross-column rules found automatically |
+| **ETL Success Rate** | 95%+ pipelines execute without manual SQL fixes |
+| **Incremental Performance** | 10x faster than full refresh |
+| **End-to-End Time** | Assessment (2 min) + Plan (1 min) + Code (30 sec) + Validate (30 sec) = <5 min |
+| **Human Gate Overhead** | <5 min total per pipeline |
+| **Multi-Source Parity** | Same config works for SQL, Blob, Delta, API, Kafka |
+| **Cost per TB Processed** | <50% of manual engineering cost |
+
+---
+
+## **IMMEDIATE NEXT STEPS (This Week)**
+
+1. **Refactor codebase** into modular packages (Phase 0.1)
+2. **Define core interfaces** in `agent/core/interfaces.py`
+3. **Set up shared infrastructure** (Redis, Postgres, MinIO)
+4. **Create test dataset suite** covering all source types
+5. **Start Phase 1.1**: Fast Pattern Semantic Agent (parallel with profiling)
+
+---
+
+**This plan transforms Agent Dhara from a "data quality tool" into a production-grade AI Data Engineering Platform that genuinely replaces the day-to-day work of senior data engineers and analysts.**
