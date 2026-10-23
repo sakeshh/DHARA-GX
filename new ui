@@ -1,0 +1,1003 @@
+Yes. Since Agent Dhara has a complex backend with assessment agents, specialist chat agents, compiler stages, validation, execution, and improvement tracking, the UI should not expose that complexity as one long technical form.
+
+The UI should behave like a guided data-engineering workspace:
+
+Select data → Assess quality → Review findings → Define transformations → Estimate cost → Generate pipeline → Validate → Execute → Monitor improvement
+
+1. Recommended UI structure
+
+I would divide the application into five major areas.
+
+┌──────────────────────────────────────────────────────────────┐
+│ Top Header: Project | Environment | Session | Notifications  │
+├───────────────┬──────────────────────────────────────────────┤
+│               │                                              │
+│ Left Sidebar  │ Main Workspace                               │
+│               │                                              │
+│ Projects      │ Current pipeline step and results            │
+│ Data Sources  │                                              │
+│ Pipelines     │                                              │
+│ Runs          │                                              │
+│ Artifacts     │                                              │
+│ Settings      │                                              │
+│               │                                              │
+├───────────────┴───────────────────────────────┬──────────────┤
+│ Pipeline progress / execution status         │ AI Assistant │
+└───────────────────────────────────────────────┴──────────────┘
+
+Global left navigation
+
+The main navigation could contain:
+
+Home
+Projects
+Data Sources
+Data Assessment
+Pipeline Builder
+Pipeline Runs
+Artifacts
+Connections
+Settings
+
+The user should not need to open different pages for every backend agent. Agents should work behind the interface while the UI presents their combined outcomes.
+
+2. Home dashboard
+
+The first page should answer four questions immediately:
+
+What projects exist?
+Which pipelines are healthy?
+Which datasets have serious issues?
+What requires my attention?
+Suggested dashboard components
+Summary cards
+Active Projects        4
+Connected Sources      12
+Pipelines Generated    18
+DQ Issues              27
+Failed Runs             2
+Average DQ Score       84
+
+
+Use color carefully:
+
+Green: healthy or completed
+Amber: warning or approval required
+Red: blocked or failed
+Blue: running or informational
+Gray: not started
+Recent projects
+
+Each project card can show:
+
+Project name
+Selected sources
+Current stage
+DQ score
+Compiler target
+Last modified time
+Last run result
+Attention-required panel
+
+Examples:
+
+3 high-severity DQ issues require review
+Fabric connection needs authentication
+SQL pipeline is ready for execution approval
+Post-ETL validation failed for the latest run
+Recent activity timeline
+10:21  Assessment completed
+10:22  14 issues detected
+10:26  Semantic rules approved
+10:28  SQL pipeline generated
+10:29  Validation passed
+10:35  Execution awaiting approval
+
+3. Create-project flow
+
+When the user clicks New Data Pipeline, show a short setup experience instead of opening the full wizard immediately.
+
+Project setup components
+Project name
+Use case or description
+Environment
+Development
+Testing
+Production
+Pipeline mode
+Guided
+Advanced
+Preferred target
+SQL
+Python
+PySpark
+Fabric
+ADF
+Databricks
+Guided versus advanced mode
+Guided mode
+
+For business analysts and less technical users:
+
+Recommended defaults
+Simplified issue descriptions
+Fewer compiler controls
+Natural-language business rules
+Agent recommendations enabled
+Advanced mode
+
+For data engineers:
+
+Full source configuration
+Schema controls
+Rule editor
+Compiler plan
+Cost configuration
+Generated code
+Validation logs
+Execution controls
+
+Both modes can use the same backend. They only expose different levels of detail.
+
+4. Main pipeline-builder flow
+
+The pipeline builder should be the central experience.
+
+I recommend five grouped stages instead of showing eleven unrelated screens.
+
+1. Connect
+2. Assess
+3. Design
+4. Generate
+5. Execute
+
+
+Each stage can contain smaller steps.
+
+Stage 1: Connect
+Step 1: Source selection
+
+Show connection cards:
+
+Azure SQL
+Local file
+Azure Blob Storage
+Microsoft Fabric OneLake
+CSV
+JSON
+Parquet
+Delta
+
+Each card should show:
+
+Connected or disconnected state
+Connection name
+Environment
+Last tested time
+Configure button
+Test connection button
+Step 2: Data browser
+
+After connecting, display:
+
+Source Explorer
+├── Database
+│   ├── dbo.Customers
+│   ├── dbo.Orders
+│   └── dbo.Products
+└── Blob Storage
+    ├── customers.csv
+    ├── transactions.parquet
+    └── archive/
+
+
+Useful components:
+
+Search
+Schema filter
+Table/file checkboxes
+Row-count estimate
+File size
+Last modified
+Sample preview
+Select all
+Relationship preview
+Step 3: Fabric shortcut configuration
+
+Show this only when relevant.
+
+Components:
+
+Selected blob paths
+Target Fabric workspace
+Lakehouse
+OneLake destination
+Shortcut name
+Connection status
+Create shortcut button
+
+Do not display the Fabric step for SQL-only or local-file pipelines.
+
+Stage 2: Assess
+
+This stage should show what the data-quality agents are doing without overwhelming the user.
+
+Assessment progress panel
+
+Instead of one loading spinner, show individual assessment activities:
+
+✓ Schema profiling
+✓ Semantic type detection
+✓ Missing-value analysis
+✓ Duplicate analysis
+● Outlier detection
+○ Relationship discovery
+○ Schema-drift comparison
+○ Readiness-score calculation
+
+
+This makes the multi-agent architecture visible and understandable.
+
+Assessment overview
+
+At the top, display:
+
+Overall DQ score
+ETL readiness
+Critical issues
+Warnings
+Informational findings
+Tables assessed
+Columns assessed
+Estimated affected rows
+
+Example:
+
+Data Quality Score: 68/100
+Status: Needs Review
+Critical Issues: 4
+Warnings: 12
+Estimated Affected Rows: 18,420
+
+Issue explorer
+
+The issue explorer is one of the most important UI components.
+
+Columns could include:
+
+Severity
+Dataset
+Column
+Issue type
+Description
+Actual value or percentage
+Estimated affected rows
+Suggested action
+Status
+
+Filters:
+
+Severity
+Dataset
+Column
+Issue category
+Confirmed or estimated
+Resolved or unresolved
+Issue detail drawer
+
+Clicking an issue should open a side drawer with:
+
+Plain-language explanation
+Technical evidence
+Example invalid rows
+Possible root cause
+Downstream impact
+Recommended correction
+Confidence level
+Agent responsible
+Accept recommendation
+Modify recommendation
+Ignore with reason
+
+Example:
+
+Issue: Invalid email format
+Column: CustomerEmail
+Affected sample rows: 42
+Estimated full-dataset rows: 3,800
+Severity: High
+
+Recommended action:
+Set invalid formats to null and move rejected rows to an exception table.
+
+Relationship map
+
+For cross-dataset analysis, show a visual relationship graph:
+
+Customers.CustomerID
+          │
+          ├── Orders.CustomerID
+          │
+          └── SupportTickets.CustomerID
+
+
+The user should be able to click a relationship and see:
+
+Match percentage
+Orphan rows
+Inferred cardinality
+Confidence
+Recommended join
+Potential false-positive warning
+Report page
+
+Provide three report modes:
+
+Executive summary
+Technical report
+Raw JSON/details
+
+Actions:
+
+Download HTML
+Download Markdown
+Download JSON
+Share report
+Ask AI about report
+Stage 3: Design
+
+This stage converts detection into an approved transformation plan.
+
+Step 1: Business requirements
+
+Provide both natural-language and structured modes.
+
+Example input:
+
+Discard rows with missing CustomerID.
+Mask phone numbers.
+Default missing CreditLimit to zero.
+Remove duplicate customers based on Email.
+
+
+After parsing, show structured rules:
+
+Rule 1
+Operation: Reject row
+Condition: CustomerID is null
+
+Rule 2
+Operation: Mask
+Column: Phone
+
+Rule 3
+Operation: Fill missing value
+Column: CreditLimit
+Value: 0
+
+
+Every parsed rule should have:
+
+Edit
+Approve
+Delete
+Confidence
+Conflict warning
+Source, such as user rule or agent recommendation
+Step 2: Semantic review
+
+Build a column-level semantic table.
+
+Suggested information:
+
+Column
+Detected type
+Existing type
+Suggested type
+Null handling
+PII classification
+Cleaning action
+Status
+
+Example:
+
+Email
+Detected semantic type: Email address
+Current type: varchar
+Recommended action: Validate and lowercase
+PII: Yes
+Status: Awaiting approval
+
+Step 3: Transformation plan
+
+Present an ordered pipeline plan rather than only a list of rules.
+
+1. Read Customers
+2. Standardize column names
+3. Cast CustomerID
+4. Trim CustomerName
+5. Validate Email
+6. Mask Phone
+7. Impute CreditLimit
+8. Remove duplicate records
+9. Validate CustomerStatus
+10. Write clean output
+
+
+Each step should show:
+
+Input schema
+Output schema
+Source rule
+Agent recommendation
+Editable parameters
+Dependencies
+Estimated affected rows
+Quality gate
+
+Display a visible gate before compilation:
+
+Quality Gate: Blocked
+
+DQ Score: 68/100
+Required Score: 70
+Unresolved Blockers: 2
+
+
+Available actions:
+
+Resolve blockers
+Re-run assessment
+Override gate with reason
+
+Gate overrides should require a reason and be included in the audit trail.
+
+Stage 4: Generate
+
+This is where the compiler features should become visible.
+
+Step 1: Target selection
+
+Use target cards instead of a plain dropdown:
+
+Python
+SQL
+PySpark
+Microsoft Fabric
+Azure Data Factory
+Databricks
+
+Each card can explain:
+
+Best-fit scenario
+Execution environment
+Expected artifact type
+Compatibility
+Estimated cost level
+
+The ETL guidance specialist could mark one target as recommended:
+
+Recommended: PySpark
+
+Reason:
+The source contains approximately 80 million rows, multiple large joins,
+and transformations suitable for distributed execution.
+
+
+The recommendation must remain editable.
+
+Step 2: Cost and resource estimate
+
+Before compilation, show:
+
+Estimated runtime
+Estimated memory
+Data volume
+Suggested node size
+Expected output size
+Complexity level
+Cost-estimation assumptions
+
+Also show warning states:
+
+High-memory join detected
+Potential partition skew
+Source row count is estimated
+
+
+Users should be able to change:
+
+Partition count
+Worker size
+Parallelism
+Retry count
+Output format
+
+Then recalculate the estimate.
+
+Step 3: Compiler progress
+
+Show the compiler's internal stages:
+
+✓ Pattern detection
+✓ Semantic-action validation
+✓ Business-rule validation
+✓ Logical planning
+✓ Schema resolution
+✓ Optimization
+✓ Cost estimation
+● Physical planning
+○ Code generation
+○ Target validation
+○ Test generation
+○ Contract generation
+○ Lineage generation
+○ Package creation
+
+
+This is better than displaying “Generating...” because it builds confidence and helps diagnose failures.
+
+Step 4: Artifact workspace
+
+Use tabs:
+
+Generated code
+Tests
+Data contract
+Lineage
+Manifest
+Validation
+Compiler logs
+Generated code tab
+
+Include:
+
+File explorer
+Syntax-highlighted code viewer
+Copy button
+Download button
+Validation status
+Search
+Fullscreen mode
+Tests tab
+
+Show:
+
+Generated test files
+Number of tests
+Tests passed
+Tests failed
+Test coverage, when available
+Data contract tab
+
+Show:
+
+Contract version
+Dataset owner
+Schema
+Constraints
+Quality expectations
+YAML view
+Form view
+Lineage tab
+
+Show:
+
+Source columns
+      ↓
+Transformation operations
+      ↓
+Output columns
+
+
+Clicking an output column should highlight its full lineage.
+
+Validation tab
+
+Show separate validation categories:
+
+Syntax validation
+Schema validation
+Dialect validation
+Semantic validation
+Security validation
+Test validation
+Repair-loop UI
+
+If repair occurs, do not silently modify code. Show:
+
+Validation attempt 1: Failed
+Cause: Unsupported SQL function NVL
+Repair action: Replaced with COALESCE
+Validation attempt 2: Passed
+
+
+This makes the self-healing behavior visible and auditable.
+
+Stage 5: Execute
+
+Execution needs the strongest safety-focused design.
+
+Execution mode selector
+○ Dry run
+○ Execute in development
+○ Execute in testing
+○ Execute in production
+
+
+Production should be visually distinct and require stronger approval.
+
+Pre-execution checklist
+✓ Connection verified
+✓ Generated artifact validated
+✓ Unit tests passed
+✓ Quality gate passed
+✓ Cost estimate reviewed
+✓ Output location configured
+○ Execution approval pending
+
+Approval modal
+
+Show:
+
+Target environment
+Source datasets
+Destination
+Expected modified rows
+Transaction mode
+Rollback availability
+Estimated runtime
+Who approved it
+Approval reason
+
+Actions:
+
+Cancel
+Run dry test
+Approve and execute
+Live execution view
+
+Components:
+
+Current stage
+Progress
+Start time
+Duration
+Rows read
+Rows transformed
+Rows rejected
+Rows written
+Current operation
+Structured logs
+
+Avoid displaying raw logs first. Use a summarized progress view with a separate Technical Logs tab.
+
+Post-ETL validation
+
+Show before-versus-after comparisons:
+
+Rows read:                 100,000
+Rows written:               98,420
+Rows rejected:               1,580
+Duplicate records removed:     720
+Invalid emails isolated:        860
+Null rate before:              8.4%
+Null rate after:               0.7%
+
+Commit or rollback result
+
+Make the transaction result highly visible:
+
+Execution completed
+Post-ETL validation passed
+Transaction committed
+
+
+or:
+
+Execution failed
+Foreign-key validation failed
+Transaction rolled back successfully
+No target changes were committed
+
+5. Persistent AI assistant
+
+Since the project includes conversational specialist agents, the AI assistant should be available throughout the experience as a collapsible right-side panel.
+
+Context-aware suggestions
+
+The assistant should know which page and pipeline stage the user is viewing.
+
+On the assessment page
+
+Suggested prompts:
+
+Explain the top issues
+Show only CustomerEmail issues
+Why is the readiness score low?
+Which problem should I fix first?
+Explain the relationship between Customers and Orders
+On the semantic-review page
+Recommend null-handling actions
+Identify risky transformations
+Generate rules from the findings
+Explain why this column is classified as PII
+On the compiler page
+Which target should I select?
+Explain the generated logical plan
+Why is the cost estimate high?
+Explain the validation failure
+Compare SQL and PySpark output
+On the execution page
+Summarize the dry-run result
+Explain the rejected records
+Why was the transaction rolled back?
+Compare this run with the previous run
+Agent transparency
+
+When useful, show which specialist handled the request:
+
+Handled by: Triage Specialist
+Tools used: Assessment Results, Relationship Analysis
+
+
+But avoid displaying internal prompts, chain-of-thought, or unnecessary technical reasoning. Show a concise explanation, evidence, and resulting action.
+
+6. Pipeline run history
+
+Provide a separate Runs page.
+
+Each run should show:
+
+Run ID
+Project
+Pipeline version
+Environment
+Engine
+Start and end times
+Initiated by
+Status
+DQ score
+Rows processed
+Deployment package
+Commit or rollback result
+
+Clicking a run should open:
+
+Summary
+Input and output
+Assessment
+Transformation plan
+Generated artifacts
+Execution metrics
+Validation
+Logs
+Audit history
+Comparison with previous run
+Run comparison
+
+The improvement narrator should be represented visually:
+
+DQ Score             64 → 91
+Critical Issues       8 → 1
+Null Records      4,300 → 120
+Duplicate Records   720 → 0
+Readiness          Blocked → Ready
+
+
+Also provide a natural-language summary underneath.
+
+7. Important reusable UI components
+
+Your frontend should have reusable components for these concepts:
+
+Navigation and progress
+PipelineStepper
+StageStatusBadge
+Breadcrumbs
+ProjectSelector
+EnvironmentBadge
+Source management
+ConnectionCard
+SourceExplorer
+DataPreviewGrid
+SchemaViewer
+RelationshipMap
+Assessment
+DQScoreGauge
+IssueSummaryCards
+IssueTable
+IssueDetailDrawer
+SeverityBadge
+AffectedRowsIndicator
+AssessmentProgress
+Transformation design
+BusinessRuleEditor
+ParsedRuleCard
+SemanticReviewTable
+TransformationPlan
+QualityGatePanel
+OverrideDialog
+Compiler
+EngineSelector
+CostEstimatePanel
+CompilerStageTracker
+ArtifactExplorer
+CodeViewer
+TestResultsPanel
+ContractViewer
+LineageViewer
+RepairHistory
+Execution
+ExecutionChecklist
+ApprovalDialog
+ExecutionProgress
+RowMetrics
+ReconciliationPanel
+RollbackStatus
+TechnicalLogs
+Assistant
+AgentAssistantDrawer
+SuggestedQuestions
+AgentResponseCard
+AgentActionCard
+EvidencePanel
+8. State handling is critical
+
+The UI should not keep the complete pipeline only inside page.tsx React state. That could cause state loss after refresh or navigation.
+
+Use one persistent pipeline context:
+
+type PipelineContext = {
+  sessionId: string;
+  projectId: string;
+  currentStage: string;
+  selectedSources: SelectedSource[];
+  assessmentResult?: AssessmentResult;
+  businessRules: BusinessRule[];
+  approvedSemantics: SemanticAction[];
+  transformationPlan?: TransformationPlan;
+  compilerOptions?: CompilerOptions;
+  deploymentPackageId?: string;
+  executionStatus?: ExecutionStatus;
+};
+
+
+Persist the important state in the backend session store:
+
+Selected sources
+Assessment job ID
+Assessment results
+Approved rules
+Semantic actions
+Compiler target
+Cost estimate
+Artifact package ID
+Execution approval
+Latest run ID
+
+The frontend can cache this state, but the backend should remain the source of truth.
+
+9. Recommended route structure
+
+A clean frontend route design could be:
+
+/
+├── dashboard
+├── projects
+│   └── [projectId]
+│       ├── overview
+│       ├── sources
+│       ├── pipeline
+│       │   └── [sessionId]
+│       ├── runs
+│       │   └── [runId]
+│       └── artifacts
+├── connections
+├── reports
+└── settings
+
+
+The pipeline page can use internal stages:
+
+/projects/{projectId}/pipeline/{sessionId}?stage=assessment
+/projects/{projectId}/pipeline/{sessionId}?stage=semantics
+/projects/{projectId}/pipeline/{sessionId}?stage=compile
+
+
+This makes refreshes, bookmarking, and navigation safer.
+
+10. What to avoid
+Avoid one giant wizard page
+
+If everything remains in app/data-pipeline/page.tsx, it will eventually become hard to manage. Break it into stage containers and reusable components.
+
+Avoid showing every agent as a separate page
+
+Users care about outcomes, not the number of agents. Reflect agent activity through progress, evidence, recommendations, and audit trails.
+
+Avoid mixing recommendations with approved actions
+
+Clearly distinguish:
+
+Agent recommended
+User approved
+System executed
+
+
+Use different status badges for each.
+
+Avoid automatic execution after code generation
+
+Compilation, validation, and execution should remain separate. Execution should require explicit approval.
+
+Avoid hiding failures behind generic messages
+
+Instead of:
+
+Something went wrong.
+
+
+show:
+
+Compilation blocked during schema validation.
+
+Column: CustomerID
+Expected type: integer
+Detected type: string
+Suggested action: Add a cast transformation
+
+Avoid requiring users to understand backend terminology
+
+For example, display:
+
+“Generated code does not match the selected database syntax.”
+
+Then provide the technical detail:
+
+DIALECT_VALIDATION_FAILED: NVL is unsupported for SQL Server.
+
+11. Best overall experience
+
+The ideal Agent Dhara UI would feel like a combination of:
+
+A guided data-pipeline wizard
+A data-quality dashboard
+An IDE-style artifact viewer
+An execution-monitoring console
+A context-aware AI assistant
+
+The core journey should remain simple:
+
+Create Project
+      ↓
+Connect Data
+      ↓
+Select Tables and Files
+      ↓
+Assess Data
+      ↓
+Review and Resolve Issues
+      ↓
+Define Business Rules
+      ↓
+Approve Semantic Actions
+      ↓
+Review Transformation Plan
+      ↓
+Estimate Cost
+      ↓
+Choose Target Engine
+      ↓
+Generate and Validate Artifacts
+      ↓
+Dry Run
+      ↓
+Approve Execution
+      ↓
+Validate Results
+      ↓
+Download Package and Compare Runs
+
+
+The backend can remain technically sophisticated, but the UI should reveal complexity progressively. A business user should see recommendations and approvals, while a data engineer should be able to inspect schemas, generated code, contracts, tests, lineage, repair history, and detailed execution logs.
